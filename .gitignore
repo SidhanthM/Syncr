@@ -1,0 +1,49 @@
+# Syncr project root. Application code lives in code/.
+
+# Build output and local machine state
+code/android/.gradle/
+code/android/.build/
+code/companion/.build/
+.build/
+code/android/app/build/
+code/android/build/
+code/android/local.properties
+code/**/.kotlin/
+code/core/target/
+dist/
+node_modules/
+*.log
+.DS_Store
+
+# Large or third-party material that does not belong in history
+samsung_notes.apk
+kb-android-emulator-manager/
+
+# Local agent tooling and per-machine editor state
+/.pi/
+/.claude/
+/.lavish/
+/.obsidian/
+/.vscode/
+AGENTS.md
+CLAUDE.md
+
+# Local design references, work plans, research, and reports
+/tasks/
+/research_notes/
+/research/
+/reports/
+/business_logic/
+/code/**/PLAN.md
+/code/**/*-PLAN.md
+/code/**/CoreDesign.md
+/code/**/IMPLEMENTATION.md
+/code/**/VERIFICATION.md
+
+# READMEs, setup runbooks, screenshots, source, bindings, and fixtures stay versioned.
+
+# Local environment credentials (keep shareable examples)
+.env
+.env.*
+!.env.example
+!.env.*.example
