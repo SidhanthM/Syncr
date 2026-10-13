@@ -1,0 +1,3 @@
+[crates.syncr_core.bindings.kotlin]
+package_name = "dev.syncr.core"
+cdylib_name = "syncr_core"

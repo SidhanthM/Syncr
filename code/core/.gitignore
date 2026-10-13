@@ -1,0 +1,6 @@
+/target/
+/generated/host/
+/generated/jniLibs/*/*.so
+/examples/kotlin/build/
+/examples/swift/build/
+*.log
