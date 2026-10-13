@@ -1,0 +1,7 @@
+[
+  {"name":"identity","affine":[1,0,0,1,0,0],"point":[4,5]},
+  {"name":"column-convention","affine":[2,3,4,5,6,7],"point":[10,20]},
+  {"name":"rotation","affine":[0,1,-1,0,10,20],"point":[2,3]},
+  {"name":"singular","affine":[1,2,2,4,0,0],"point":[2,3]},
+  {"name":"zero-column","affine":[0,0,2,4,0,0],"point":[2,3]}
+]

@@ -1,0 +1,14 @@
+[
+  {"name":"newer-version","blob_base64":"U1lOUwIADwACAAAAAACAPwAAAIAAAABAAABAwAAAAAAAAIA/AAAAACoAAAA="},
+  {"name":"unknown-channel","blob_base64":"U1lOUwEATwACAAAAAACAPwAAAIAAAABAAABAwAAAAAAAAIA/AAAAACoAAAA="},
+  {"name":"missing-required","blob_base64":"U1lOUwEADgACAAAAAACAPwAAAIAAAABAAABAwAAAAAAAAIA/AAAAACoAAAA="},
+  {"name":"zero-count","blob_base64":"U1lOUwEADwAAAAAAAACAPwAAAIAAAABAAABAwAAAAAAAAIA/AAAAACoAAAA="},
+  {"name":"count-overflow","blob_base64":"U1lOUwEADwD/////AACAPwAAAIAAAABAAABAwAAAAAAAAIA/AAAAACoAAAA="},
+  {"name":"nan","blob_base64":"U1lOUwEADwACAAAAAADAfwAAAIAAAABAAABAwAAAAAAAAIA/AAAAACoAAAA="},
+  {"name":"infinite","blob_base64":"U1lOUwEADwACAAAAAACAPwAAAIAAAIB/AABAwAAAAAAAAIA/AAAAACoAAAA="},
+  {"name":"pressure","blob_base64":"U1lOUwEADwACAAAAAACAPwAAAIAAAABAAABAwAAAwD8AAIA/AAAAACoAAAA="},
+  {"name":"backwards-time","blob_base64":"U1lOUwEADwACAAAAAACAPwAAAIAAAABAAABAwAAAAAAAAIA/KwAAACoAAAA="},
+  {"name":"truncated","blob_base64":"U1lOUwEADwACAAAAAACAPwAAAIAAAABAAABAwAAAAAAAAIA/AAAAACoAAA=="},
+  {"name":"trailing","blob_base64":"U1lOUwEADwACAAAAAACAPwAAAIAAAABAAABAwAAAAAAAAIA/AAAAACoAAAAA"},
+  {"name":"short-header","blob_base64":"U1lOUw=="}
+]

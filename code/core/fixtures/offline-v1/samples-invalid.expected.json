@@ -1,0 +1,14 @@
+[
+  {"name":"newer-version","error":"UnsupportedVersion"},
+  {"name":"unknown-channel","error":"InvalidInput"},
+  {"name":"missing-required","error":"InvalidInput"},
+  {"name":"zero-count","error":"InvalidInput"},
+  {"name":"count-overflow","error":"ResourceLimit"},
+  {"name":"nan","error":"InvalidInput"},
+  {"name":"infinite","error":"InvalidInput"},
+  {"name":"pressure","error":"InvalidInput"},
+  {"name":"backwards-time","error":"InvalidInput"},
+  {"name":"truncated","error":"InvalidInput"},
+  {"name":"trailing","error":"InvalidInput"},
+  {"name":"short-header","error":"InvalidInput"}
+]

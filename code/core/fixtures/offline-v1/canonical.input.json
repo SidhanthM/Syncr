@@ -1,0 +1,9 @@
+{
+  "note_id":"01ARZ3NDEKTSV4RRFFQ69G5FAW",
+  "author_id":"01ARZ3NDEKTSV4RRFFQ69G5FAX",
+  "command":{
+    "operation_id":"01ARZ3NDEKTSV4RRFFQ69G5FAY",
+    "dependencies":["01ARZ3NDEKTSV4RRFFQ69G5FAW","01ARZ3NDEKTSV4RRFFQ69G5FAV","01ARZ3NDEKTSV4RRFFQ69G5FAW"],
+    "body":{"RenameNote":{"title":"é\n","base":{"Operation":{"operation_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV"}}}}
+  }
+}

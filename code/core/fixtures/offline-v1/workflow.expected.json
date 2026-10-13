@@ -1,0 +1,7 @@
+[
+  {"local_sequence":"1","tombstones":[],"undo_index":null,"redo_index":null,"undo_dependencies":[],"redo_dependencies":[]},
+  {"local_sequence":"2","tombstones":[false,false],"undo_index":1,"redo_index":null,"undo_dependencies":["01ARZ3NDEKTSV4RRFFQ69G5FB0"],"redo_dependencies":[]},
+  {"local_sequence":"3","tombstones":[true,true],"undo_index":2,"redo_index":null,"undo_dependencies":["01ARZ3NDEKTSV4RRFFQ69G5FB1"],"redo_dependencies":[]},
+  {"local_sequence":"4","tombstones":[false,false],"undo_index":1,"redo_index":2,"undo_dependencies":["01ARZ3NDEKTSV4RRFFQ69G5FB2"],"redo_dependencies":["01ARZ3NDEKTSV4RRFFQ69G5FB2"]},
+  {"local_sequence":"5","tombstones":[true,true],"undo_index":2,"redo_index":null,"undo_dependencies":["01ARZ3NDEKTSV4RRFFQ69G5FB3"],"redo_dependencies":[]}
+]

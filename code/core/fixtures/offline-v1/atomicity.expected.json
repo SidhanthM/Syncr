@@ -1,0 +1,14 @@
+[
+  {"outcome":"MissingDependency","local_sequence":"1","tombstones":[],"undo_target":null,"redo_target":null,"undo_dependencies":[],"redo_dependencies":[]},
+  {"outcome":"Committed","local_sequence":"2","tombstones":[false],"undo_target":"01ARZ3NDEKTSV4RRFFQ69G5FB0","redo_target":null,"undo_dependencies":["01ARZ3NDEKTSV4RRFFQ69G5FB0"],"redo_dependencies":[]},
+  {"outcome":"Duplicate","local_sequence":"2","tombstones":[false],"undo_target":"01ARZ3NDEKTSV4RRFFQ69G5FB0","redo_target":null,"undo_dependencies":["01ARZ3NDEKTSV4RRFFQ69G5FB0"],"redo_dependencies":[]},
+  {"outcome":"IdCollision","local_sequence":"2","tombstones":[false],"undo_target":"01ARZ3NDEKTSV4RRFFQ69G5FB0","redo_target":null,"undo_dependencies":["01ARZ3NDEKTSV4RRFFQ69G5FB0"],"redo_dependencies":[]},
+  {"outcome":"NotFound","local_sequence":"2","tombstones":[false],"undo_target":"01ARZ3NDEKTSV4RRFFQ69G5FB0","redo_target":null,"undo_dependencies":["01ARZ3NDEKTSV4RRFFQ69G5FB0"],"redo_dependencies":[]},
+  {"outcome":"StaleBase","local_sequence":"2","tombstones":[false],"undo_target":"01ARZ3NDEKTSV4RRFFQ69G5FB0","redo_target":null,"undo_dependencies":["01ARZ3NDEKTSV4RRFFQ69G5FB0"],"redo_dependencies":[]},
+  {"outcome":"Committed","local_sequence":"3","tombstones":[true],"undo_target":"01ARZ3NDEKTSV4RRFFQ69G5FB3","redo_target":null,"undo_dependencies":["01ARZ3NDEKTSV4RRFFQ69G5FB3"],"redo_dependencies":[]},
+  {"outcome":"StaleBase","local_sequence":"3","tombstones":[true],"undo_target":"01ARZ3NDEKTSV4RRFFQ69G5FB3","redo_target":null,"undo_dependencies":["01ARZ3NDEKTSV4RRFFQ69G5FB3"],"redo_dependencies":[]},
+  {"outcome":"Committed","local_sequence":"4","tombstones":[false],"undo_target":"01ARZ3NDEKTSV4RRFFQ69G5FB0","redo_target":"01ARZ3NDEKTSV4RRFFQ69G5FB3","undo_dependencies":["01ARZ3NDEKTSV4RRFFQ69G5FB5"],"redo_dependencies":["01ARZ3NDEKTSV4RRFFQ69G5FB5"]},
+  {"outcome":"Committed","local_sequence":"5","tombstones":[false],"undo_target":"01ARZ3NDEKTSV4RRFFQ69G5FB0","redo_target":"01ARZ3NDEKTSV4RRFFQ69G5FB3","undo_dependencies":["01ARZ3NDEKTSV4RRFFQ69G5FB5"],"redo_dependencies":["01ARZ3NDEKTSV4RRFFQ69G5FB5"]},
+  {"outcome":"Committed","local_sequence":"6","tombstones":[false],"undo_target":"01ARZ3NDEKTSV4RRFFQ69G5FB7","redo_target":null,"undo_dependencies":["01ARZ3NDEKTSV4RRFFQ69G5FB7"],"redo_dependencies":[]},
+  {"outcome":"StaleBase","local_sequence":"6","tombstones":[false],"undo_target":"01ARZ3NDEKTSV4RRFFQ69G5FB7","redo_target":null,"undo_dependencies":["01ARZ3NDEKTSV4RRFFQ69G5FB7"],"redo_dependencies":[]}
+]

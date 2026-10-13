@@ -1,0 +1,12 @@
+{
+  "fixture_version": 1,
+  "cases": [
+    {"name": "sample-layouts-valid", "input_path": "samples-valid.input.json", "expected_path": "samples-valid.expected.json"},
+    {"name": "sample-layouts-invalid", "input_path": "samples-invalid.input.json", "expected_path": "samples-invalid.expected.json"},
+    {"name": "atomicity-dependencies-branch", "input_path": "atomicity.input.json", "expected_path": "atomicity.expected.json"},
+    {"name": "canonical-encoding", "input_path": "canonical.input.json", "expected_path": "canonical.expected.json"},
+    {"name": "affine-conventions", "input_path": "affine.input.json", "expected_path": "affine.expected.json"},
+    {"name": "creation-reopen-retry", "input_path": "bootstrap.input.json", "expected_path": "bootstrap.expected.json"},
+    {"name": "offline-workflow", "input_path": "workflow.input.json", "expected_path": "workflow.expected.json"}
+  ]
+}

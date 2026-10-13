@@ -1,0 +1,7 @@
+[
+  {"name":"identity","point":[4,5]},
+  {"name":"column-convention","point":[106,137]},
+  {"name":"rotation","point":[7,22]},
+  {"name":"singular","error":"InvalidInput"},
+  {"name":"zero-column","error":"InvalidInput"}
+]

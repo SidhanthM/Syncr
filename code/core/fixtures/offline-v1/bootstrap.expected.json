@@ -1,0 +1,7 @@
+{
+  "local_sequence":"1",
+  "duplicate_on_retry":true,
+  "different_payload_error":"IdCollision",
+  "published_notes":1,
+  "confirmed_revision":null
+}
