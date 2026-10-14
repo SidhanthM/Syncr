@@ -1,0 +1,14 @@
+# Gradle
+.gradle/
+build/
+
+# Android Studio / IntelliJ (not used, but future-proof)
+.idea/
+*.iml
+local.properties
+
+# Kotlin
+.kotlin/
+
+# Misc
+.DS_Store
