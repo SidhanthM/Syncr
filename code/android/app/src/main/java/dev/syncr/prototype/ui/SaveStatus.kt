@@ -1,0 +1,52 @@
+package dev.syncr.prototype.ui
+
+import dev.syncr.prototype.notes.NotesState
+
+/**
+ * Ring states for the offline milestone. Solid accent ("confirmed on the Mac") does not exist yet
+ * and is deliberately not representable here.
+ */
+enum class SaveRing { SAVED_ON_PHONE, SAVING, ATTENTION }
+
+data class SaveStatus(val ring: SaveRing, val headline: String)
+
+/** Only a core receipt reflected in a snapshot counts as saved: anything still pending is not. */
+fun saveStatus(state: NotesState): SaveStatus = when {
+    state.unsaved && state.error != null -> SaveStatus(SaveRing.ATTENTION, "Save failed. Unsaved changes are kept on screen")
+    state.unsaved && state.recoveryExported -> SaveStatus(SaveRing.ATTENTION, "Recovery exported. Changes are not saved to the note")
+    state.unsaved -> SaveStatus(SaveRing.SAVING, "Saving, not yet saved")
+    else -> SaveStatus(SaveRing.SAVED_ON_PHONE, "Saved on this phone")
+}
+
+/**
+ * Human copy for a repository error. Core diagnostics arrive as `KindName: detail`; plain
+ * repository/view messages are already written for people and pass through unchanged.
+ * The raw text stays available to the caller as the detail.
+ */
+fun friendlyError(raw: String, saving: Boolean): String {
+    val kind = Regex("^([A-Za-z]+): ").find(raw)?.groupValues?.get(1) ?: return raw
+    val verb = if (saving) "Couldn't save on this phone" else "Couldn't open storage on this phone"
+    return when (kind) {
+        "PermissionDenied" -> "$verb (storage permission denied)."
+        "StorageFull" -> "$verb (storage is full)."
+        "StorageIo" -> "$verb (storage error)."
+        "NoteLocked" -> "This note is open somewhere else."
+        "NotFound" -> "Couldn't find this note on the phone."
+        "ResourceLimit" -> "This note has reached a size limit."
+        "Closed" -> "This note was closed before the change finished."
+        else -> if (saving) "Couldn't save on this phone." else "Something went wrong on this phone."
+    }
+}
+
+/** What a failed library action means for the note, in words; null for actions with no special wording. */
+fun libraryTaskFailure(task: dev.syncr.prototype.notes.LibraryTask?): String? = when (task) {
+    is dev.syncr.prototype.notes.LibraryTask.DeleteNote -> "Couldn't move the note to Recently deleted. It is still in your library."
+    is dev.syncr.prototype.notes.LibraryTask.RestoreNote -> "Couldn't restore the note. It is still in Recently deleted."
+    is dev.syncr.prototype.notes.LibraryTask.PurgeNote -> "Couldn't delete the note forever. It is still in Recently deleted."
+    is dev.syncr.prototype.notes.LibraryTask.EditNote -> when (val change = task.change) {
+        is dev.syncr.prototype.notes.NoteChange.Archive ->
+            if (change.archived) "Couldn't archive the note. Nothing changed." else "Couldn't unarchive the note. Nothing changed."
+        else -> null
+    }
+    else -> null
+}
