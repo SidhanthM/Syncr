@@ -13,7 +13,7 @@ import java.nio.file.Files
 fun createAddSnapshotReopen(root: String): NoteSnapshot {
     val library = openLibrary(root)
     try {
-        val request = CreateNoteRequest(newId(), newId(), newId(), "Example", PageFormat.SHEET16X10, null)
+        val request = CreateNoteRequest(newId(), newId(), newId(), "Example", null)
         library.createNote(request)
         check(library.lookupCreation(request.operationId) is OperationLookup.Committed)
         check(library.createNote(request).duplicate)
@@ -22,6 +22,7 @@ fun createAddSnapshotReopen(root: String): NoteSnapshot {
         try {
             val initial = note.snapshot()
             check(initial.sheets.single().creationOperationId == request.operationId)
+            check(initial.sheets.single().originX == 0f && initial.sheets.single().originY == 0f)
             check(initial.undoDependencies.isEmpty() && initial.redoDependencies.isEmpty())
             val markId = newId()
             val command = Command(
@@ -121,71 +122,96 @@ private fun checkDiagnostic(
     println("PASS: ${error.javaClass.simpleName}: detail=$detail, retryable=$retryable; message=${error.message}")
 }
 
-/** Provenance survives structural edits and full library restart; no frontend index. */
-private fun multiSheetProvenanceAndHistory() {
-    val root = Files.createTempDirectory("syncr-multisheet-smoke-")
+private fun copyFixture(root: java.nio.file.Path, name: String) =
+    Files.copy(java.nio.file.Paths.get("fixtures/canvas-v2", name), root.resolve(name))
+
+/**
+ * Canvas amendment through the generated API on a real v2 note written by the pre-canvas core
+ * (Phone pages, three sheets, a reorder in its log): it upgrades on open after a backup, each
+ * sheet gets its fixed origin with the gaps closed, per-sheet creation provenance survives,
+ * sheets can no longer be added or reordered, and history persists across full restarts.
+ */
+private fun legacyMultiSheetCanvas() {
+    val root = Files.createTempDirectory("syncr-canvas-smoke-")
     try {
-        val request = CreateNoteRequest(newId(), newId(), newId(), "Multi-sheet", PageFormat.SHEET16X10, null)
-        val creators = mutableMapOf(request.firstSheetId to request.operationId)
-        openLibrary(root.toString()).use { library ->
-            library.createNote(request)
-            library.openNote(request.noteId).use { note ->
-                repeat(3) {
-                    val s = note.snapshot()
-                    val sheetId = newId()
-                    val c = Command(newId(), listOf(s.structureHead.operationId), CommandBody.AddSheet(sheetId, Base.Operation(s.structureHead.operationId)))
-                    note.submit(c)
-                    creators[sheetId] = c.operationId
-                }
-                val s = note.snapshot()
-                note.submit(Command(newId(), listOf(s.structureHead.operationId), CommandBody.ReorderSheets(s.sheets.reversed().map { it.id }, Base.Operation(s.structureHead.operationId))))
-                note.submit(Command(newId(), listOf(s.metadataHead.operationId), CommandBody.RenameNote("Renamed", Base.Operation(s.metadataHead.operationId))))
-                note.closeNote()
-            }
+        val noteFiles = Files.list(java.nio.file.Paths.get("fixtures/canvas-v2")).use { files ->
+            files.map { it.fileName.toString() }.filter { it.endsWith(".syncr") }.sorted().toList()
         }
+        for (file in noteFiles) copyFixture(root, file)
+        copyFixture(root, "library.sqlite3")
         var lastAdd: Command? = null
+        var phoneId = ""
         openLibrary(root.toString()).use { library ->
-            library.openNote(request.noteId).use { note ->
+            val notes = library.listNotes()
+            check(notes.size == 2)
+            check(!root.resolve(".backups").toFile().exists()) // Listing never upgrades.
+            val phone = notes.single { it.notebook == "Fixtures" }
+            phoneId = phone.id
+            library.openNote(phone.id).use { note ->
                 val s = note.snapshot()
-                check(s.sheets.map { it.id } == creators.keys.reversed())
-                check(s.sheets.associate { it.id to it.creationOperationId } == creators)
-                check(s.title == "Renamed")
+                check(s.sheets.size == 3)
+                check(s.sheets.map { it.originX } == listOf(0f, 0f, 0f))
+                check(s.sheets.map { it.originY } == listOf(0f, 3200f, 6400f)) // Phone pages, no gap.
+                val backups = root.resolve(".backups").toFile().listFiles()!!.map { it.name }
+                check(backups.size == 1 && backups.single().startsWith("${phone.id}.v2.") && backups.single().endsWith(".syncr"))
+                val head = s.structureHead.operationId
+                for (body in listOf(
+                    CommandBody.AddSheet(newId(), Base.Operation(head)),
+                    CommandBody.ReorderSheets(s.sheets.reversed().map { it.id }, Base.Operation(head)),
+                )) {
+                    val c = Command(newId(), listOf(head), body)
+                    try { note.submit(c); error("Sheet structure changed on a canvas note") }
+                    catch (error: CoreException.InvalidInput) {
+                        checkDiagnostic(error, error.detail, error.retryable, "A note is one canvas: sheets can no longer be added or reordered", false)
+                    }
+                    check(note.lookupOperation(c.operationId) is OperationLookup.NotRecorded)
+                    check(note.snapshot() == s)
+                }
                 for (sheet in s.sheets) {
                     val c = Command(newId(), listOf(sheet.creationOperationId), CommandBody.Marks(listOf(
                         MarkMutation.AddStroke(newId(), sheet.id, encodeSamples(SampleChannels(listOf(1f), listOf(2f), listOf(0.5f), listOf(0u), null, null)), Brush(BrushFamily.PEN, BrushSize.SMALL, InkColour.INK)),
                     )))
                     val wrong = c.copy(operationId = newId(), dependencies = listOf(s.structureHead.operationId))
-                    try { note.submit(wrong); error("Structure head replaced sheet creator") }
-                    catch (_: CoreException.MissingDependency) { check(note.lookupOperation(wrong.operationId) is OperationLookup.NotRecorded) }
+                    if (wrong.dependencies != c.dependencies) {
+                        try { note.submit(wrong); error("Structure head replaced sheet creator") }
+                        catch (_: CoreException.MissingDependency) { check(note.lookupOperation(wrong.operationId) is OperationLookup.NotRecorded) }
+                    }
                     note.submit(c)
                     check(note.submit(c).duplicate)
                     check(note.snapshot().undoDependencies == listOf(c.operationId))
                     lastAdd = c
                 }
+                // New ink goes to the first sheet, in canvas coordinates, right of the phone column.
+                val first = s.sheets.first()
+                val far = Command(newId(), listOf(first.creationOperationId), CommandBody.Marks(listOf(
+                    MarkMutation.AddStroke(newId(), first.id, encodeSamples(SampleChannels(listOf(4500f, 4510f), listOf(9000f, 9005f), listOf(0.5f, 0.5f), listOf(0u, 8u), null, null)), Brush(BrushFamily.PEN, BrushSize.SMALL, InkColour.INK)),
+                )))
+                note.submit(far)
+                lastAdd = far
                 val top = note.snapshot()
                 note.submit(Command(newId(), top.undoDependencies, CommandBody.Undo(top.undoTarget!!)))
-                check(note.snapshot().redoTarget == lastAdd!!.operationId)
+                check(note.snapshot().redoTarget == far.operationId)
                 note.closeNote()
             }
         }
         openLibrary(root.toString()).use { library ->
-            library.openNote(request.noteId).use { note ->
+            library.openNote(phoneId).use { note ->
                 val s = note.snapshot()
+                check(s.sheets.map { it.originY } == listOf(0f, 3200f, 6400f))
                 check(s.redoTarget == lastAdd!!.operationId)
                 check(s.redoDependencies.size == 1)
-                check(s.sheets.associate { it.id to it.creationOperationId } == creators)
                 val redo = Command(newId(), s.redoDependencies, CommandBody.Redo(s.redoTarget!!))
                 note.submit(redo)
                 val after = note.snapshot()
-                check(after.strokes.size == 4 && after.strokes.none { it.tombstone })
                 check(after.undoDependencies == listOf(redo.operationId))
                 check(after.redoDependencies.isEmpty())
                 check(note.submit(lastAdd!!).duplicate) // Old immutable command, not a refresh.
                 check(note.snapshot() == after)
                 note.closeNote()
             }
+            check(root.resolve(".backups").toFile().listFiles()!!.size == 1) // Already a canvas: no new backup.
         }
-        println("PASS: multi-sheet provenance after add/reorder/rename/restart; exact history lists, persistent redo and immutable retries")
+        println("PASS: v2 multi-sheet note upgraded to one canvas with backup; origins without gaps; provenance; sheet commands rejected; history across restarts")
     } finally { root.toFile().deleteRecursively() }
 }
 
@@ -222,19 +248,18 @@ private fun strokeMesh() {
     println("PASS: stroke mesh defaults, layout, bounds, determinism, tap, highlighter overlap and invalid input")
 }
 
-/** Page format, flat notebooks and display timestamps through the generated API. */
-private fun formatsAndNotebooks() {
+/** Canvas size, flat notebooks and display timestamps through the generated API. */
+private fun canvasAndNotebooks() {
     val root = Files.createTempDirectory("syncr-notebooks-smoke-")
     try {
         openLibrary(root.toString()).use { library ->
-            check(pageSize(PageFormat.PHONE) == PageSize(1600f, 3200f))
-            check(pageSize(PageFormat.SHEET16X10) == PageSize(1600f, 1000f))
-            val phone = CreateNoteRequest(newId(), newId(), newId(), "Phone", PageFormat.PHONE, "Physics")
+            check(canvasSize() == CanvasSize(4800f, 3000f, 1600f))
+            val phone = CreateNoteRequest(newId(), newId(), newId(), "Phone", "Physics")
             library.createNote(phone)
             check(library.createNote(phone).duplicate)
             try {
-                library.createNote(phone.copy(pageFormat = PageFormat.SHEET16X10))
-                error("Different page format matched the creation")
+                library.createNote(phone.copy(notebook = null))
+                error("Different notebook matched the creation")
             } catch (_: CoreException.IdCollision) {}
             try {
                 library.createNote(phone.copy(operationId = newId(), noteId = newId(), notebook = "Inbox"))
@@ -243,13 +268,13 @@ private fun formatsAndNotebooks() {
                 checkDiagnostic(error, error.detail, error.retryable, "Inbox is reserved; use no notebook for Inbox", false)
             }
             val summary = library.listNotes().single()
-            check(summary.pageFormat == PageFormat.PHONE && summary.notebook == "Physics")
+            check(summary.notebook == "Physics")
             check(summary.createdAtMs > 0 && summary.modifiedAtMs >= summary.createdAtMs)
             library.createNotebook("Journal")
             check(library.listNotebooks() == listOf(NotebookSummary("Journal", 0uL), NotebookSummary("Physics", 1uL)))
             library.openNote(phone.noteId).use { note ->
                 val s = note.snapshot()
-                check(s.pageFormat == PageFormat.PHONE && s.pageWidth == 1600f && s.pageHeight == 3200f)
+                check(s.sheets.single().originX == 0f && s.sheets.single().originY == 0f)
                 check(s.notebook == "Physics")
                 val head = s.metadataHead.operationId
                 val move = Command(newId(), listOf(head), CommandBody.SetNotebook("Journal", Base.Operation(head)))
@@ -266,7 +291,7 @@ private fun formatsAndNotebooks() {
             }
             check(library.listNotebooks() == listOf(NotebookSummary("Diary", 1uL)))
         }
-        println("PASS: page formats, creation identity, notebooks (set/rename/delete guard) and display timestamps")
+        println("PASS: canvas size, creation identity, notebooks (set/rename/delete guard) and display timestamps")
     } finally { root.toFile().deleteRecursively() }
 }
 
@@ -275,7 +300,7 @@ private fun archiveAndRecentlyDeleted() {
     val root = Files.createTempDirectory("syncr-trash-smoke-")
     try {
         openLibrary(root.toString()).use { library ->
-            val request = CreateNoteRequest(newId(), newId(), newId(), "Trash", PageFormat.PHONE, null)
+            val request = CreateNoteRequest(newId(), newId(), newId(), "Trash", null)
             library.createNote(request)
             library.openNote(request.noteId).use { note ->
                 val head = note.snapshot().metadataHead.operationId
@@ -351,8 +376,8 @@ fun main() {
     val unsigned = Receipt(newId(), ULong.MAX_VALUE, EventCursor(newId(), ULong.MAX_VALUE), false)
     check(FfiConverterTypeReceipt.lift(FfiConverterTypeReceipt.lower(unsigned)) == unsigned)
 
-    multiSheetProvenanceAndHistory()
-    formatsAndNotebooks()
+    legacyMultiSheetCanvas()
+    canvasAndNotebooks()
     archiveAndRecentlyDeleted()
     strokeMesh()
     val root = Files.createTempDirectory("syncr-jni-smoke-")

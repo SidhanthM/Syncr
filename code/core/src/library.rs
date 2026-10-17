@@ -119,6 +119,20 @@ pub fn open_library(root_path: String) -> CoreResult<Arc<SyncrLibrary>> {
         }
     }
     store::sync_directory(root)?;
+    // Likewise an interrupted pre-upgrade backup leaves only an unpublished temp copy.
+    let backups = root.join(store::BACKUP_DIR);
+    if backups.is_dir() {
+        for entry in std::fs::read_dir(&backups).map_err(io)? {
+            let entry = entry.map_err(io)?;
+            if entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(store::BACKUP_TEMP_PREFIX)
+            {
+                std::fs::remove_file(entry.path()).map_err(io)?;
+            }
+        }
+    }
     let library = Arc::new(SyncrLibrary {
         author,
         root: root.into(),
@@ -280,7 +294,6 @@ impl SyncrLibrary {
                 id: p.state.note_id,
                 title: p.state.title,
                 local_sequence: p.state.sequence,
-                page_format: p.state.page_format,
                 notebook: p.state.notebook,
                 created_at_ms: p.created_at_ms,
                 modified_at_ms: p.modified_at_ms,
@@ -396,6 +409,9 @@ impl SyncrLibrary {
             .ok_or_else(missing)?
             .path;
         let db = store::open(&path, true)?;
+        // A note written before the canvas amendment becomes a canvas here, after a
+        // backup copy; failure leaves it unchanged and unopened.
+        store::upgrade(&db, &self.root.join(store::BACKUP_DIR))?;
         let state = store::load(&db)?;
         let note = Arc::new(Note {
             library: self.clone(),
@@ -491,7 +507,6 @@ impl SyncrLibrary {
                         id: state.note_id,
                         title: state.title,
                         notebook: state.notebook,
-                        page_format: state.page_format,
                         deleted_at_ms: entry.deleted_at_ms,
                         created_at_ms,
                     })
@@ -906,7 +921,6 @@ mod tests {
             note_id: new_id(),
             first_sheet_id: new_id(),
             title: "Failure fixture".into(),
-            page_format: PageFormat::Sheet16x10,
             notebook: None,
         };
         library.create_note(request.clone()).unwrap();
@@ -1101,7 +1115,6 @@ mod tests {
             note_id: new_id(),
             first_sheet_id: new_id(),
             title: "Lost creation response".into(),
-            page_format: PageFormat::Sheet16x10,
             notebook: None,
         };
         // Deliberately lose the successful reply while the cache is still unwritable.

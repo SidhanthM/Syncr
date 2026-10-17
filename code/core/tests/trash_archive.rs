@@ -12,7 +12,6 @@ fn request(notebook: Option<&str>) -> CreateNoteRequest {
         note_id: new_id(),
         first_sheet_id: new_id(),
         title: "Note".into(),
-        page_format: PageFormat::Phone,
         notebook: notebook.map(Into::into),
     }
 }
@@ -248,7 +247,6 @@ fn delete_hides_the_note_lists_it_as_deleted_and_restore_gives_back_the_identica
     assert_eq!(d.id, r.note_id);
     assert_eq!(d.title, "Note");
     assert_eq!(d.notebook.as_deref(), Some("Physics"));
-    assert_eq!(d.page_format, PageFormat::Phone);
     assert_eq!(d.created_at_ms, before_summary.created_at_ms);
     assert!(d.deleted_at_ms >= t0);
     assert_eq!(trash_files(root.path()).len(), 1);

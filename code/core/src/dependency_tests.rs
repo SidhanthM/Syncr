@@ -8,7 +8,6 @@ fn history_snapshot_has_exact_sorted_1024_current_heads_without_truncation() {
         note_id: new_id(),
         first_sheet_id: new_id(),
         title: String::new(),
-        page_format: PageFormat::Sheet16x10,
         notebook: None,
     };
     let author = new_id();

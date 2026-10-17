@@ -675,9 +675,9 @@ internal object IntegrityCheckingUniffiLib {
     }
 
     internal fun ensureInitialized() = Unit
-    external fun uniffi_syncr_core_checksum_func_new_id(
+    external fun uniffi_syncr_core_checksum_func_canvas_size(
     ): Int
-    external fun uniffi_syncr_core_checksum_func_page_size(
+    external fun uniffi_syncr_core_checksum_func_new_id(
     ): Int
     external fun uniffi_syncr_core_checksum_func_open_library(
     ): Int
@@ -803,9 +803,9 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_syncr_core_fn_method_syncrlibrary_restore_note(`ptr`: Long,`noteId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
-    external fun uniffi_syncr_core_fn_func_new_id(uniffi_out_err: UniffiRustCallStatus, 
+    external fun uniffi_syncr_core_fn_func_canvas_size(uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
-    external fun uniffi_syncr_core_fn_func_page_size(`format`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    external fun uniffi_syncr_core_fn_func_new_id(uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_func_open_library(`rootPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
@@ -938,10 +938,10 @@ private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
 }
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
-    if ((lib.uniffi_syncr_core_checksum_func_new_id() and 0xFFFF) != 18470) {
+    if ((lib.uniffi_syncr_core_checksum_func_canvas_size() and 0xFFFF) != 27246) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if ((lib.uniffi_syncr_core_checksum_func_page_size() and 0xFFFF) != 29461) {
+    if ((lib.uniffi_syncr_core_checksum_func_new_id() and 0xFFFF) != 18470) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_syncr_core_checksum_func_open_library() and 0xFFFF) != 18191) {
@@ -2406,6 +2406,54 @@ public object FfiConverterTypeBrush: FfiConverterRustBuffer<Brush> {
 
 
 
+/**
+ * A note is one canvas, `width` note units wide, growing downward without pages.
+ * `view_height` is the Mac's 16:10 window over the full width; `phone_column` is the
+ * part of the width an upright phone shows at its default zoom.
+ */
+data class CanvasSize (
+    var `width`: kotlin.Float
+    , 
+    var `viewHeight`: kotlin.Float
+    , 
+    var `phoneColumn`: kotlin.Float
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCanvasSize: FfiConverterRustBuffer<CanvasSize> {
+    override fun read(buf: ByteBuffer): CanvasSize {
+        return CanvasSize(
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: CanvasSize) = (
+            FfiConverterFloat.allocationSize(value.`width`) +
+            FfiConverterFloat.allocationSize(value.`viewHeight`) +
+            FfiConverterFloat.allocationSize(value.`phoneColumn`)
+    )
+
+    override fun write(value: CanvasSize, buf: ByteBuffer) {
+            FfiConverterFloat.write(value.`width`, buf)
+            FfiConverterFloat.write(value.`viewHeight`, buf)
+            FfiConverterFloat.write(value.`phoneColumn`, buf)
+    }
+}
+
+
+
 data class ChangeEvent (
     var `cursor`: EventCursor
     , 
@@ -2501,8 +2549,6 @@ data class CreateNoteRequest (
     , 
     var `title`: kotlin.String
     , 
-    var `pageFormat`: PageFormat
-    , 
     var `notebook`: kotlin.String?
     
 ){
@@ -2524,7 +2570,6 @@ public object FfiConverterTypeCreateNoteRequest: FfiConverterRustBuffer<CreateNo
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
-            FfiConverterTypePageFormat.read(buf),
             FfiConverterOptionalString.read(buf),
         )
     }
@@ -2534,7 +2579,6 @@ public object FfiConverterTypeCreateNoteRequest: FfiConverterRustBuffer<CreateNo
             FfiConverterString.allocationSize(value.`noteId`) +
             FfiConverterString.allocationSize(value.`firstSheetId`) +
             FfiConverterString.allocationSize(value.`title`) +
-            FfiConverterTypePageFormat.allocationSize(value.`pageFormat`) +
             FfiConverterOptionalString.allocationSize(value.`notebook`)
     )
 
@@ -2543,7 +2587,6 @@ public object FfiConverterTypeCreateNoteRequest: FfiConverterRustBuffer<CreateNo
             FfiConverterString.write(value.`noteId`, buf)
             FfiConverterString.write(value.`firstSheetId`, buf)
             FfiConverterString.write(value.`title`, buf)
-            FfiConverterTypePageFormat.write(value.`pageFormat`, buf)
             FfiConverterOptionalString.write(value.`notebook`, buf)
     }
 }
@@ -2562,8 +2605,6 @@ data class DeletedNoteSummary (
      * None = Inbox.
      */
     var `notebook`: kotlin.String?
-    , 
-    var `pageFormat`: PageFormat
     , 
     /**
      * Wall-clock Unix ms of the deletion, recorded in the trash file name.
@@ -2590,7 +2631,6 @@ public object FfiConverterTypeDeletedNoteSummary: FfiConverterRustBuffer<Deleted
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
             FfiConverterOptionalString.read(buf),
-            FfiConverterTypePageFormat.read(buf),
             FfiConverterLong.read(buf),
             FfiConverterLong.read(buf),
         )
@@ -2600,7 +2640,6 @@ public object FfiConverterTypeDeletedNoteSummary: FfiConverterRustBuffer<Deleted
             FfiConverterString.allocationSize(value.`id`) +
             FfiConverterString.allocationSize(value.`title`) +
             FfiConverterOptionalString.allocationSize(value.`notebook`) +
-            FfiConverterTypePageFormat.allocationSize(value.`pageFormat`) +
             FfiConverterLong.allocationSize(value.`deletedAtMs`) +
             FfiConverterLong.allocationSize(value.`createdAtMs`)
     )
@@ -2609,7 +2648,6 @@ public object FfiConverterTypeDeletedNoteSummary: FfiConverterRustBuffer<Deleted
             FfiConverterString.write(value.`id`, buf)
             FfiConverterString.write(value.`title`, buf)
             FfiConverterOptionalString.write(value.`notebook`, buf)
-            FfiConverterTypePageFormat.write(value.`pageFormat`, buf)
             FfiConverterLong.write(value.`deletedAtMs`, buf)
             FfiConverterLong.write(value.`createdAtMs`, buf)
     }
@@ -2738,15 +2776,6 @@ data class NoteSnapshot (
     , 
     var `notebook`: kotlin.String?
     , 
-    var `pageFormat`: PageFormat
-    , 
-    /**
-     * Page size in note units (the sample coordinate space); every sheet shares it.
-     */
-    var `pageWidth`: kotlin.Float
-    , 
-    var `pageHeight`: kotlin.Float
-    , 
     var `metadataHead`: EntityHead
     , 
     var `structureHead`: EntityHead
@@ -2790,9 +2819,6 @@ public object FfiConverterTypeNoteSnapshot: FfiConverterRustBuffer<NoteSnapshot>
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
             FfiConverterOptionalString.read(buf),
-            FfiConverterTypePageFormat.read(buf),
-            FfiConverterFloat.read(buf),
-            FfiConverterFloat.read(buf),
             FfiConverterTypeEntityHead.read(buf),
             FfiConverterTypeEntityHead.read(buf),
             FfiConverterSequenceTypeSheetView.read(buf),
@@ -2811,9 +2837,6 @@ public object FfiConverterTypeNoteSnapshot: FfiConverterRustBuffer<NoteSnapshot>
             FfiConverterString.allocationSize(value.`noteId`) +
             FfiConverterString.allocationSize(value.`title`) +
             FfiConverterOptionalString.allocationSize(value.`notebook`) +
-            FfiConverterTypePageFormat.allocationSize(value.`pageFormat`) +
-            FfiConverterFloat.allocationSize(value.`pageWidth`) +
-            FfiConverterFloat.allocationSize(value.`pageHeight`) +
             FfiConverterTypeEntityHead.allocationSize(value.`metadataHead`) +
             FfiConverterTypeEntityHead.allocationSize(value.`structureHead`) +
             FfiConverterSequenceTypeSheetView.allocationSize(value.`sheets`) +
@@ -2831,9 +2854,6 @@ public object FfiConverterTypeNoteSnapshot: FfiConverterRustBuffer<NoteSnapshot>
             FfiConverterString.write(value.`noteId`, buf)
             FfiConverterString.write(value.`title`, buf)
             FfiConverterOptionalString.write(value.`notebook`, buf)
-            FfiConverterTypePageFormat.write(value.`pageFormat`, buf)
-            FfiConverterFloat.write(value.`pageWidth`, buf)
-            FfiConverterFloat.write(value.`pageHeight`, buf)
             FfiConverterTypeEntityHead.write(value.`metadataHead`, buf)
             FfiConverterTypeEntityHead.write(value.`structureHead`, buf)
             FfiConverterSequenceTypeSheetView.write(value.`sheets`, buf)
@@ -2856,8 +2876,6 @@ data class NoteSummary (
     var `title`: kotlin.String
     , 
     var `localSequence`: kotlin.ULong
-    , 
-    var `pageFormat`: PageFormat
     , 
     /**
      * None = Inbox.
@@ -2895,7 +2913,6 @@ public object FfiConverterTypeNoteSummary: FfiConverterRustBuffer<NoteSummary> {
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
             FfiConverterULong.read(buf),
-            FfiConverterTypePageFormat.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterLong.read(buf),
             FfiConverterLong.read(buf),
@@ -2907,7 +2924,6 @@ public object FfiConverterTypeNoteSummary: FfiConverterRustBuffer<NoteSummary> {
             FfiConverterString.allocationSize(value.`id`) +
             FfiConverterString.allocationSize(value.`title`) +
             FfiConverterULong.allocationSize(value.`localSequence`) +
-            FfiConverterTypePageFormat.allocationSize(value.`pageFormat`) +
             FfiConverterOptionalString.allocationSize(value.`notebook`) +
             FfiConverterLong.allocationSize(value.`createdAtMs`) +
             FfiConverterLong.allocationSize(value.`modifiedAtMs`) +
@@ -2918,7 +2934,6 @@ public object FfiConverterTypeNoteSummary: FfiConverterRustBuffer<NoteSummary> {
             FfiConverterString.write(value.`id`, buf)
             FfiConverterString.write(value.`title`, buf)
             FfiConverterULong.write(value.`localSequence`, buf)
-            FfiConverterTypePageFormat.write(value.`pageFormat`, buf)
             FfiConverterOptionalString.write(value.`notebook`, buf)
             FfiConverterLong.write(value.`createdAtMs`, buf)
             FfiConverterLong.write(value.`modifiedAtMs`, buf)
@@ -2961,44 +2976,6 @@ public object FfiConverterTypeNotebookSummary: FfiConverterRustBuffer<NotebookSu
     override fun write(value: NotebookSummary, buf: ByteBuffer) {
             FfiConverterString.write(value.`name`, buf)
             FfiConverterULong.write(value.`noteCount`, buf)
-    }
-}
-
-
-
-data class PageSize (
-    var `width`: kotlin.Float
-    , 
-    var `height`: kotlin.Float
-    
-){
-    
-
-    
-
-    
-    companion object
-}
-
-/**
- * @suppress
- */
-public object FfiConverterTypePageSize: FfiConverterRustBuffer<PageSize> {
-    override fun read(buf: ByteBuffer): PageSize {
-        return PageSize(
-            FfiConverterFloat.read(buf),
-            FfiConverterFloat.read(buf),
-        )
-    }
-
-    override fun allocationSize(value: PageSize) = (
-            FfiConverterFloat.allocationSize(value.`width`) +
-            FfiConverterFloat.allocationSize(value.`height`)
-    )
-
-    override fun write(value: PageSize, buf: ByteBuffer) {
-            FfiConverterFloat.write(value.`width`, buf)
-            FfiConverterFloat.write(value.`height`, buf)
     }
 }
 
@@ -3114,6 +3091,16 @@ data class SheetView (
     var `id`: kotlin.String
     , 
     var `creationOperationId`: kotlin.String
+    , 
+    /**
+     * Fixed place of this sheet on the canvas. A stroke's canvas position is this origin
+     * plus its transform applied to its (sheet-local) samples. Sheets of notes written
+     * before the canvas amendment sit at (0, index x old page height), no gap; the first
+     * sheet, and the only sheet of a newer note, is at (0, 0).
+     */
+    var `originX`: kotlin.Float
+    , 
+    var `originY`: kotlin.Float
     
 ){
     
@@ -3132,17 +3119,23 @@ public object FfiConverterTypeSheetView: FfiConverterRustBuffer<SheetView> {
         return SheetView(
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
         )
     }
 
     override fun allocationSize(value: SheetView) = (
             FfiConverterString.allocationSize(value.`id`) +
-            FfiConverterString.allocationSize(value.`creationOperationId`)
+            FfiConverterString.allocationSize(value.`creationOperationId`) +
+            FfiConverterFloat.allocationSize(value.`originX`) +
+            FfiConverterFloat.allocationSize(value.`originY`)
     )
 
     override fun write(value: SheetView, buf: ByteBuffer) {
             FfiConverterString.write(value.`id`, buf)
             FfiConverterString.write(value.`creationOperationId`, buf)
+            FfiConverterFloat.write(value.`originX`, buf)
+            FfiConverterFloat.write(value.`originY`, buf)
     }
 }
 
@@ -4627,49 +4620,6 @@ public object FfiConverterTypeOperationLookup : FfiConverterRustBuffer<Operation
 
 
 
-/**
- * Page shape of every sheet in a note, fixed at creation.
- */
-
-enum class PageFormat {
-    
-    /**
-     * Portrait phone page, 1600 x 3200 note units.
-     */
-    PHONE,
-    /**
-     * Landscape 16:10 sheet, 1600 x 1000 note units (every note created before formats existed).
-     */
-    SHEET16X10;
-
-    
-
-
-    companion object
-}
-
-
-/**
- * @suppress
- */
-public object FfiConverterTypePageFormat: FfiConverterRustBuffer<PageFormat> {
-    override fun read(buf: ByteBuffer) = try {
-        PageFormat.values()[buf.getInt() - 1]
-    } catch (e: IndexOutOfBoundsException) {
-        throw RuntimeException("invalid enum value, something is very wrong!!", e)
-    }
-
-    override fun allocationSize(value: PageFormat) = 4UL
-
-    override fun write(value: PageFormat, buf: ByteBuffer) {
-        buf.putInt(value.ordinal + 1)
-    }
-}
-
-
-
-
-
 
 /**
  * @suppress
@@ -5042,26 +4992,26 @@ public object FfiConverterSequenceTypeMarkMutation: FfiConverterRustBuffer<List<
             FfiConverterTypeMarkMutation.write(it, buf)
         }
     }
-} fun `newId`(): kotlin.String {
-            return FfiConverterString.lift(
+}
+        /**
+         * The canvas every note uses: 4800 units wide, a 4800 x 3000 Mac window, a 1600-unit
+         * phone column.
+         */ fun `canvasSize`(): CanvasSize {
+            return FfiConverterTypeCanvasSize.lift(
     uniffiRustCall() { _status ->
-    UniffiLib.uniffi_syncr_core_fn_func_new_id(
+    UniffiLib.uniffi_syncr_core_fn_func_canvas_size(
     
         _status)
 }
     )
     }
     
-
-        /**
-         * Page size in note units for a format, e.g. for library thumbnails.
-         */ fun `pageSize`(`format`: PageFormat): PageSize {
-            return FfiConverterTypePageSize.lift(
+ fun `newId`(): kotlin.String {
+            return FfiConverterString.lift(
     uniffiRustCall() { _status ->
-    UniffiLib.uniffi_syncr_core_fn_func_page_size(
+    UniffiLib.uniffi_syncr_core_fn_func_new_id(
     
-        
-        FfiConverterTypePageFormat.lower(`format`),_status)
+        _status)
 }
     )
     }

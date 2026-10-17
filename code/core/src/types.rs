@@ -21,31 +21,18 @@ pub enum InkColour {
     Blue,
     Orange,
 }
-/// Page shape of every sheet in a note, fixed at creation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, uniffi::Enum)]
-pub enum PageFormat {
-    /// Portrait phone page, 1600 x 3200 note units.
-    Phone,
-    /// Landscape 16:10 sheet, 1600 x 1000 note units (every note created before formats existed).
-    Sheet16x10,
-}
-impl PageFormat {
-    /// (width, height) in note units, the coordinate space of stroke samples.
-    pub fn dimensions(self) -> (f32, f32) {
-        match self {
-            PageFormat::Phone => (1600.0, 3200.0),
-            PageFormat::Sheet16x10 => (1600.0, 1000.0),
-        }
-    }
-}
-pub(crate) fn legacy_page_format() -> PageFormat {
-    PageFormat::Sheet16x10
-}
+/// A note is one canvas, `width` note units wide, growing downward without pages.
+/// `view_height` is the Mac's 16:10 window over the full width; `phone_column` is the
+/// part of the width an upright phone shows at its default zoom.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, uniffi::Record)]
-pub struct PageSize {
+pub struct CanvasSize {
     pub width: f32,
-    pub height: f32,
+    pub view_height: f32,
+    pub phone_column: f32,
 }
+pub const CANVAS_WIDTH: f32 = 4800.0;
+pub const CANVAS_VIEW_HEIGHT: f32 = 3000.0;
+pub const CANVAS_PHONE_COLUMN: f32 = 1600.0;
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, uniffi::Record)]
 pub struct NotebookSummary {
     pub name: String,
@@ -86,6 +73,12 @@ pub struct EventCursor {
 pub struct SheetView {
     pub id: Id,
     pub creation_operation_id: Id,
+    /// Fixed place of this sheet on the canvas. A stroke's canvas position is this origin
+    /// plus its transform applied to its (sheet-local) samples. Sheets of notes written
+    /// before the canvas amendment sit at (0, index x old page height), no gap; the first
+    /// sheet, and the only sheet of a newer note, is at (0, 0).
+    pub origin_x: f32,
+    pub origin_y: f32,
 }
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, uniffi::Record)]
 pub struct StrokeView {
@@ -102,7 +95,6 @@ pub struct NoteSummary {
     pub id: Id,
     pub title: String,
     pub local_sequence: u64,
-    pub page_format: PageFormat,
     /// None = Inbox.
     pub notebook: Option<String>,
     /// Wall-clock display times (Unix ms). Not part of identity or idempotency.
@@ -120,7 +112,6 @@ pub struct DeletedNoteSummary {
     pub title: String,
     /// None = Inbox.
     pub notebook: Option<String>,
-    pub page_format: PageFormat,
     /// Wall-clock Unix ms of the deletion, recorded in the trash file name.
     pub deleted_at_ms: i64,
     pub created_at_ms: i64,
@@ -130,10 +121,6 @@ pub struct NoteSnapshot {
     pub note_id: Id,
     pub title: String,
     pub notebook: Option<String>,
-    pub page_format: PageFormat,
-    /// Page size in note units (the sample coordinate space); every sheet shares it.
-    pub page_width: f32,
-    pub page_height: f32,
     pub metadata_head: EntityHead,
     pub structure_head: EntityHead,
     pub sheets: Vec<SheetView>,
@@ -163,9 +150,9 @@ pub struct CreateNoteRequest {
     pub note_id: Id,
     pub first_sheet_id: Id,
     pub title: String,
-    // Defaults only apply to internal JSON (fixtures, stored payloads), not the FFI.
-    #[serde(default = "legacy_page_format")]
-    pub page_format: PageFormat,
+    // Default only applies to internal JSON (fixtures, stored payloads), not the FFI.
+    // Stored pre-canvas creation payloads also carry `page_format`; it is ignored here
+    // (see reducer::LegacyPageFormat).
     #[serde(default)]
     pub notebook: Option<String>,
 }

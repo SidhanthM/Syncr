@@ -1,4 +1,4 @@
-//! Per-note page format, flat notebooks, display timestamps and the v1 -> v2 migration.
+//! The canvas size, flat notebooks, display timestamps and the v1 -> v3 upgrade.
 use base64::{Engine, engine::general_purpose::STANDARD};
 use rusqlite::Connection;
 use std::{path::Path, sync::Arc};
@@ -19,13 +19,12 @@ fn brush() -> Brush {
         colour: InkColour::Ink,
     }
 }
-fn request(format: PageFormat, notebook: Option<&str>) -> CreateNoteRequest {
+fn request(notebook: Option<&str>) -> CreateNoteRequest {
     CreateNoteRequest {
         operation_id: new_id(),
         note_id: new_id(),
         first_sheet_id: new_id(),
         title: "Note".into(),
-        page_format: format,
         notebook: notebook.map(Into::into),
     }
 }
@@ -87,79 +86,83 @@ fn ulid_ms(id: &str) -> i64 {
 }
 
 #[test]
-fn page_format_is_fixed_at_creation_shared_by_sheets_and_survives_restart() {
+fn a_note_is_one_canvas_with_one_sheet_at_the_origin() {
+    assert_eq!(
+        canvas_size(),
+        CanvasSize {
+            width: 4800.0,
+            view_height: 3000.0,
+            phone_column: 1600.0
+        }
+    );
     let root = tempfile::tempdir().unwrap();
-    let phone = request(PageFormat::Phone, None);
-    let sheet = request(PageFormat::Sheet16x10, None);
+    let r = request(None);
+    let far = encode_samples(SampleChannels {
+        x: vec![4790.0, 1601.0],
+        y: vec![12000.0, 0.5],
+        pressure: vec![0.5, 0.5],
+        elapsed_ms: vec![0, 8],
+        tilt: None,
+        orientation: None,
+    })
+    .unwrap();
+    let mark = new_id();
     {
         let lib = open_library(path(root.path())).unwrap();
-        lib.create_note(phone.clone()).unwrap();
-        lib.create_note(sheet.clone()).unwrap();
-        let note = lib.open_note(phone.note_id.clone()).unwrap();
+        lib.create_note(r.clone()).unwrap();
+        let note = lib.open_note(r.note_id.clone()).unwrap();
         let s = note.snapshot().unwrap();
-        assert_eq!(
-            (s.page_format, s.page_width, s.page_height),
-            (PageFormat::Phone, 1600.0, 3200.0)
-        );
-        let head = s.structure_head.operation_id;
+        assert_eq!(s.sheets.len(), 1);
+        assert_eq!((s.sheets[0].origin_x, s.sheets[0].origin_y), (0.0, 0.0));
+        // Anywhere on the canvas, in canvas coordinates, on the first sheet. No clamping.
         note.submit(Command {
+            operation_id: new_id(),
+            dependencies: vec![r.operation_id.clone()],
+            body: CommandBody::Marks {
+                mutations: vec![MarkMutation::AddStroke {
+                    mark_id: mark.clone(),
+                    sheet_id: r.first_sheet_id.clone(),
+                    samples: far.clone(),
+                    brush: brush(),
+                }],
+            },
+        })
+        .unwrap();
+        let head = s.structure_head.operation_id;
+        invalid(note.submit(Command {
             operation_id: new_id(),
             dependencies: vec![head.clone()],
             body: CommandBody::AddSheet {
                 sheet_id: new_id(),
                 base: base(&head),
             },
-        })
-        .unwrap();
-        let s = note.snapshot().unwrap();
-        assert_eq!(s.sheets.len(), 2);
-        add_stroke(&note, &s.sheets[1]);
+        }));
         note.close_note().unwrap();
     }
     let lib = open_library(path(root.path())).unwrap();
-    assert_eq!(summary(&lib, &phone.note_id).page_format, PageFormat::Phone);
+    let note = lib.open_note(r.note_id).unwrap();
+    let s = note.snapshot().unwrap();
     assert_eq!(
-        summary(&lib, &sheet.note_id).page_format,
-        PageFormat::Sheet16x10
+        (s.sheets.len(), s.strokes.len(), s.local_sequence),
+        (1, 1, 2)
     );
-    let s = lib.open_note(phone.note_id).unwrap().snapshot().unwrap();
-    assert_eq!(
-        (s.page_format, s.page_width, s.page_height, s.sheets.len()),
-        (PageFormat::Phone, 1600.0, 3200.0, 2)
-    );
-    let s = lib.open_note(sheet.note_id).unwrap().snapshot().unwrap();
-    assert_eq!(
-        (s.page_format, s.page_width, s.page_height),
-        (PageFormat::Sheet16x10, 1600.0, 1000.0)
-    );
-    assert_eq!(
-        page_size(PageFormat::Phone),
-        PageSize {
-            width: 1600.0,
-            height: 3200.0
-        }
-    );
-    assert_eq!(
-        page_size(PageFormat::Sheet16x10),
-        PageSize {
-            width: 1600.0,
-            height: 1000.0
-        }
-    );
+    assert_eq!(note.get_samples(mark).unwrap(), far);
+    // No backup for a note that was created as a canvas.
+    assert!(!root.path().join(".backups").exists());
 }
 
 #[test]
-fn creation_identity_includes_format_and_notebook() {
+fn creation_identity_includes_notebook_but_no_format() {
     let root = tempfile::tempdir().unwrap();
     let lib = open_library(path(root.path())).unwrap();
-    let r = request(PageFormat::Phone, Some("Physics"));
+    let r = request(Some("Physics"));
     let first = lib.create_note(r.clone()).unwrap();
     let retry = lib.create_note(r.clone()).unwrap();
     assert!(retry.duplicate);
     assert_eq!(retry.local_sequence, first.local_sequence);
     for changed in [
         CreateNoteRequest {
-            page_format: PageFormat::Sheet16x10,
+            title: "Other".into(),
             ..r.clone()
         },
         CreateNoteRequest {
@@ -178,10 +181,9 @@ fn creation_identity_includes_format_and_notebook() {
     }
     let s = summary(&lib, &r.note_id);
     assert_eq!(s.notebook.as_deref(), Some("Physics"));
-    assert_eq!(s.page_format, PageFormat::Phone);
     // Invalid notebook names never create a file.
     for bad in ["Inbox", "a/b", " Physics", ""] {
-        invalid(lib.create_note(request(PageFormat::Phone, Some(bad))));
+        invalid(lib.create_note(request(Some(bad))));
     }
     assert_eq!(lib.list_notes().unwrap().len(), 1);
 }
@@ -190,7 +192,7 @@ fn creation_identity_includes_format_and_notebook() {
 fn set_notebook_uses_metadata_base_rules_and_stays_out_of_ink_history() {
     let root = tempfile::tempdir().unwrap();
     let lib = open_library(path(root.path())).unwrap();
-    let r = request(PageFormat::Phone, None);
+    let r = request(None);
     lib.create_note(r.clone()).unwrap();
     let note = lib.open_note(r.note_id.clone()).unwrap();
     let ink = add_stroke(&note, &note.snapshot().unwrap().sheets[0]);
@@ -262,11 +264,9 @@ fn set_notebook_uses_metadata_base_rules_and_stays_out_of_ink_history() {
 fn notebook_registry_union_delete_and_rename() {
     let root = tempfile::tempdir().unwrap();
     let lib = open_library(path(root.path())).unwrap();
-    let physics: Vec<_> = (0..3)
-        .map(|_| request(PageFormat::Phone, Some("Physics")))
-        .collect();
-    let journal = request(PageFormat::Sheet16x10, Some("journal"));
-    let inbox = request(PageFormat::Phone, None);
+    let physics: Vec<_> = (0..3).map(|_| request(Some("Physics"))).collect();
+    let journal = request(Some("journal"));
+    let inbox = request(None);
     for r in physics.iter().chain([&journal, &inbox]) {
         lib.create_note(r.clone()).unwrap();
     }
@@ -379,7 +379,7 @@ fn timestamps_are_wall_clock_display_only_and_ignore_duplicates() {
             .as_millis() as i64
     };
     let t0 = now();
-    let r = request(PageFormat::Phone, None);
+    let r = request(None);
     lib.create_note(r.clone()).unwrap();
     let t1 = now();
     let s = summary(&lib, &r.note_id);
@@ -435,7 +435,7 @@ fn version(file: &Path) -> u32 {
 }
 
 #[test]
-fn legacy_v1_note_reads_as_sheet16x10_migrates_and_accepts_new_operations() {
+fn legacy_v1_note_reads_as_inbox_upgrades_to_canvas_with_backup_and_accepts_new_operations() {
     let root = legacy_root();
     let note_file = root.path().join(format!("{LEGACY_NOTE}.syncr"));
     assert_eq!(version(&note_file), 1);
@@ -445,7 +445,6 @@ fn legacy_v1_note_reads_as_sheet16x10_migrates_and_accepts_new_operations() {
 
     // Listing reads v1 read-only: no migration, fallback ULID display times.
     let s = summary(&lib, LEGACY_NOTE);
-    assert_eq!(s.page_format, PageFormat::Sheet16x10);
     assert_eq!(s.notebook, None);
     assert_eq!(s.local_sequence, 6);
     assert_eq!(s.created_at_ms, ulid_ms(LEGACY_NOTE));
@@ -459,7 +458,6 @@ fn legacy_v1_note_reads_as_sheet16x10_migrates_and_accepts_new_operations() {
         note_id: LEGACY_NOTE.into(),
         first_sheet_id: LEGACY_SHEET.into(),
         title: "Example".into(),
-        page_format: PageFormat::Sheet16x10,
         notebook: None,
     };
     let retry = lib.create_note(original.clone()).unwrap();
@@ -467,7 +465,7 @@ fn legacy_v1_note_reads_as_sheet16x10_migrates_and_accepts_new_operations() {
     assert_eq!(retry.local_sequence, 1);
     for changed in [
         CreateNoteRequest {
-            page_format: PageFormat::Phone,
+            title: "Other".into(),
             ..original.clone()
         },
         CreateNoteRequest {
@@ -481,13 +479,27 @@ fn legacy_v1_note_reads_as_sheet16x10_migrates_and_accepts_new_operations() {
         ));
     }
 
-    // Opening for write migrates v1 -> v2 in place, preserving all operations.
+    // Opening for write backs the v1 file up, then upgrades v1 -> v3 in place in one
+    // transaction, preserving all operations.
     let note = lib.open_note(LEGACY_NOTE.into()).unwrap();
-    assert_eq!(version(&note_file), 2);
+    assert_eq!(version(&note_file), 3);
+    let backups: Vec<_> = std::fs::read_dir(root.path().join(".backups"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
+    assert_eq!(backups.len(), 1);
+    let name = backups[0]
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    assert!(name.starts_with(&format!("{LEGACY_NOTE}.v1.")) && name.ends_with(".syncr"));
+    assert_eq!(version(&backups[0]), 1);
     let snap = note.snapshot().unwrap();
+    assert_eq!(snap.sheets.len(), 1);
     assert_eq!(
-        (snap.page_format, snap.page_width, snap.page_height),
-        (PageFormat::Sheet16x10, 1600.0, 1000.0)
+        (snap.sheets[0].origin_x, snap.sheets[0].origin_y),
+        (0.0, 0.0)
     );
     assert_eq!(snap.notebook, None);
     assert_eq!(snap.local_sequence, 6);
@@ -505,7 +517,6 @@ fn legacy_v1_note_reads_as_sheet16x10_migrates_and_accepts_new_operations() {
     assert_eq!(s.created_at_ms, ulid_ms(LEGACY_NOTE));
     assert!(s.modified_at_ms > ulid_ms(LEGACY_LAST_OP));
     assert_eq!(s.notebook.as_deref(), Some("Physics"));
-    assert_eq!(s.page_format, PageFormat::Sheet16x10);
     note.close_note().unwrap();
     drop(note);
     drop(lib);

@@ -14,7 +14,12 @@ use std::{
 
 const APPLICATION_ID: u32 = 0x53594e43;
 /// v1: original offline schema. v2: `operations.committed_at_ms` (display-only wall clock).
-pub(crate) const NOTE_VERSION: u32 = 2;
+/// v3: the note is one canvas; every sheet has a fixed origin in the projection.
+pub(crate) const NOTE_VERSION: u32 = 3;
+/// Copies of notes taken just before their v3 upgrade, inside the library root:
+/// `<root>/.backups/<NOTE_ID>.v<old version>.<unix ms>.syncr`.
+pub(crate) const BACKUP_DIR: &str = ".backups";
+pub(crate) const BACKUP_TEMP_PREFIX: &str = ".syncr-backup-";
 pub(crate) fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -47,17 +52,14 @@ pub(crate) fn open(path: &Path, writable: bool) -> CoreResult<Connection> {
         OpenFlags::SQLITE_OPEN_READ_ONLY
     };
     let db = Connection::open_with_flags(path, flags).map_err(storage)?;
-    let version = check_version(&db)?;
+    check_version(&db)?;
     if writable {
         configure(&db)?;
-        if version < NOTE_VERSION {
-            migrate(&db)?;
-        }
     }
     Ok(db)
 }
 /// Returns the note schema version. Older versions stay readable read-only;
-/// writers migrate them first.
+/// `open_note` upgrades them (see [upgrade]) before writing.
 pub(crate) fn check_version(db: &Connection) -> CoreResult<u32> {
     let version: u32 = db
         .pragma_query_value(None, "user_version", |r| r.get(0))
@@ -73,21 +75,83 @@ pub(crate) fn check_version(db: &Connection) -> CoreResult<u32> {
     }
     Ok(version)
 }
-/// v1 -> v2 in one transaction. Existing operations keep a NULL commit time and
-/// report ULID-derived display times. Projection JSON needs no rewrite: absent
-/// page format/notebook fields read as Sheet16x10/Inbox.
-fn migrate(db: &Connection) -> CoreResult<()> {
+/// Upgrades a v1/v2 note to v3 (one canvas) and returns the backup it took, or None when
+/// the note is already v3. First a standalone copy of the unmodified note is published,
+/// without overwrite, at `<backups>/<NOTE_ID>.v<old>.<ms>.syncr` by the same SQLite backup,
+/// integrity check and no-overwrite publication as `export_copy`. Then ONE transaction adds
+/// the v2 `committed_at_ms` column to a v1 note, fixes every sheet's origin from its
+/// current order and old page height, rewrites the projection and sets version 3. No
+/// operation, receipt, sample or mark effect is touched. Any failure rolls the
+/// transaction back and leaves the note at its old version; the backup stays.
+pub(crate) fn upgrade(db: &Connection, backups: &Path) -> CoreResult<Option<PathBuf>> {
+    let version = check_version(db)?;
+    if version >= NOTE_VERSION {
+        return Ok(None);
+    }
+    let note_id = load(db)?.note_id;
+    if !backups.is_dir() {
+        std::fs::create_dir_all(backups).map_err(io)?;
+        sync_directory(parent(backups))?;
+    }
+    let destination = backups.join(format!("{note_id}.v{version}.{}.syncr", now_ms()));
+    let temp = temporary(backups, BACKUP_TEMP_PREFIX)?;
+    let published = backup(db, &temp).and_then(|()| publish(&temp, &destination));
+    cleanup(&temp);
+    published?;
+    fault("upgrade_after_backup");
     let tx = db.unchecked_transaction().map_err(storage)?;
-    let version: u32 = tx
-        .pragma_query_value(None, "user_version", |r| r.get(0))
-        .map_err(storage)?;
-    if version == 1 {
+    if check_version(&tx)? == 1 {
         tx.execute_batch("ALTER TABLE operations ADD COLUMN committed_at_ms INTEGER;")
             .map_err(storage)?;
-        tx.pragma_update(None, "user_version", NOTE_VERSION)
-            .map_err(storage)?;
     }
-    tx.commit().map_err(storage)
+    let mut state = load(&tx)?;
+    state.place_sheets(state.legacy_page_format);
+    save(&tx, &state)?;
+    tx.pragma_update(None, "user_version", NOTE_VERSION)
+        .map_err(storage)?;
+    fail_point("upgrade_before_commit")?;
+    fault("upgrade_before_commit");
+    tx.commit().map_err(storage)?;
+    Ok(Some(destination))
+}
+/// Rebuilds a note's projection from its immutable log alone, from empty, the way any
+/// other replica would (pre-canvas AddSheet/ReorderSheets included), then places sheets.
+#[cfg(test)]
+pub(crate) fn replay(db: &Connection) -> CoreResult<State> {
+    use crate::reducer::LegacyPageFormat;
+    #[derive(serde::Deserialize)]
+    struct Format {
+        #[serde(default)]
+        page_format: Option<LegacyPageFormat>,
+    }
+    let mut statement = db
+        .prepare("SELECT author_id, canonical, payload FROM operations ORDER BY local_sequence")
+        .map_err(storage)?;
+    let rows = statement
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, Vec<u8>>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(storage)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(storage)?;
+    let (_, canonical, payload) = rows.first().ok_or_else(internal)?;
+    let request: CreateNoteRequest = parse(payload)?;
+    let format = match canonical.get(6) {
+        Some(0) => Some(LegacyPageFormat::Sheet16x10),
+        Some(2) => Some(parse::<Format>(payload)?.page_format.ok_or_else(internal)?),
+        _ => None,
+    };
+    let mut state = State::new(&request);
+    for (author, _, payload) in &rows[1..] {
+        state.apply_logged(&parse::<Command>(payload)?, author)?;
+        state.sequence += 1;
+    }
+    state.place_sheets(format);
+    Ok(state)
 }
 /// Display-only (created, modified) wall-clock times. Never identity.
 pub(crate) fn times(db: &Connection, state: &State) -> CoreResult<(i64, i64)> {
@@ -383,6 +447,23 @@ pub(crate) fn backup(source: &Connection, destination: &Path) -> CoreResult<()> 
     sync_file(destination)
 }
 
+#[cfg(not(test))]
+fn fail_point(_: &str) -> CoreResult<()> {
+    Ok(())
+}
+#[cfg(test)]
+thread_local! {
+    /// Test-only in-process failure: the named stage returns an error on this thread.
+    pub(crate) static FAIL_AT: std::cell::Cell<Option<&'static str>> =
+        const { std::cell::Cell::new(None) };
+}
+#[cfg(test)]
+fn fail_point(stage: &str) -> CoreResult<()> {
+    if FAIL_AT.with(|f| f.get()) == Some(stage) {
+        return Err(internal());
+    }
+    Ok(())
+}
 #[cfg(not(test))]
 pub(crate) fn fault(_: &str) {}
 #[cfg(test)]

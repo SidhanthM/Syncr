@@ -145,22 +145,11 @@ pub(crate) fn command(command: &Command) -> CoreResult<()> {
                 }
             }
         }
-        CommandBody::AddSheet { sheet_id, base: b } => {
-            id(sheet_id)?;
-            base(b, &dependencies)?;
-        }
-        CommandBody::ReorderSheets { sheet_ids, base: b } => {
-            base(b, &dependencies)?;
-            if sheet_ids.is_empty() {
-                return Err(invalid("A note requires at least one sheet"));
-            }
-            let mut seen = HashSet::new();
-            for sheet_id in sheet_ids {
-                id(sheet_id)?;
-                if !seen.insert(sheet_id) {
-                    return Err(invalid("Sheet IDs must be unique"));
-                }
-            }
+        // Canvas amendment: sheet order fixes every origin, so it can never change again.
+        // Already committed sheet commands still replay from the log and still answer
+        // identical retries as duplicates (checked before admission).
+        CommandBody::AddSheet { .. } | CommandBody::ReorderSheets { .. } => {
+            return Err(crate::reducer::sheets_fixed());
         }
         CommandBody::RenameNote { base: b, .. } | CommandBody::SetArchived { base: b, .. } => {
             base(b, &dependencies)?

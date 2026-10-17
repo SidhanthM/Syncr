@@ -1,4 +1,4 @@
-//! SYNO v1 canonical operations (creation tags 0 legacy / 2 current). See README for the byte grammar. Never JSON equality.
+//! SYNO v1 canonical operations (creation tags 0 and 2 pre-canvas, 3 current). See README for the byte grammar. Never JSON equality.
 use crate::{error::limit, *};
 
 struct Encoder {
@@ -98,8 +98,15 @@ impl Encoder {
     }
 }
 const LEGACY_CREATION: u8 = 0;
-const CREATION: u8 = 2;
-fn creation_with(request: &CreateNoteRequest, author: &str, tag: u8) -> CoreResult<Vec<u8>> {
+const FORMAT_CREATION: u8 = 2;
+const CREATION: u8 = 3;
+/// Pre-canvas page format byte of a tag-2 creation: Phone 0, Sheet16x10 1.
+fn creation_with(
+    request: &CreateNoteRequest,
+    author: &str,
+    tag: u8,
+    format: u8,
+) -> CoreResult<Vec<u8>> {
     let mut e = Encoder::new();
     e.tag(tag);
     for s in [
@@ -111,33 +118,39 @@ fn creation_with(request: &CreateNoteRequest, author: &str, tag: u8) -> CoreResu
     ] {
         e.string(s)?;
     }
-    if tag == CREATION {
-        e.tag(match request.page_format {
-            PageFormat::Phone => 0,
-            PageFormat::Sheet16x10 => 1,
-        });
+    if tag == FORMAT_CREATION {
+        e.tag(format);
+    }
+    if tag != LEGACY_CREATION {
         e.optional(request.notebook.as_deref())?;
     }
     e.finish()
 }
-/// Creation identity for new notes: tag 2 adds page format and initial notebook.
+/// Creation identity for new notes: tag 3, the five strings and the initial notebook.
+/// A note is one canvas, so there is no page format.
 pub(crate) fn creation(request: &CreateNoteRequest, author: &str) -> CoreResult<Vec<u8>> {
-    creation_with(request, author, CREATION)
+    creation_with(request, author, CREATION, 0)
 }
-/// Whether `request` is a canonical retry of the stored creation envelope. Notes
-/// created before page formats store tag 0, which implies Sheet16x10 and Inbox.
+/// Whether `request` is a canonical retry of the stored creation envelope. Stored
+/// pre-canvas envelopes keep their meaning: tag 0 (before formats) implies Inbox and
+/// matches only a retry without notebook; tag 2 matches a retry with the same strings
+/// and notebook whatever format it recorded, since a request can no longer carry one.
 pub(crate) fn creation_matches(
     stored: &[u8],
     request: &CreateNoteRequest,
     author: &str,
 ) -> CoreResult<bool> {
-    if stored.get(6) == Some(&LEGACY_CREATION) {
-        if request.page_format != PageFormat::Sheet16x10 || request.notebook.is_some() {
-            return Ok(false);
+    Ok(match stored.get(6) {
+        Some(&LEGACY_CREATION) => {
+            request.notebook.is_none()
+                && creation_with(request, author, LEGACY_CREATION, 0)? == stored
         }
-        return Ok(creation_with(request, author, LEGACY_CREATION)? == stored);
-    }
-    Ok(creation(request, author)? == stored)
+        Some(&FORMAT_CREATION) => {
+            creation_with(request, author, FORMAT_CREATION, 0)? == stored
+                || creation_with(request, author, FORMAT_CREATION, 1)? == stored
+        }
+        _ => creation(request, author)? == stored,
+    })
 }
 pub(crate) fn command(command: &Command, note_id: &str, author: &str) -> CoreResult<Vec<u8>> {
     let mut e = Encoder::new();
@@ -280,46 +293,53 @@ mod tests {
         assert_eq!(command(&c, note, author).unwrap(), bytes);
     }
     #[test]
-    fn creation_v2_golden_and_legacy_retries() {
+    fn creation_v3_golden_and_pre_canvas_retries() {
         let id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
         let mut r = CreateNoteRequest {
             operation_id: id.into(),
             note_id: id.into(),
             first_sheet_id: id.into(),
             title: "T".into(),
-            page_format: PageFormat::Phone,
             notebook: Some("P".into()),
         };
         let ids = format!("1a000000{}", hex(id.as_bytes())).repeat(4);
         let tail = "0100000054"; // title "T"
         let legacy = format!("53594e4f0100{}{}{}", "00", ids, tail);
-        let current = format!("53594e4f0100{}{}{}00010100000050", "02", ids, tail);
+        // Tag 3: no page format byte, then Some("P").
+        let current = format!("53594e4f0100{}{}{}010100000050", "03", ids, tail);
         assert_eq!(hex(&creation(&r, id).unwrap()), current);
-        r.notebook = None;
-        assert!(hex(&creation(&r, id).unwrap()).ends_with("0000"));
-        r.page_format = PageFormat::Sheet16x10;
-        assert!(hex(&creation(&r, id).unwrap()).ends_with("0100"));
-        let stored = creation_with(&r, id, LEGACY_CREATION).unwrap();
-        assert_eq!(hex(&stored), legacy);
-        // A pre-format note's retry carries Sheet16x10 + Inbox and still matches.
-        assert!(creation_matches(&stored, &r, id).unwrap());
-        assert!(
-            !creation_matches(
-                &creation(&r, id).unwrap(),
-                &{
-                    let mut p = r.clone();
-                    p.page_format = PageFormat::Phone;
-                    p
+        // Pre-canvas tag 2 envelopes as the previous core stored them.
+        let phone = format!("53594e4f0100{}{}{}00010100000050", "02", ids, tail);
+        let sheet = format!("53594e4f0100{}{}{}01010100000050", "02", ids, tail);
+        for stored in [&phone, &sheet] {
+            let stored = unhex(stored);
+            assert!(creation_matches(&stored, &r, id).unwrap());
+            for changed in [
+                CreateNoteRequest {
+                    notebook: None,
+                    ..r.clone()
                 },
-                id
-            )
-            .unwrap()
+                CreateNoteRequest {
+                    title: "U".into(),
+                    ..r.clone()
+                },
+            ] {
+                assert!(!creation_matches(&stored, &changed, id).unwrap());
+            }
+            // A tag-3 envelope never equals a tag-2 one.
+            assert_ne!(creation(&r, id).unwrap(), stored);
+        }
+        r.notebook = None;
+        // Inbox: title then optional-None, no format byte.
+        assert_eq!(
+            hex(&creation(&r, id).unwrap()),
+            format!("53594e4f0100{}{}{}00", "03", ids, tail)
         );
+        let stored = creation_with(&r, id, LEGACY_CREATION, 0).unwrap();
+        assert_eq!(hex(&stored), legacy);
+        // A pre-format note's retry (Inbox) still matches; a notebook or title change does not.
+        assert!(creation_matches(&stored, &r, id).unwrap());
         for changed in [
-            CreateNoteRequest {
-                page_format: PageFormat::Phone,
-                ..r.clone()
-            },
             CreateNoteRequest {
                 notebook: Some("P".into()),
                 ..r.clone()
@@ -331,6 +351,7 @@ mod tests {
         ] {
             assert!(!creation_matches(&stored, &changed, id).unwrap());
         }
+        assert!(creation_matches(&creation(&r, id).unwrap(), &r, id).unwrap());
         let c = Command {
             operation_id: id.into(),
             dependencies: vec![],
@@ -373,6 +394,12 @@ mod tests {
             hex(&command(&unarchive, id, id).unwrap())
                 .ends_with(&format!("0700011a000000{}", hex(id.as_bytes())))
         );
+    }
+    fn unhex(value: &str) -> Vec<u8> {
+        (0..value.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&value[i..i + 2], 16).unwrap())
+            .collect()
     }
     fn hex(bytes: &[u8]) -> String {
         bytes.iter().map(|v| format!("{v:02x}")).collect()

@@ -146,7 +146,6 @@ fn creation_fixture_reopens_and_recovers_lost_reply() {
         note_id: input["note_id"].as_str().unwrap().into(),
         first_sheet_id: input["first_sheet_id"].as_str().unwrap().into(),
         title: input["title"].as_str().unwrap().into(),
-        page_format: PageFormat::Sheet16x10,
         notebook: None,
     };
     let receipt = library.create_note(request.clone()).unwrap();
@@ -180,6 +179,8 @@ fn creation_fixture_reopens_and_recovers_lost_reply() {
         vec![SheetView {
             id: request.first_sheet_id,
             creation_operation_id: request.operation_id.clone(),
+            origin_x: 0.0,
+            origin_y: 0.0,
         }]
     );
     assert_eq!(snapshot.metadata_head.operation_id, request.operation_id);

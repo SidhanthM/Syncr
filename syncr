@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# Syncr Android development shortcuts; run from any working directory.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ANDROID="$ROOT/code/android"
+APK="$ANDROID/app/build/outputs/apk/debug/app-debug.apk"
+PACKAGE="dev.syncr.prototype"
+ACTIVITY="$PACKAGE/.MainActivity"
+
+usage() {
+  printf '%s\n' \
+    'Usage: ./syncr COMMAND [arguments]' \
+    '' \
+    '  devices            List USB, wireless and emulator ADB devices' \
+    '  emulator           Start the existing Medium_Phone_API_37.0 AVD (Ctrl+C to stop)' \
+    '  pair HOST:PORT     Pair Wireless debugging using the phone pairing port/code' \
+    '  connect HOST:PORT  Connect using the phone debugging port (NOT pairing port)' \
+    '  build              Build the debug APK' \
+    '  test               Run Android unit tests' \
+    '  app_update         Build, install and open the app on the selected device' \
+    '  launch             Open the already-installed app' \
+    '  logcat             Stream SyncrHid status and Android crashes (Ctrl+C to stop)' \
+    '  logcat_errors      Stream device-wide errors/crashes (Ctrl+C to stop)' \
+    '  logcat_clear       Clear device logs before a reproduction' \
+    '' \
+    'Use ANDROID_SERIAL=<serial> ./syncr COMMAND if multiple devices are connected.' \
+    'No sudo is needed. Bluetooth drawing is separate from ADB installation.'
+}
+
+fail() { printf 'syncr: %s\n' "$*" >&2; exit 1; }
+need_adb() { command -v adb >/dev/null 2>&1 || fail 'adb not found; install Android SDK Platform-Tools or add it to PATH.'; }
+
+# Refuse to pick an arbitrary phone, especially when USB and Wi-Fi both show up.
+select_device() {
+  need_adb
+  local connected
+  connected="$(adb devices | awk 'NR > 1 && $2 == "device" { print $1 }')"
+  if [[ -n "${ANDROID_SERIAL:-}" ]]; then
+    printf '%s\n' "$connected" | grep -Fxq -- "$ANDROID_SERIAL" || fail "ANDROID_SERIAL=$ANDROID_SERIAL is not an authorized, connected device. Run ./syncr devices."
+    SERIAL="$ANDROID_SERIAL"
+  elif [[ -z "$connected" ]]; then
+    fail 'No authorized device found. Run ./syncr devices, start ./syncr emulator, or connect a phone.'
+  elif [[ "$connected" == *$'\n'* ]]; then
+    fail 'Multiple devices found. Run ./syncr devices, then ANDROID_SERIAL=<serial> ./syncr COMMAND.'
+  else
+    SERIAL="$connected"
+  fi
+}
+
+[[ $# -gt 0 ]] || { usage; exit 0; }
+command="$1"
+shift
+case "$command" in
+  help|-h|--help) usage ;;
+  devices) [[ $# -eq 0 ]] || fail 'devices takes no arguments'; need_adb; adb devices -l ;;
+  emulator)
+    [[ $# -eq 0 ]] || fail 'emulator takes no arguments'
+    emulator_bin="${ANDROID_HOME:-$HOME/Library/Android/sdk}/emulator/emulator"
+    [[ -x "$emulator_bin" ]] || fail "Android emulator not found at $emulator_bin"
+    exec "$emulator_bin" -avd Medium_Phone_API_37.0
+    ;;
+  pair|connect)
+    [[ $# -eq 1 ]] || fail "Usage: ./syncr $command PHONE_IP:PORT"
+    need_adb
+    adb "$command" "$1"
+    ;;
+  build|test)
+    [[ $# -eq 0 ]] || fail "$command takes no arguments"
+    (cd "$ANDROID" && ./gradlew ":app:$([[ "$command" == build ]] && printf assembleDebug || printf testDebugUnitTest)" --console=plain)
+    if [[ "$command" == build ]]; then printf 'APK: %s\n' "$APK"; fi
+    ;;
+  app_update)
+    [[ $# -eq 0 ]] || fail 'app_update takes no arguments'
+    select_device
+    (cd "$ANDROID" && ./gradlew :app:assembleDebug --console=plain)
+    printf '\nInstalling on %s…\n' "$SERIAL"
+    adb -s "$SERIAL" install -r "$APK"
+    adb -s "$SERIAL" shell am start -n "$ACTIVITY"
+    printf '\nRun ./syncr logcat to watch the app.\n'
+    ;;
+  launch)
+    [[ $# -eq 0 ]] || fail 'launch takes no arguments'
+    select_device
+    adb -s "$SERIAL" shell am start -n "$ACTIVITY"
+    ;;
+  logcat)
+    [[ $# -eq 0 ]] || fail 'logcat takes no arguments'
+    select_device
+    printf 'Streaming SyncrHid status and AndroidRuntime crashes on %s; Ctrl+C to stop.\n' "$SERIAL"
+    adb -s "$SERIAL" logcat -v time 'SyncrHid:V' 'AndroidRuntime:E' '*:S'
+    ;;
+  logcat_errors)
+    [[ $# -eq 0 ]] || fail 'logcat_errors takes no arguments'
+    select_device
+    adb -s "$SERIAL" logcat -v time '*:E'
+    ;;
+  logcat_clear)
+    [[ $# -eq 0 ]] || fail 'logcat_clear takes no arguments'
+    select_device
+    adb -s "$SERIAL" logcat -c
+    printf 'Cleared logs on %s.\n' "$SERIAL"
+    ;;
+  *) fail "Unknown command '$command'. Run ./syncr help." ;;
+esac

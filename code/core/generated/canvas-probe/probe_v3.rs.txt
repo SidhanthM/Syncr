@@ -1,0 +1,15 @@
+//! Fixture 6 probe: the PRE-CANVAS core (note schema v2) against a v3 library root.
+use syncr_core::*;
+#[test]
+fn old_core_refuses_v3() {
+    let Ok(root) = std::env::var("V3_ROOT") else { return };
+    let files: Vec<_> = std::fs::read_dir(&root).unwrap().map(|e| e.unwrap().path())
+        .filter(|p| p.extension().is_some_and(|e| e == "syncr")).collect();
+    let before: Vec<_> = files.iter().map(|f| std::fs::read(f).unwrap()).collect();
+    let result = open_library(root.clone());
+    println!("open_library: {:?}", result.as_ref().err());
+    assert!(matches!(result, Err(CoreError::UnsupportedVersion { .. })));
+    let after: Vec<_> = files.iter().map(|f| std::fs::read(f).unwrap()).collect();
+    assert_eq!(before, after);
+    println!("PASS: pre-canvas core refused {} v3 notes; bytes unchanged", files.len());
+}

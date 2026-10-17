@@ -14,7 +14,7 @@ func createAddSnapshotReopen(root: String) throws {
     let library = try openLibrary(rootPath: root)
     let request = CreateNoteRequest(
         operationId: newId(), noteId: newId(), firstSheetId: newId(),
-        title: "Example", pageFormat: .sheet16x10, notebook: nil)
+        title: "Example", notebook: nil)
     _ = try library.createNote(request: request)
     if case .committed = try library.lookupCreation(operationId: request.operationId) {} else {
         throw SmokeFailure(description: "creation was not recorded")
@@ -28,6 +28,15 @@ func createAddSnapshotReopen(root: String) throws {
         let note = try library.openNote(noteId: request.noteId)
         let initial = try note.snapshot()
         try check(initial.sheets.map(\.creationOperationId) == [request.operationId], "sheet provenance")
+        try check(initial.sheets.map(\.originX) == [0] && initial.sheets.map(\.originY) == [0], "one sheet at the origin")
+        do {
+            _ = try note.submit(command: Command(
+                operationId: newId(), dependencies: [request.operationId],
+                body: .addSheet(sheetId: newId(), base: .operation(operationId: request.operationId))))
+            throw SmokeFailure(description: "a sheet was added to a canvas note")
+        } catch CoreError.InvalidInput(_, let retryable) {
+            try check(!retryable, "rejected sheet command is not retryable")
+        }
         let samples = try encodeSamples(channels: SampleChannels(
             x: [10, 20], y: [30, 40], pressure: [0.5, 1], elapsedMs: [0, 10], tilt: nil, orientation: nil))
         let add = Command(
@@ -71,6 +80,34 @@ func createAddSnapshotReopen(root: String) throws {
     try check(snapshot.strokes.map(\.id) == [markId], "stroke survives reopen")
     try check(snapshot.strokes.map(\.tombstone) == [false], "undo survives reopen")
     try reopened.closeNote()
+}
+
+/// Canvas amendment: the canvas size, and a real v2 multi-sheet note written by the pre-canvas
+/// core upgrading on open (after a backup) to fixed sheet origins without gaps.
+func canvasUpgrade() throws {
+    try check(canvasSize() == CanvasSize(width: 4800, viewHeight: 3000, phoneColumn: 1600), "canvas size")
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appendingPathComponent("syncr-swift-canvas-\(UUID().uuidString)")
+    defer { try? fm.removeItem(at: root) }
+    try fm.createDirectory(at: root, withIntermediateDirectories: true)
+    let fixtures = URL(fileURLWithPath: "fixtures/canvas-v2")
+    for name in try fm.contentsOfDirectory(atPath: fixtures.path)
+    where name.hasSuffix(".syncr") || name == "library.sqlite3" {
+        try fm.copyItem(at: fixtures.appendingPathComponent(name), to: root.appendingPathComponent(name))
+    }
+    let library = try openLibrary(rootPath: root.path)
+    let notes = try library.listNotes()
+    try check(notes.count == 2, "both fixture notes listed")
+    for summary in notes {
+        let note = try library.openNote(noteId: summary.id)
+        let s = try note.snapshot()
+        let height: Float = summary.notebook == "Fixtures" ? 3200 : 1000
+        try check(s.sheets.map(\.originX) == [0, 0, 0], "sheets start at the left edge")
+        try check(s.sheets.map(\.originY) == [0, height, 2 * height], "pages stacked without gaps")
+        try note.closeNote()
+    }
+    let backups = try fm.contentsOfDirectory(atPath: root.appendingPathComponent(".backups").path)
+    try check(backups.count == 2 && backups.allSatisfy { $0.contains(".v2.") }, "one backup per upgraded note")
 }
 
 func littleEndianWords(_ data: Data) -> [UInt32] {
@@ -121,6 +158,7 @@ struct Smoke {
         do {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             try createAddSnapshotReopen(root: root.path)
+            try canvasUpgrade()
             try strokeMesh()
             print("Swift host smoke: OK")
         } catch {

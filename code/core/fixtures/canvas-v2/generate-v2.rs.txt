@@ -1,0 +1,244 @@
+//! Generates fixtures/canvas-v2/ with the PRE-CANVAS core (note schema v2, paged formats).
+//! Run only from the pre-amendment source tree:
+//!   CANVAS_V2_OUT=<dir> cargo test --locked --test gen_canvas_v2 -- --nocapture
+//! It is kept beside the fixture for provenance; the amended crate does not compile it.
+use serde_json::json;
+use syncr_core::*;
+
+fn pen() -> Brush {
+    Brush {
+        family: BrushFamily::Pen,
+        size: BrushSize::Medium,
+        colour: InkColour::Ink,
+    }
+}
+fn samples(points: &[(f32, f32)]) -> Vec<u8> {
+    encode_samples(SampleChannels {
+        x: points.iter().map(|p| p.0).collect(),
+        y: points.iter().map(|p| p.1).collect(),
+        pressure: vec![0.5; points.len()],
+        elapsed_ms: (0..points.len() as u32).map(|i| i * 8).collect(),
+        tilt: None,
+        orientation: None,
+    })
+    .unwrap()
+}
+fn op(id: &str) -> Base {
+    Base::Operation {
+        operation_id: id.into(),
+    }
+}
+
+#[test]
+fn generate() {
+    let Ok(out) = std::env::var("CANVAS_V2_OUT") else {
+        return;
+    };
+    let library = open_library(out.clone()).unwrap();
+    let author = library.author_id();
+    let mut notes = vec![];
+    for (format, name, notebook) in [
+        (PageFormat::Phone, "Phone", Some("Fixtures".to_string())),
+        (PageFormat::Sheet16x10, "Sheet16x10", None),
+    ] {
+        let request = CreateNoteRequest {
+            operation_id: new_id(),
+            note_id: new_id(),
+            first_sheet_id: new_id(),
+            title: format!("Canvas v2 {name}"),
+            page_format: format,
+            notebook,
+        };
+        library.create_note(request.clone()).unwrap();
+        let note = library.open_note(request.note_id.clone()).unwrap();
+        let a = request.first_sheet_id.clone();
+        let (b, c) = (new_id(), new_id());
+        let mut structure = request.operation_id.clone();
+        let mut creators = std::collections::BTreeMap::new();
+        creators.insert(a.clone(), request.operation_id.clone());
+        for sheet in [&b, &c] {
+            let id = new_id();
+            note.submit(Command {
+                operation_id: id.clone(),
+                dependencies: vec![structure.clone()],
+                body: CommandBody::AddSheet {
+                    sheet_id: sheet.clone(),
+                    base: op(&structure),
+                },
+            })
+            .unwrap();
+            creators.insert(sheet.clone(), id.clone());
+            structure = id;
+        }
+        let (_, height) = format.dimensions();
+        // Strokes in sheet-local coordinates; one near each page's bottom edge.
+        let mut strokes = vec![];
+        let mut add = |sheet: &str, points: Vec<(f32, f32)>| {
+            let mark = new_id();
+            let id = new_id();
+            note.submit(Command {
+                operation_id: id.clone(),
+                dependencies: vec![creators[sheet].clone()],
+                body: CommandBody::Marks {
+                    mutations: vec![MarkMutation::AddStroke {
+                        mark_id: mark.clone(),
+                        sheet_id: sheet.into(),
+                        samples: samples(&points),
+                        brush: pen(),
+                    }],
+                },
+            })
+            .unwrap();
+            strokes.push((mark.clone(), sheet.to_string(), points));
+            (mark, id)
+        };
+        let (a1, a1_op) = add(&a, vec![(100.0, 200.0), (300.0, 400.0)]);
+        let (_b1, _) = add(&b, vec![(150.0, 50.0), (1450.0, height - 40.0)]);
+        let (c1, c1_op) = add(&c, vec![(800.0, height / 2.0), (820.0, height / 2.0 + 5.0)]);
+        // Reorder: display order becomes C, A, B.
+        let reorder = new_id();
+        note.submit(Command {
+            operation_id: reorder.clone(),
+            dependencies: vec![structure.clone()],
+            body: CommandBody::ReorderSheets {
+                sheet_ids: vec![c.clone(), a.clone(), b.clone()],
+                base: op(&structure),
+            },
+        })
+        .unwrap();
+        // Ink after the reorder: a stroke on B, a move of a1, delete+undo of c1, a tombstone.
+        let (b2, b2_op) = add(&b, vec![(10.0, 10.0), (20.0, 30.0), (40.0, 35.0)]);
+        let (_a2, _) = add(&a, vec![(1500.0, height - 10.0)]);
+        let transform = Affine {
+            a: 1.0,
+            b: 0.0,
+            c: 0.0,
+            d: 1.0,
+            tx: 10.0,
+            ty: 20.0,
+        };
+        let moved = new_id();
+        note.submit(Command {
+            operation_id: moved.clone(),
+            dependencies: vec![a1_op.clone()],
+            body: CommandBody::Marks {
+                mutations: vec![MarkMutation::TransformStroke {
+                    mark_id: a1.clone(),
+                    base: op(&a1_op),
+                    transform: transform.clone(),
+                }],
+            },
+        })
+        .unwrap();
+        let erase = new_id();
+        note.submit(Command {
+            operation_id: erase.clone(),
+            dependencies: vec![c1_op.clone(), b2_op.clone()],
+            body: CommandBody::Marks {
+                mutations: vec![
+                    MarkMutation::DeleteStroke {
+                        mark_id: c1.clone(),
+                        base: op(&c1_op),
+                    },
+                    MarkMutation::DeleteStroke {
+                        mark_id: b2.clone(),
+                        base: op(&b2_op),
+                    },
+                ],
+            },
+        })
+        .unwrap();
+        let snapshot = note.snapshot().unwrap();
+        note.submit(Command {
+            operation_id: new_id(),
+            dependencies: snapshot.undo_dependencies.clone(),
+            body: CommandBody::Undo {
+                target_operation_id: erase.clone(),
+            },
+        })
+        .unwrap();
+        // Delete b2 again so a tombstone survives; c1 stays restored.
+        let snapshot = note.snapshot().unwrap();
+        let b2_head = snapshot
+            .strokes
+            .iter()
+            .find(|s| s.id == b2)
+            .unwrap()
+            .head
+            .operation_id
+            .clone();
+        note.submit(Command {
+            operation_id: new_id(),
+            dependencies: vec![b2_head.clone()],
+            body: CommandBody::Marks {
+                mutations: vec![MarkMutation::DeleteStroke {
+                    mark_id: b2.clone(),
+                    base: op(&b2_head),
+                }],
+            },
+        })
+        .unwrap();
+        let metadata = note.snapshot().unwrap().metadata_head.operation_id;
+        note.submit(Command {
+            operation_id: new_id(),
+            dependencies: vec![metadata.clone()],
+            body: CommandBody::RenameNote {
+                title: format!("Canvas v2 {name} (renamed)"),
+                base: op(&metadata),
+            },
+        })
+        .unwrap();
+        let snapshot = note.snapshot().unwrap();
+        assert_eq!(
+            snapshot.sheets.iter().map(|s| s.id.clone()).collect::<Vec<_>>(),
+            vec![c.clone(), a.clone(), b.clone()]
+        );
+        note.close_note().unwrap();
+        // Expected placement from the fixture definition: order C, A, B, no gap.
+        let order = [&c, &a, &b];
+        let origin = |sheet: &str| {
+            order.iter().position(|s| *s == sheet).unwrap() as f32 * height
+        };
+        notes.push(json!({
+            "file": format!("{}.syncr", request.note_id),
+            "format": name,
+            "page_height": height,
+            "creation_request": {
+                "operation_id": request.operation_id,
+                "note_id": request.note_id,
+                "first_sheet_id": request.first_sheet_id,
+                "title": request.title,
+                "notebook": request.notebook,
+            },
+            "local_sequence": snapshot.local_sequence.to_string(),
+            "reorder_operation_id": reorder,
+            "sheets_in_order": order.iter().map(|s| json!({
+                "id": s, "creation_operation_id": creators[s.as_str()],
+                "origin_x": 0.0, "origin_y": origin(s),
+            })).collect::<Vec<_>>(),
+            "strokes": strokes.iter().map(|(mark, sheet, points)| {
+                let view = snapshot.strokes.iter().find(|s| s.id == *mark).unwrap();
+                json!({
+                    "id": mark, "sheet_id": sheet,
+                    "local_points": points,
+                    "transform": [view.transform.a, view.transform.b, view.transform.c,
+                                  view.transform.d, view.transform.tx, view.transform.ty],
+                    "tombstone": view.tombstone,
+                    "canvas_origin": [0.0, origin(sheet)],
+                })
+            }).collect::<Vec<_>>(),
+        }));
+    }
+    let expected = json!({
+        "fixture_version": 1,
+        "generated_by": "pre-canvas core (note schema v2), tests/gen_canvas_v2.rs",
+        "author_id": author,
+        "notes": notes,
+    });
+    std::fs::write(
+        std::path::Path::new(&out).join("expected.json"),
+        serde_json::to_string_pretty(&expected).unwrap(),
+    )
+    .unwrap();
+    drop(library);
+}

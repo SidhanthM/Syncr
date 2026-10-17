@@ -1,0 +1,349 @@
+{
+  "author_id": "01M766N3YB911W4CWYZX5RCCFZ",
+  "fixture_version": 1,
+  "generated_by": "pre-canvas core (note schema v2), tests/gen_canvas_v2.rs",
+  "notes": [
+    {
+      "creation_request": {
+        "first_sheet_id": "01M766N3YMB9TGX5WM7CN72SNR",
+        "note_id": "01M766N3YMGT9FX96249JW0YJ7",
+        "notebook": "Fixtures",
+        "operation_id": "01M766N3YMB09PRMCDW9X5VW07",
+        "title": "Canvas v2 Phone"
+      },
+      "file": "01M766N3YMGT9FX96249JW0YJ7.syncr",
+      "format": "Phone",
+      "local_sequence": "14",
+      "page_height": 3200.0,
+      "reorder_operation_id": "01M766N3Z2DSCHPF0HQ47FAHSF",
+      "sheets_in_order": [
+        {
+          "creation_operation_id": "01M766N3Z0HQ249G00JESCQ4GS",
+          "id": "01M766N3Z09M5XR7BSNJB4BWW6",
+          "origin_x": 0.0,
+          "origin_y": 0.0
+        },
+        {
+          "creation_operation_id": "01M766N3YMB09PRMCDW9X5VW07",
+          "id": "01M766N3YMB9TGX5WM7CN72SNR",
+          "origin_x": 0.0,
+          "origin_y": 3200.0
+        },
+        {
+          "creation_operation_id": "01M766N3Z0R9PM41RM5YJ0GJ5H",
+          "id": "01M766N3Z0N00ZH30YCGRS2D5X",
+          "origin_x": 0.0,
+          "origin_y": 6400.0
+        }
+      ],
+      "strokes": [
+        {
+          "canvas_origin": [
+            0.0,
+            3200.0
+          ],
+          "id": "01M766N3Z1NRKWD7VM3QW2T5R8",
+          "local_points": [
+            [
+              100.0,
+              200.0
+            ],
+            [
+              300.0,
+              400.0
+            ]
+          ],
+          "sheet_id": "01M766N3YMB9TGX5WM7CN72SNR",
+          "tombstone": false,
+          "transform": [
+            1.0,
+            0.0,
+            0.0,
+            1.0,
+            10.0,
+            20.0
+          ]
+        },
+        {
+          "canvas_origin": [
+            0.0,
+            6400.0
+          ],
+          "id": "01M766N3Z1A8RBBPZ865Q40MKR",
+          "local_points": [
+            [
+              150.0,
+              50.0
+            ],
+            [
+              1450.0,
+              3160.0
+            ]
+          ],
+          "sheet_id": "01M766N3Z0N00ZH30YCGRS2D5X",
+          "tombstone": false,
+          "transform": [
+            1.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "canvas_origin": [
+            0.0,
+            0.0
+          ],
+          "id": "01M766N3Z2EJE68VA0V1GEXFEG",
+          "local_points": [
+            [
+              800.0,
+              1600.0
+            ],
+            [
+              820.0,
+              1605.0
+            ]
+          ],
+          "sheet_id": "01M766N3Z09M5XR7BSNJB4BWW6",
+          "tombstone": false,
+          "transform": [
+            1.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "canvas_origin": [
+            0.0,
+            6400.0
+          ],
+          "id": "01M766N3Z35RRBGGCTFK7EMGHD",
+          "local_points": [
+            [
+              10.0,
+              10.0
+            ],
+            [
+              20.0,
+              30.0
+            ],
+            [
+              40.0,
+              35.0
+            ]
+          ],
+          "sheet_id": "01M766N3Z0N00ZH30YCGRS2D5X",
+          "tombstone": true,
+          "transform": [
+            1.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "canvas_origin": [
+            0.0,
+            3200.0
+          ],
+          "id": "01M766N3Z377Z9172KBXKZ2R1F",
+          "local_points": [
+            [
+              1500.0,
+              3190.0
+            ]
+          ],
+          "sheet_id": "01M766N3YMB9TGX5WM7CN72SNR",
+          "tombstone": false,
+          "transform": [
+            1.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0
+          ]
+        }
+      ]
+    },
+    {
+      "creation_request": {
+        "first_sheet_id": "01M766N3ZDQQ136RDT5WJWBM7C",
+        "note_id": "01M766N3ZDWTQEBXXXZMXWM5AQ",
+        "notebook": null,
+        "operation_id": "01M766N3ZDXEHBGYTF285D9X8B",
+        "title": "Canvas v2 Sheet16x10"
+      },
+      "file": "01M766N3ZDWTQEBXXXZMXWM5AQ.syncr",
+      "format": "Sheet16x10",
+      "local_sequence": "14",
+      "page_height": 1000.0,
+      "reorder_operation_id": "01M766N3ZTDZTQEY2SQ8SVF2YY",
+      "sheets_in_order": [
+        {
+          "creation_operation_id": "01M766N3ZRGWJH93NRCVPZCENA",
+          "id": "01M766N3ZR9JRN1KD2ZX6SZH24",
+          "origin_x": 0.0,
+          "origin_y": 0.0
+        },
+        {
+          "creation_operation_id": "01M766N3ZDXEHBGYTF285D9X8B",
+          "id": "01M766N3ZDQQ136RDT5WJWBM7C",
+          "origin_x": 0.0,
+          "origin_y": 1000.0
+        },
+        {
+          "creation_operation_id": "01M766N3ZR7CNQ6AA324TWG9H1",
+          "id": "01M766N3ZR2T7X0CH0B4SYDFBQ",
+          "origin_x": 0.0,
+          "origin_y": 2000.0
+        }
+      ],
+      "strokes": [
+        {
+          "canvas_origin": [
+            0.0,
+            1000.0
+          ],
+          "id": "01M766N3ZSK6MGXGXEGR8KP1YN",
+          "local_points": [
+            [
+              100.0,
+              200.0
+            ],
+            [
+              300.0,
+              400.0
+            ]
+          ],
+          "sheet_id": "01M766N3ZDQQ136RDT5WJWBM7C",
+          "tombstone": false,
+          "transform": [
+            1.0,
+            0.0,
+            0.0,
+            1.0,
+            10.0,
+            20.0
+          ]
+        },
+        {
+          "canvas_origin": [
+            0.0,
+            2000.0
+          ],
+          "id": "01M766N3ZS4T1JN6XHTBW6N7CQ",
+          "local_points": [
+            [
+              150.0,
+              50.0
+            ],
+            [
+              1450.0,
+              960.0
+            ]
+          ],
+          "sheet_id": "01M766N3ZR2T7X0CH0B4SYDFBQ",
+          "tombstone": false,
+          "transform": [
+            1.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "canvas_origin": [
+            0.0,
+            0.0
+          ],
+          "id": "01M766N3ZT6JR8XAPAAH1ZMHPN",
+          "local_points": [
+            [
+              800.0,
+              500.0
+            ],
+            [
+              820.0,
+              505.0
+            ]
+          ],
+          "sheet_id": "01M766N3ZR9JRN1KD2ZX6SZH24",
+          "tombstone": false,
+          "transform": [
+            1.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "canvas_origin": [
+            0.0,
+            2000.0
+          ],
+          "id": "01M766N3ZVXDBSERARM2AWZ8MZ",
+          "local_points": [
+            [
+              10.0,
+              10.0
+            ],
+            [
+              20.0,
+              30.0
+            ],
+            [
+              40.0,
+              35.0
+            ]
+          ],
+          "sheet_id": "01M766N3ZR2T7X0CH0B4SYDFBQ",
+          "tombstone": true,
+          "transform": [
+            1.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0
+          ]
+        },
+        {
+          "canvas_origin": [
+            0.0,
+            1000.0
+          ],
+          "id": "01M766N3ZWSA8V9X6KHTDDC7D0",
+          "local_points": [
+            [
+              1500.0,
+              990.0
+            ]
+          ],
+          "sheet_id": "01M766N3ZDQQ136RDT5WJWBM7C",
+          "tombstone": false,
+          "transform": [
+            1.0,
+            0.0,
+            0.0,
+            1.0,
+            0.0,
+            0.0
+          ]
+        }
+      ]
+    }
+  ]
+}

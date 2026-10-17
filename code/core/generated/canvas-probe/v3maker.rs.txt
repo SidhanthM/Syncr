@@ -1,0 +1,9 @@
+fn main() {
+    let root = std::env::args().nth(1).unwrap();
+    let lib = syncr_core::open_library(root).unwrap();
+    for s in lib.list_notes().unwrap() {
+        let note = lib.open_note(s.id).unwrap();
+        println!("{:?}", note.snapshot().unwrap().sheets.iter().map(|s| s.origin_y).collect::<Vec<_>>());
+        note.close_note().unwrap();
+    }
+}

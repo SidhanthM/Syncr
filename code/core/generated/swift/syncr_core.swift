@@ -1294,6 +1294,69 @@ public func FfiConverterTypeBrush_lower(_ value: Brush) -> RustBuffer {
 }
 
 
+/**
+ * A note is one canvas, `width` note units wide, growing downward without pages.
+ * `view_height` is the Mac's 16:10 window over the full width; `phone_column` is the
+ * part of the width an upright phone shows at its default zoom.
+ */
+public struct CanvasSize: Equatable, Hashable {
+    public var width: Float
+    public var viewHeight: Float
+    public var phoneColumn: Float
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(width: Float, viewHeight: Float, phoneColumn: Float) {
+        self.width = width
+        self.viewHeight = viewHeight
+        self.phoneColumn = phoneColumn
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension CanvasSize: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCanvasSize: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CanvasSize {
+        return
+            try CanvasSize(
+                width: FfiConverterFloat.read(from: &buf), 
+                viewHeight: FfiConverterFloat.read(from: &buf), 
+                phoneColumn: FfiConverterFloat.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CanvasSize, into buf: inout [UInt8]) {
+        FfiConverterFloat.write(value.width, into: &buf)
+        FfiConverterFloat.write(value.viewHeight, into: &buf)
+        FfiConverterFloat.write(value.phoneColumn, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCanvasSize_lift(_ buf: RustBuffer) throws -> CanvasSize {
+    return try FfiConverterTypeCanvasSize.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCanvasSize_lower(_ value: CanvasSize) -> RustBuffer {
+    return FfiConverterTypeCanvasSize.lower(value)
+}
+
+
 public struct ChangeEvent: Equatable, Hashable {
     public var cursor: EventCursor
     public var operationId: String
@@ -1415,17 +1478,15 @@ public struct CreateNoteRequest: Equatable, Hashable {
     public var noteId: String
     public var firstSheetId: String
     public var title: String
-    public var pageFormat: PageFormat
     public var notebook: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(operationId: String, noteId: String, firstSheetId: String, title: String, pageFormat: PageFormat, notebook: String?) {
+    public init(operationId: String, noteId: String, firstSheetId: String, title: String, notebook: String?) {
         self.operationId = operationId
         self.noteId = noteId
         self.firstSheetId = firstSheetId
         self.title = title
-        self.pageFormat = pageFormat
         self.notebook = notebook
     }
 
@@ -1449,7 +1510,6 @@ public struct FfiConverterTypeCreateNoteRequest: FfiConverterRustBuffer {
                 noteId: FfiConverterString.read(from: &buf), 
                 firstSheetId: FfiConverterString.read(from: &buf), 
                 title: FfiConverterString.read(from: &buf), 
-                pageFormat: FfiConverterTypePageFormat.read(from: &buf), 
                 notebook: FfiConverterOptionString.read(from: &buf)
         )
     }
@@ -1459,7 +1519,6 @@ public struct FfiConverterTypeCreateNoteRequest: FfiConverterRustBuffer {
         FfiConverterString.write(value.noteId, into: &buf)
         FfiConverterString.write(value.firstSheetId, into: &buf)
         FfiConverterString.write(value.title, into: &buf)
-        FfiConverterTypePageFormat.write(value.pageFormat, into: &buf)
         FfiConverterOptionString.write(value.notebook, into: &buf)
     }
 }
@@ -1490,7 +1549,6 @@ public struct DeletedNoteSummary: Equatable, Hashable {
      * None = Inbox.
      */
     public var notebook: String?
-    public var pageFormat: PageFormat
     /**
      * Wall-clock Unix ms of the deletion, recorded in the trash file name.
      */
@@ -1502,14 +1560,13 @@ public struct DeletedNoteSummary: Equatable, Hashable {
     public init(id: String, title: String, 
         /**
          * None = Inbox.
-         */notebook: String?, pageFormat: PageFormat, 
+         */notebook: String?, 
         /**
          * Wall-clock Unix ms of the deletion, recorded in the trash file name.
          */deletedAtMs: Int64, createdAtMs: Int64) {
         self.id = id
         self.title = title
         self.notebook = notebook
-        self.pageFormat = pageFormat
         self.deletedAtMs = deletedAtMs
         self.createdAtMs = createdAtMs
     }
@@ -1533,7 +1590,6 @@ public struct FfiConverterTypeDeletedNoteSummary: FfiConverterRustBuffer {
                 id: FfiConverterString.read(from: &buf), 
                 title: FfiConverterString.read(from: &buf), 
                 notebook: FfiConverterOptionString.read(from: &buf), 
-                pageFormat: FfiConverterTypePageFormat.read(from: &buf), 
                 deletedAtMs: FfiConverterInt64.read(from: &buf), 
                 createdAtMs: FfiConverterInt64.read(from: &buf)
         )
@@ -1543,7 +1599,6 @@ public struct FfiConverterTypeDeletedNoteSummary: FfiConverterRustBuffer {
         FfiConverterString.write(value.id, into: &buf)
         FfiConverterString.write(value.title, into: &buf)
         FfiConverterOptionString.write(value.notebook, into: &buf)
-        FfiConverterTypePageFormat.write(value.pageFormat, into: &buf)
         FfiConverterInt64.write(value.deletedAtMs, into: &buf)
         FfiConverterInt64.write(value.createdAtMs, into: &buf)
     }
@@ -1731,12 +1786,6 @@ public struct NoteSnapshot: Equatable, Hashable {
     public var noteId: String
     public var title: String
     public var notebook: String?
-    public var pageFormat: PageFormat
-    /**
-     * Page size in note units (the sample coordinate space); every sheet shares it.
-     */
-    public var pageWidth: Float
-    public var pageHeight: Float
     public var metadataHead: EntityHead
     public var structureHead: EntityHead
     public var sheets: [SheetView]
@@ -1754,19 +1803,13 @@ public struct NoteSnapshot: Equatable, Hashable {
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(noteId: String, title: String, notebook: String?, pageFormat: PageFormat, 
-        /**
-         * Page size in note units (the sample coordinate space); every sheet shares it.
-         */pageWidth: Float, pageHeight: Float, metadataHead: EntityHead, structureHead: EntityHead, sheets: [SheetView], strokes: [StrokeView], localSequence: UInt64, cursor: EventCursor, undoTarget: String?, redoTarget: String?, undoDependencies: [String], redoDependencies: [String], 
+    public init(noteId: String, title: String, notebook: String?, metadataHead: EntityHead, structureHead: EntityHead, sheets: [SheetView], strokes: [StrokeView], localSequence: UInt64, cursor: EventCursor, undoTarget: String?, redoTarget: String?, undoDependencies: [String], redoDependencies: [String], 
         /**
          * Metadata, like `notebook`; changed by SetArchived. Trailing with a default.
          */archived: Bool = false) {
         self.noteId = noteId
         self.title = title
         self.notebook = notebook
-        self.pageFormat = pageFormat
-        self.pageWidth = pageWidth
-        self.pageHeight = pageHeight
         self.metadataHead = metadataHead
         self.structureHead = structureHead
         self.sheets = sheets
@@ -1799,9 +1842,6 @@ public struct FfiConverterTypeNoteSnapshot: FfiConverterRustBuffer {
                 noteId: FfiConverterString.read(from: &buf), 
                 title: FfiConverterString.read(from: &buf), 
                 notebook: FfiConverterOptionString.read(from: &buf), 
-                pageFormat: FfiConverterTypePageFormat.read(from: &buf), 
-                pageWidth: FfiConverterFloat.read(from: &buf), 
-                pageHeight: FfiConverterFloat.read(from: &buf), 
                 metadataHead: FfiConverterTypeEntityHead.read(from: &buf), 
                 structureHead: FfiConverterTypeEntityHead.read(from: &buf), 
                 sheets: FfiConverterSequenceTypeSheetView.read(from: &buf), 
@@ -1820,9 +1860,6 @@ public struct FfiConverterTypeNoteSnapshot: FfiConverterRustBuffer {
         FfiConverterString.write(value.noteId, into: &buf)
         FfiConverterString.write(value.title, into: &buf)
         FfiConverterOptionString.write(value.notebook, into: &buf)
-        FfiConverterTypePageFormat.write(value.pageFormat, into: &buf)
-        FfiConverterFloat.write(value.pageWidth, into: &buf)
-        FfiConverterFloat.write(value.pageHeight, into: &buf)
         FfiConverterTypeEntityHead.write(value.metadataHead, into: &buf)
         FfiConverterTypeEntityHead.write(value.structureHead, into: &buf)
         FfiConverterSequenceTypeSheetView.write(value.sheets, into: &buf)
@@ -1857,7 +1894,6 @@ public struct NoteSummary: Equatable, Hashable {
     public var id: String
     public var title: String
     public var localSequence: UInt64
-    public var pageFormat: PageFormat
     /**
      * None = Inbox.
      */
@@ -1875,7 +1911,7 @@ public struct NoteSummary: Equatable, Hashable {
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: String, title: String, localSequence: UInt64, pageFormat: PageFormat, 
+    public init(id: String, title: String, localSequence: UInt64, 
         /**
          * None = Inbox.
          */notebook: String?, 
@@ -1889,7 +1925,6 @@ public struct NoteSummary: Equatable, Hashable {
         self.id = id
         self.title = title
         self.localSequence = localSequence
-        self.pageFormat = pageFormat
         self.notebook = notebook
         self.createdAtMs = createdAtMs
         self.modifiedAtMs = modifiedAtMs
@@ -1915,7 +1950,6 @@ public struct FfiConverterTypeNoteSummary: FfiConverterRustBuffer {
                 id: FfiConverterString.read(from: &buf), 
                 title: FfiConverterString.read(from: &buf), 
                 localSequence: FfiConverterUInt64.read(from: &buf), 
-                pageFormat: FfiConverterTypePageFormat.read(from: &buf), 
                 notebook: FfiConverterOptionString.read(from: &buf), 
                 createdAtMs: FfiConverterInt64.read(from: &buf), 
                 modifiedAtMs: FfiConverterInt64.read(from: &buf), 
@@ -1927,7 +1961,6 @@ public struct FfiConverterTypeNoteSummary: FfiConverterRustBuffer {
         FfiConverterString.write(value.id, into: &buf)
         FfiConverterString.write(value.title, into: &buf)
         FfiConverterUInt64.write(value.localSequence, into: &buf)
-        FfiConverterTypePageFormat.write(value.pageFormat, into: &buf)
         FfiConverterOptionString.write(value.notebook, into: &buf)
         FfiConverterInt64.write(value.createdAtMs, into: &buf)
         FfiConverterInt64.write(value.modifiedAtMs, into: &buf)
@@ -2002,60 +2035,6 @@ public func FfiConverterTypeNotebookSummary_lift(_ buf: RustBuffer) throws -> No
 #endif
 public func FfiConverterTypeNotebookSummary_lower(_ value: NotebookSummary) -> RustBuffer {
     return FfiConverterTypeNotebookSummary.lower(value)
-}
-
-
-public struct PageSize: Equatable, Hashable {
-    public var width: Float
-    public var height: Float
-
-    // Default memberwise initializers are never public by default, so we
-    // declare one manually.
-    public init(width: Float, height: Float) {
-        self.width = width
-        self.height = height
-    }
-
-    
-
-    
-}
-
-#if compiler(>=6)
-extension PageSize: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypePageSize: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PageSize {
-        return
-            try PageSize(
-                width: FfiConverterFloat.read(from: &buf), 
-                height: FfiConverterFloat.read(from: &buf)
-        )
-    }
-
-    public static func write(_ value: PageSize, into buf: inout [UInt8]) {
-        FfiConverterFloat.write(value.width, into: &buf)
-        FfiConverterFloat.write(value.height, into: &buf)
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypePageSize_lift(_ buf: RustBuffer) throws -> PageSize {
-    return try FfiConverterTypePageSize.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypePageSize_lower(_ value: PageSize) -> RustBuffer {
-    return FfiConverterTypePageSize.lower(value)
 }
 
 
@@ -2194,12 +2173,28 @@ public func FfiConverterTypeSampleChannels_lower(_ value: SampleChannels) -> Rus
 public struct SheetView: Equatable, Hashable {
     public var id: String
     public var creationOperationId: String
+    /**
+     * Fixed place of this sheet on the canvas. A stroke's canvas position is this origin
+     * plus its transform applied to its (sheet-local) samples. Sheets of notes written
+     * before the canvas amendment sit at (0, index x old page height), no gap; the first
+     * sheet, and the only sheet of a newer note, is at (0, 0).
+     */
+    public var originX: Float
+    public var originY: Float
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: String, creationOperationId: String) {
+    public init(id: String, creationOperationId: String, 
+        /**
+         * Fixed place of this sheet on the canvas. A stroke's canvas position is this origin
+         * plus its transform applied to its (sheet-local) samples. Sheets of notes written
+         * before the canvas amendment sit at (0, index x old page height), no gap; the first
+         * sheet, and the only sheet of a newer note, is at (0, 0).
+         */originX: Float, originY: Float) {
         self.id = id
         self.creationOperationId = creationOperationId
+        self.originX = originX
+        self.originY = originY
     }
 
     
@@ -2219,13 +2214,17 @@ public struct FfiConverterTypeSheetView: FfiConverterRustBuffer {
         return
             try SheetView(
                 id: FfiConverterString.read(from: &buf), 
-                creationOperationId: FfiConverterString.read(from: &buf)
+                creationOperationId: FfiConverterString.read(from: &buf), 
+                originX: FfiConverterFloat.read(from: &buf), 
+                originY: FfiConverterFloat.read(from: &buf)
         )
     }
 
     public static func write(_ value: SheetView, into buf: inout [UInt8]) {
         FfiConverterString.write(value.id, into: &buf)
         FfiConverterString.write(value.creationOperationId, into: &buf)
+        FfiConverterFloat.write(value.originX, into: &buf)
+        FfiConverterFloat.write(value.originY, into: &buf)
     }
 }
 
@@ -3533,81 +3532,6 @@ public func FfiConverterTypeOperationLookup_lower(_ value: OperationLookup) -> R
 }
 
 
-
-/**
- * Page shape of every sheet in a note, fixed at creation.
- */
-
-public enum PageFormat: Equatable, Hashable {
-    
-    /**
-     * Portrait phone page, 1600 x 3200 note units.
-     */
-    case phone
-    /**
-     * Landscape 16:10 sheet, 1600 x 1000 note units (every note created before formats existed).
-     */
-    case sheet16x10
-
-
-
-
-
-}
-
-#if compiler(>=6)
-extension PageFormat: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypePageFormat: FfiConverterRustBuffer {
-    typealias SwiftType = PageFormat
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PageFormat {
-        let variant: Int32 = try readInt(&buf)
-        switch variant {
-        
-        case 1: return .phone
-        
-        case 2: return .sheet16x10
-        
-        default: throw UniffiInternalError.unexpectedEnumCase
-        }
-    }
-
-    public static func write(_ value: PageFormat, into buf: inout [UInt8]) {
-        switch value {
-        
-        
-        case .phone:
-            writeInt(&buf, Int32(1))
-        
-        
-        case .sheet16x10:
-            writeInt(&buf, Int32(2))
-        
-        }
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypePageFormat_lift(_ buf: RustBuffer) throws -> PageFormat {
-    return try FfiConverterTypePageFormat.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypePageFormat_lower(_ value: PageFormat) -> RustBuffer {
-    return FfiConverterTypePageFormat.lower(value)
-}
-
-
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
@@ -3929,21 +3853,21 @@ fileprivate struct FfiConverterSequenceTypeMarkMutation: FfiConverterRustBuffer 
         return seq
     }
 }
+/**
+ * The canvas every note uses: 4800 units wide, a 4800 x 3000 Mac window, a 1600-unit
+ * phone column.
+ */
+public func canvasSize() -> CanvasSize  {
+    return try!  FfiConverterTypeCanvasSize_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_syncr_core_fn_func_canvas_size(uniffiCallStatus
+    )
+})
+}
 public func newId() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
         uniffiCallStatus in
     uniffi_syncr_core_fn_func_new_id(uniffiCallStatus
-    )
-})
-}
-/**
- * Page size in note units for a format, e.g. for library thumbnails.
- */
-public func pageSize(format: PageFormat) -> PageSize  {
-    return try!  FfiConverterTypePageSize_lift(try! rustCall() {
-        uniffiCallStatus in
-    uniffi_syncr_core_fn_func_page_size(
-        FfiConverterTypePageFormat_lower(format),uniffiCallStatus
     )
 })
 }
@@ -4019,10 +3943,10 @@ private let initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
-    if (uniffi_syncr_core_checksum_func_new_id() != 18470) {
+    if (uniffi_syncr_core_checksum_func_canvas_size() != 27246) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_syncr_core_checksum_func_page_size() != 29461) {
+    if (uniffi_syncr_core_checksum_func_new_id() != 18470) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_syncr_core_checksum_func_open_library() != 18191) {

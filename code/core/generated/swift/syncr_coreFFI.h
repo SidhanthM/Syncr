@@ -368,15 +368,16 @@ void uniffi_syncr_core_fn_method_syncrlibrary_rename_notebook(uint64_t ptr, Rust
 void uniffi_syncr_core_fn_method_syncrlibrary_restore_note(uint64_t ptr, RustBuffer note_id, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_CANVAS_SIZE
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_CANVAS_SIZE
+RustBuffer uniffi_syncr_core_fn_func_canvas_size(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_NEW_ID
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_NEW_ID
 RustBuffer uniffi_syncr_core_fn_func_new_id(RustCallStatus *_Nonnull out_status
     
-);
-#endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_PAGE_SIZE
-#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_PAGE_SIZE
-RustBuffer uniffi_syncr_core_fn_func_page_size(RustBuffer format, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_OPEN_LIBRARY
@@ -670,15 +671,15 @@ void ffi_syncr_core_rust_future_free_void(uint64_t handle
 void ffi_syncr_core_rust_future_complete_void(uint64_t handle, RustCallStatus *_Nonnull out_status
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_NEW_ID
-#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_NEW_ID
-uint16_t uniffi_syncr_core_checksum_func_new_id(void
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_CANVAS_SIZE
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_CANVAS_SIZE
+uint16_t uniffi_syncr_core_checksum_func_canvas_size(void
     
 );
 #endif
-#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_PAGE_SIZE
-#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_PAGE_SIZE
-uint16_t uniffi_syncr_core_checksum_func_page_size(void
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_NEW_ID
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_NEW_ID
+uint16_t uniffi_syncr_core_checksum_func_new_id(void
     
 );
 #endif

@@ -6,10 +6,32 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
+/// Page format of a note written before the canvas amendment (note schema v1/v2). Only
+/// read from stored state and creation payloads to place old sheets; never produced.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) enum LegacyPageFormat {
+    /// Portrait phone page, 1600 x 3200 note units.
+    Phone,
+    /// 16:10 sheet, 1600 x 1000 note units (also every note created before formats).
+    Sheet16x10,
+}
+impl LegacyPageFormat {
+    pub fn page_height(format: Option<Self>) -> f32 {
+        match format.unwrap_or(LegacyPageFormat::Sheet16x10) {
+            LegacyPageFormat::Phone => 3200.0,
+            LegacyPageFormat::Sheet16x10 => 1000.0,
+        }
+    }
+}
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct Sheet {
     pub id: Id,
     pub creation: Id,
+    // Absent in state written before the canvas amendment; set by the v3 upgrade.
+    #[serde(default)]
+    pub origin_x: f32,
+    #[serde(default)]
+    pub origin_y: f32,
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct Action {
@@ -33,9 +55,10 @@ pub(crate) struct MarkEffect {
 pub(crate) struct State {
     pub note_id: Id,
     pub title: String,
-    // Absent in note state written before page formats/notebooks (schema v1).
-    #[serde(default = "legacy_page_format")]
-    pub page_format: PageFormat,
+    // Pre-canvas state (schema v1/v2) only: read to place old sheets, never written
+    // again. Absent before page formats existed (Sheet16x10) and in canvas state.
+    #[serde(rename = "page_format", default, skip_serializing)]
+    pub legacy_page_format: Option<LegacyPageFormat>,
     #[serde(default)]
     pub notebook: Option<String>,
     // Absent in note state written before archiving existed: not archived.
@@ -60,7 +83,7 @@ impl State {
         Self {
             note_id: r.note_id.clone(),
             title: r.title.clone(),
-            page_format: r.page_format,
+            legacy_page_format: None,
             notebook: r.notebook.clone(),
             archived: false,
             creation: r.operation_id.clone(),
@@ -69,6 +92,8 @@ impl State {
             sheets: vec![Sheet {
                 id: r.first_sheet_id.clone(),
                 creation: r.operation_id.clone(),
+                origin_x: 0.0,
+                origin_y: 0.0,
             }],
             strokes: vec![],
             sequence: 1,
@@ -79,14 +104,10 @@ impl State {
         let history = self.histories.get(author);
         let undo = history.and_then(|h| h.undo.last());
         let redo = history.and_then(|h| h.redo.last());
-        let (page_width, page_height) = self.page_format.dimensions();
         NoteSnapshot {
             note_id: self.note_id.clone(),
             title: self.title.clone(),
             notebook: self.notebook.clone(),
-            page_format: self.page_format,
-            page_width,
-            page_height,
             metadata_head: self.metadata_head.clone(),
             structure_head: self.structure_head.clone(),
             sheets: self
@@ -95,6 +116,8 @@ impl State {
                 .map(|s| SheetView {
                     id: s.id.clone(),
                     creation_operation_id: s.creation.clone(),
+                    origin_x: s.origin_x,
+                    origin_y: s.origin_y,
                 })
                 .collect(),
             strokes: self.strokes.clone(),
@@ -136,7 +159,30 @@ impl State {
             })
             .collect()
     }
+    /// Fixes every sheet's canvas origin from its current order: sheet i at
+    /// (0, i x the old page height), no gap. Run once when a note becomes a canvas
+    /// (schema v3) and by a replay of the log; the order can never change afterwards.
+    pub fn place_sheets(&mut self, format: Option<LegacyPageFormat>) {
+        let height = LegacyPageFormat::page_height(format);
+        for (index, sheet) in self.sheets.iter_mut().enumerate() {
+            sheet.origin_x = 0.0;
+            sheet.origin_y = index as f32 * height;
+        }
+    }
+    /// A new command. Sheets can no longer be added or reordered: the order fixes every
+    /// sheet's origin on the canvas.
     pub fn apply(&mut self, c: &Command, author: &str) -> CoreResult<ChangeKind> {
+        if matches!(
+            c.body,
+            CommandBody::AddSheet { .. } | CommandBody::ReorderSheets { .. }
+        ) {
+            return Err(sheets_fixed());
+        }
+        self.apply_logged(c, author)
+    }
+    /// Applies a command exactly as it was admitted when committed, including AddSheet and
+    /// ReorderSheets from logs written before the canvas amendment. Used only by replay.
+    pub fn apply_logged(&mut self, c: &Command, author: &str) -> CoreResult<ChangeKind> {
         let deps: HashSet<&str> = c.dependencies.iter().map(String::as_str).collect();
         match &c.body {
             CommandBody::Marks { mutations } => {
@@ -233,9 +279,12 @@ impl State {
                 if self.sheets.iter().any(|s| s.id == *sheet_id) {
                     return Err(collision());
                 }
+                // Origins are placed after replay; a canvas note never reaches this.
                 self.sheets.push(Sheet {
                     id: sheet_id.clone(),
                     creation: c.operation_id.clone(),
+                    origin_x: 0.0,
+                    origin_y: 0.0,
                 });
                 self.structure_head = head(&c.operation_id);
                 Ok(ChangeKind::StructureChanged)
@@ -334,6 +383,9 @@ impl State {
             }
         }
     }
+}
+pub(crate) fn sheets_fixed() -> CoreError {
+    crate::error::invalid("A note is one canvas: sheets can no longer be added or reordered")
 }
 fn require(deps: &HashSet<&str>, operation: &str) -> CoreResult<()> {
     if !deps.contains(operation) {

@@ -18,7 +18,6 @@ fn setup() -> (
         note_id: new_id(),
         first_sheet_id: new_id(),
         title: "Dependencies".into(),
-        page_format: PageFormat::Sheet16x10,
         notebook: None,
     };
     lib.create_note(request.clone()).unwrap();
@@ -95,51 +94,56 @@ fn rejected(note: &Note, c: &Command, stale: bool) {
     );
 }
 
+/// Multi-sheet notes now exist only as notes written before the canvas amendment. The
+/// real v2 Phone fixture (three sheets, a reorder in its log) upgrades on open.
 #[test]
-fn every_sheet_retains_exact_creator_after_add_reorder_rename_and_full_restart() {
-    let (root, lib, request, note) = setup();
-    let mut expected = vec![(request.first_sheet_id.clone(), request.operation_id.clone())];
-    for _ in 0..3 {
-        let s = note.snapshot().unwrap();
-        let c = command(
-            CommandBody::AddSheet {
-                sheet_id: new_id(),
-                base: base(&s.structure_head.operation_id),
-            },
-            vec![s.structure_head.operation_id],
-        );
-        let CommandBody::AddSheet { sheet_id, .. } = &c.body else {
-            unreachable!()
-        };
-        expected.push((sheet_id.clone(), c.operation_id.clone()));
-        note.submit(c).unwrap();
+fn every_legacy_sheet_retains_exact_creator_after_upgrade_rename_and_full_restart() {
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/canvas-v2");
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(fixtures.join("expected.json")).unwrap()).unwrap();
+    let fixture = &manifest["notes"][0];
+    let root = tempfile::tempdir().unwrap();
+    for file in [fixture["file"].as_str().unwrap(), "library.sqlite3"] {
+        std::fs::copy(fixtures.join(file), root.path().join(file)).unwrap();
     }
-    expected.rotate_left(2);
-    let s = note.snapshot().unwrap();
-    let reorder = command(
-        CommandBody::ReorderSheets {
-            sheet_ids: expected.iter().map(|(id, _)| id.clone()).collect(),
-            base: base(&s.structure_head.operation_id),
-        },
-        vec![s.structure_head.operation_id],
-    );
-    note.submit(reorder.clone()).unwrap();
+    let note_id: Id = fixture["creation_request"]["note_id"]
+        .as_str()
+        .unwrap()
+        .into();
+    let expected: Vec<(Id, Id)> = fixture["sheets_in_order"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| {
+            (
+                s["id"].as_str().unwrap().into(),
+                s["creation_operation_id"].as_str().unwrap().into(),
+            )
+        })
+        .collect();
+    let lib = open_library(path(root.path())).unwrap();
+    let note = lib.open_note(note_id.clone()).unwrap();
+    let before = note.snapshot().unwrap();
+    let strokes_before = before.strokes.len();
     note.submit(command(
         CommandBody::RenameNote {
             title: "Renamed".into(),
-            base: base(&request.operation_id),
+            base: base(&before.metadata_head.operation_id),
         },
-        vec![request.operation_id.clone()],
+        vec![before.metadata_head.operation_id.clone()],
     ))
     .unwrap();
     note.close_note().unwrap();
     drop(note);
     drop(lib);
     let lib = open_library(path(root.path())).unwrap();
-    let note = lib.open_note(request.note_id.clone()).unwrap();
+    let note = lib.open_note(note_id.clone()).unwrap();
     let s = note.snapshot().unwrap();
     assert_eq!(s.title, "Renamed");
-    assert_eq!(s.structure_head.operation_id, reorder.operation_id);
+    assert_eq!(
+        s.structure_head.operation_id,
+        fixture["reorder_operation_id"].as_str().unwrap()
+    );
     assert_eq!(
         s.sheets
             .iter()
@@ -147,7 +151,9 @@ fn every_sheet_retains_exact_creator_after_add_reorder_rename_and_full_restart()
             .collect::<Vec<_>>(),
         expected
     );
-    assert!(s.undo_dependencies.is_empty() && s.redo_dependencies.is_empty());
+    // The fixture author's ink history survives the upgrade.
+    assert_eq!(s.undo_target, before.undo_target);
+    assert!(s.undo_target.is_some() && !s.undo_dependencies.is_empty());
     for sheet in &s.sheets {
         let body = CommandBody::Marks {
             mutations: vec![add(new_id(), sheet)],
@@ -175,14 +181,16 @@ fn every_sheet_retains_exact_creator_after_add_reorder_rename_and_full_restart()
     drop(note);
     drop(lib);
     let lib = open_library(path(root.path())).unwrap();
-    let note = lib.open_note(request.note_id.clone()).unwrap();
-    assert_eq!(note.snapshot().unwrap().strokes.len(), expected.len());
-    let db =
-        rusqlite::Connection::open(root.path().join(format!("{}.syncr", request.note_id))).unwrap();
+    let note = lib.open_note(note_id.clone()).unwrap();
+    assert_eq!(
+        note.snapshot().unwrap().strokes.len(),
+        strokes_before + expected.len()
+    );
+    let db = rusqlite::Connection::open(root.path().join(format!("{note_id}.syncr"))).unwrap();
     assert_eq!(
         db.pragma_query_value::<u32, _>(None, "user_version", |r| r.get(0))
             .unwrap(),
-        2
+        3
     );
 }
 
@@ -291,7 +299,7 @@ fn exact_history_dependencies_ignore_unrelated_marks_and_survive_restart_branche
     assert_eq!(s.redo_target, before_restart.redo_target);
     assert_eq!(s.undo_dependencies, before_restart.undo_dependencies);
     assert_eq!(s.redo_dependencies, before_restart.redo_dependencies);
-    // Reordering/renaming changes no history witness, even across restart.
+    // Renaming (and a rejected reorder) changes no history witness, even across restart.
     note.submit(command(
         CommandBody::RenameNote {
             title: "Still redoable".into(),
@@ -300,14 +308,16 @@ fn exact_history_dependencies_ignore_unrelated_marks_and_survive_restart_branche
         vec![s.metadata_head.operation_id.clone()],
     ))
     .unwrap();
-    note.submit(command(
-        CommandBody::ReorderSheets {
-            sheet_ids: vec![sheet.id.clone()],
-            base: base(&s.structure_head.operation_id),
-        },
-        vec![s.structure_head.operation_id.clone()],
-    ))
-    .unwrap();
+    assert!(matches!(
+        note.submit(command(
+            CommandBody::ReorderSheets {
+                sheet_ids: vec![sheet.id.clone()],
+                base: base(&s.structure_head.operation_id),
+            },
+            vec![s.structure_head.operation_id.clone()],
+        )),
+        Err(CoreError::InvalidInput { .. })
+    ));
     assert_eq!(
         note.snapshot().unwrap().redo_dependencies,
         s.redo_dependencies

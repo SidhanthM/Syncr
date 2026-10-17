@@ -53,7 +53,6 @@ fn setup() -> (
         note_id: new_id(),
         first_sheet_id: new_id(),
         title: "Private note".into(),
-        page_format: PageFormat::Sheet16x10,
         notebook: None,
     };
     lib.create_note(r.clone()).unwrap();
@@ -201,7 +200,6 @@ fn reviewed_workflow_fixture_survives_every_restart() {
                 note_id: input["note_id"].as_str().unwrap().into(),
                 first_sheet_id: input["sheet_id"].as_str().unwrap().into(),
                 title: "Fixture".into(),
-                page_format: PageFormat::Sheet16x10,
                 notebook: None,
             })
             .unwrap();
@@ -454,15 +452,20 @@ fn history_chains_branches_metadata_and_structure() {
         &[&undo_add.operation_id],
     );
     note.submit(redo_add.clone()).unwrap();
-    let new_sheet = new_id();
+    // Canvas amendment: structural commands are rejected and touch neither history nor state.
+    let before_structure = note.snapshot().unwrap();
     let structure = cmd(
         CommandBody::AddSheet {
-            sheet_id: new_sheet.clone(),
+            sheet_id: new_id(),
             base: base(&r.operation_id),
         },
         &[&r.operation_id],
     );
-    note.submit(structure.clone()).unwrap();
+    assert!(matches!(
+        note.submit(structure),
+        Err(CoreError::InvalidInput { .. })
+    ));
+    assert_eq!(note.snapshot().unwrap(), before_structure);
     let rename = cmd(
         CommandBody::RenameNote {
             title: "Renamed".into(),
@@ -519,41 +522,34 @@ fn history_chains_branches_metadata_and_structure() {
     assert_eq!(note.snapshot().unwrap().redo_target, None);
     let reorder = cmd(
         CommandBody::ReorderSheets {
-            sheet_ids: vec![new_sheet.clone(), r.first_sheet_id.clone()],
-            base: base(&structure.operation_id),
+            sheet_ids: vec![r.first_sheet_id.clone()],
+            base: base(&r.operation_id),
         },
-        &[&structure.operation_id],
+        &[&r.operation_id],
     );
-    note.submit(reorder.clone()).unwrap();
+    assert!(matches!(
+        note.submit(reorder),
+        Err(CoreError::InvalidInput { .. })
+    ));
+    // New ink names the (only) first sheet and still needs its creator as a dependency.
     let add_new = cmd(
         CommandBody::Marks {
             mutations: vec![MarkMutation::AddStroke {
                 mark_id: new_id(),
-                sheet_id: new_sheet,
+                sheet_id: r.first_sheet_id.clone(),
                 samples: blob(),
                 brush: brush(),
             }],
         },
-        &[&reorder.operation_id],
+        &[],
     );
     assert!(matches!(
         note.submit(add_new.clone()),
         Err(CoreError::MissingDependency { .. })
     ));
     let mut add_new = add_new;
-    add_new.dependencies.push(structure.operation_id.clone());
+    add_new.dependencies.push(r.operation_id.clone());
     note.submit(add_new).unwrap();
-    let invalid_reorder = cmd(
-        CommandBody::ReorderSheets {
-            sheet_ids: vec![r.first_sheet_id],
-            base: base(&reorder.operation_id),
-        },
-        &[&reorder.operation_id],
-    );
-    assert!(matches!(
-        note.submit(invalid_reorder),
-        Err(CoreError::InvalidInput { .. })
-    ));
 }
 #[test]
 fn event_pages_gap_reopen_and_closed_handles() {
@@ -694,7 +690,7 @@ fn live_wal_export_reopens_without_device_history_and_refuses_overwrite() {
     drop(copied);
     drop(other);
     let db = rusqlite::Connection::open(&destination).unwrap();
-    db.pragma_update(None, "user_version", 3).unwrap();
+    db.pragma_update(None, "user_version", 4).unwrap();
     drop(db);
     let before = std::fs::read(&destination).unwrap();
     assert!(matches!(

@@ -1,6 +1,8 @@
 //! Transactional offline Android notes. No sequencer-confirmed state is fabricated.
 mod canonical;
 #[cfg(test)]
+mod canvas_tests;
+#[cfg(test)]
 mod dependency_tests;
 mod error;
 #[cfg(test)]
@@ -29,9 +31,13 @@ pub fn new_id() -> Id {
     ulid::Ulid::generate().to_string()
 }
 
-/// Page size in note units for a format, e.g. for library thumbnails.
+/// The canvas every note uses: 4800 units wide, a 4800 x 3000 Mac window, a 1600-unit
+/// phone column.
 #[uniffi::export]
-pub fn page_size(format: PageFormat) -> PageSize {
-    let (width, height) = format.dimensions();
-    PageSize { width, height }
+pub fn canvas_size() -> CanvasSize {
+    CanvasSize {
+        width: CANVAS_WIDTH,
+        view_height: CANVAS_VIEW_HEIGHT,
+        phone_column: CANVAS_PHONE_COLUMN,
+    }
 }

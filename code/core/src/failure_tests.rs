@@ -15,7 +15,6 @@ fn request() -> CreateNoteRequest {
         note_id: NOTE.into(),
         first_sheet_id: SHEET.into(),
         title: "Crash test".into(),
-        page_format: PageFormat::Sheet16x10,
         notebook: None,
     }
 }
@@ -52,7 +51,10 @@ fn crash_probe() {
     };
     let lib = open_library(root).unwrap();
     let stage = std::env::var("SYNCR_CRASH_STAGE").unwrap();
-    if stage.starts_with("delete_") {
+    if stage.starts_with("upgrade_") {
+        let note = std::env::var("SYNCR_CRASH_NOTE").unwrap();
+        lib.open_note(note).unwrap();
+    } else if stage.starts_with("delete_") {
         lib.delete_note(NOTE.into()).unwrap();
     } else if stage.starts_with("restore_") {
         lib.restore_note(NOTE.into()).unwrap();
