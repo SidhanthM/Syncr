@@ -3,17 +3,15 @@ import Metal
 import MetalKit
 import SyncrCore
 
-struct Viewport {
+struct Viewport: Equatable, Sendable {
     var left: Float = 0
     var top: Float = 0
     var zoom: Float = 1
-
     func visibleSize(_ pixels: CGSize) -> SIMD2<Float> {
         let canvas = canvasSize()
         let fit = min(Float(pixels.width) / canvas.width, Float(pixels.height) / canvas.viewHeight)
         return SIMD2(Float(pixels.width), Float(pixels.height)) / max(0.001, fit * zoom)
     }
-
     mutating func clamp(pixels: CGSize, bottom: Float) {
         let size = visibleSize(pixels)
         left = min(max(0, left), max(0, canvasSize().width - size.x))
@@ -28,7 +26,6 @@ struct MeshUniforms {
     var colour: SIMD4<Float>
 }
 
-/// Source-compiled shaders work with Command Line Tools (no metal command or Xcode needed).
 private let shader = """
 #include <metal_stdlib>
 using namespace metal;
@@ -44,31 +41,52 @@ vertex VertexOut stroke_vertex(const device float2 *positions [[buffer(0)]],
     out.colour = u.colour;
     return out;
 }
+vertex VertexOut reset_vertex(uint id [[vertex_id]]) {
+    const float2 positions[3] = { float2(-1,-1), float2(3,-1), float2(-1,3) };
+    VertexOut out; out.position = float4(positions[id],0,1); out.colour = float4(0);
+    return out;
+}
 fragment float4 stroke_fragment(VertexOut v [[stage_in]]) { return v.colour; }
 """
 
+/// Owned by the UI thread. Buffers are immutable after upload and command buffers retain
+/// their resources until GPU completion. Only the offscreen checks ever synchronously wait.
 final class MeshRenderer {
     let device: MTLDevice
     private let queue: MTLCommandQueue
     private let ordinary: MTLRenderPipelineState
     private let translucent: MTLRenderPipelineState
-    private let stencil: MTLDepthStencilState
+    private let reset: MTLRenderPipelineState
+    private let mask: MTLDepthStencilState
+    private let unmasked: MTLDepthStencilState
+    private let resetMask: MTLDepthStencilState
+    private var colourTarget: MTLTexture?
+    private var stencilTarget: MTLTexture?
+    private var drawingID: UUID?
+    private struct Upload { let stroke: DrawStroke; let vertices: MTLBuffer; let indices: MTLBuffer }
+    private var uploads: [Upload] = []
+    private(set) var bufferBuildCount = 0
+    private(set) var attachmentBuildCount = 0
+    private(set) var lastPassCount = 0
+    private(set) var lastStencilResetCount = 0
 
     init(device: MTLDevice) throws {
         self.device = device
-        guard let queue = device.makeCommandQueue() else { throw RendererError.unavailable }
+        guard device.supportsTextureSampleCount(4), let queue = device.makeCommandQueue() else {
+            throw RendererError.unavailable
+        }
         self.queue = queue
         let source = try device.makeLibrary(source: shader, options: nil)
-        func pipeline(_ highlighter: Bool) throws -> MTLRenderPipelineState {
+        func pipeline(_ highlighter: Bool, resetting: Bool = false) throws -> MTLRenderPipelineState {
             let descriptor = MTLRenderPipelineDescriptor()
-            descriptor.vertexFunction = source.makeFunction(name: "stroke_vertex")
+            descriptor.vertexFunction = source.makeFunction(name: resetting ? "reset_vertex" : "stroke_vertex")
             descriptor.fragmentFunction = source.makeFunction(name: "stroke_fragment")
+            descriptor.rasterSampleCount = 4
             descriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
             descriptor.stencilAttachmentPixelFormat = .stencil8
             let attachment = descriptor.colorAttachments[0]!
+            if resetting { attachment.writeMask = [] }
             attachment.isBlendingEnabled = highlighter
-            attachment.rgbBlendOperation = .add
-            attachment.alphaBlendOperation = .add
             attachment.sourceRGBBlendFactor = .sourceAlpha
             attachment.destinationRGBBlendFactor = .oneMinusSourceAlpha
             attachment.sourceAlphaBlendFactor = .one
@@ -77,81 +95,163 @@ final class MeshRenderer {
         }
         ordinary = try pipeline(false)
         translucent = try pipeline(true)
-        let depth = MTLDepthStencilDescriptor()
-        let face = MTLStencilDescriptor()
-        face.stencilCompareFunction = .equal
-        face.stencilFailureOperation = .keep
-        face.depthFailureOperation = .keep
-        face.depthStencilPassOperation = .incrementClamp
-        depth.frontFaceStencil = face
-        depth.backFaceStencil = face
-        stencil = device.makeDepthStencilState(descriptor: depth)!
+        reset = try pipeline(false, resetting: true)
+        func state(_ comparison: MTLCompareFunction, _ operation: MTLStencilOperation) throws -> MTLDepthStencilState {
+            let descriptor = MTLDepthStencilDescriptor()
+            let face = MTLStencilDescriptor()
+            face.stencilCompareFunction = comparison
+            face.stencilFailureOperation = .keep
+            face.depthFailureOperation = .keep
+            face.depthStencilPassOperation = operation
+            descriptor.frontFaceStencil = face; descriptor.backFaceStencil = face
+            guard let state = device.makeDepthStencilState(descriptor: descriptor) else { throw RendererError.unavailable }
+            return state
+        }
+        mask = try state(.notEqual, .replace)
+        unmasked = try state(.always, .keep)
+        resetMask = try state(.always, .replace)
     }
 
-    /// Same function drives MTKView and an offscreen texture in the tests.
-    func render(_ drawing: Drawing?, viewport: Viewport, dark: Bool, target: MTLTexture) throws {
-        guard let buffer = queue.makeCommandBuffer() else { throw RendererError.unavailable }
-        let pixelSize = CGSize(width: target.width, height: target.height)
-        let visible = viewport.visibleSize(pixelSize)
-        let stencilDesc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .stencil8,
-                                          width: target.width, height: target.height, mipmapped: false)
-        stencilDesc.usage = .renderTarget
-        stencilDesc.storageMode = .private
-        guard let stencilTexture = device.makeTexture(descriptor: stencilDesc) else { throw RendererError.unavailable }
-        let clear = MTLRenderPassDescriptor()
-        clear.colorAttachments[0].texture = target
-        clear.colorAttachments[0].loadAction = .clear
-        clear.colorAttachments[0].storeAction = .store
-        clear.colorAttachments[0].clearColor = dark
-            ? MTLClearColor(red: 0.10, green: 0.11, blue: 0.13, alpha: 1)
-            : MTLClearColor(red: 0.98, green: 0.97, blue: 0.94, alpha: 1)
-        guard let first = buffer.makeRenderCommandEncoder(descriptor: clear) else { throw RendererError.unavailable }
-        first.endEncoding()
-        for stroke in drawing?.strokes ?? [] {
-            let mesh = stroke.mesh
-            let count = mesh.indices.count / 4
-            guard count > 0, mesh.vertices.count >= 8 else { continue }
-            let minX = mesh.minX + stroke.originX, maxX = mesh.maxX + stroke.originX
-            let minY = mesh.minY + stroke.originY, maxY = mesh.maxY + stroke.originY
-            if maxX < viewport.left || minX > viewport.left + visible.x ||
-                maxY < viewport.top || minY > viewport.top + visible.y { continue }
-            guard let vertices = device.makeBuffer(bytes: [UInt8](mesh.vertices), length: mesh.vertices.count),
-                  let indices = device.makeBuffer(bytes: [UInt8](mesh.indices), length: mesh.indices.count) else {
-                throw RendererError.unavailable
+    private func prepare(_ drawing: Drawing?, width: Int, height: Int) throws {
+        if colourTarget?.width != width || colourTarget?.height != height {
+            func texture(_ format: MTLPixelFormat) throws -> MTLTexture {
+                let desc = MTLTextureDescriptor()
+                desc.textureType = .type2DMultisample
+                desc.pixelFormat = format; desc.width = width; desc.height = height
+                desc.sampleCount = 4; desc.storageMode = .private; desc.usage = .renderTarget
+                guard let texture = device.makeTexture(descriptor: desc) else { throw RendererError.unavailable }
+                return texture
             }
-            let pass = MTLRenderPassDescriptor()
-            pass.colorAttachments[0].texture = target
-            pass.colorAttachments[0].loadAction = .load
-            pass.colorAttachments[0].storeAction = .store
-            pass.stencilAttachment.texture = stencilTexture
-            pass.stencilAttachment.loadAction = .clear // one stencil mask per translucent stroke
-            pass.stencilAttachment.storeAction = .dontCare
-            pass.stencilAttachment.clearStencil = 0
-            guard let encoder = buffer.makeRenderCommandEncoder(descriptor: pass) else { throw RendererError.unavailable }
-            encoder.setRenderPipelineState(stroke.highlighter ? translucent : ordinary)
-            if stroke.highlighter { encoder.setDepthStencilState(stencil); encoder.setStencilReferenceValue(0) }
-            var uniforms = MeshUniforms(origin: SIMD2(stroke.originX, stroke.originY),
-                        viewport: SIMD2(viewport.left, viewport.top), size: visible,
-                        colour: Self.colour(stroke.colour, dark: dark, highlighter: stroke.highlighter))
+            colourTarget = try texture(.bgra8Unorm)
+            stencilTarget = try texture(.stencil8)
+            attachmentBuildCount += 1
+        }
+        if drawingID != drawing?.id {
+            uploads.removeAll(); drawingID = drawing?.id
+        }
+        // Progressive loading only appends strokes. A new note/reload has a new Drawing ID.
+        for stroke in (drawing?.strokes ?? []).dropFirst(uploads.count) {
+            let mesh = stroke.mesh
+            guard !mesh.vertices.isEmpty, !mesh.indices.isEmpty else { throw RendererError.unavailable }
+            let vertices = mesh.vertices.withUnsafeBytes { device.makeBuffer(bytes: $0.baseAddress!, length: $0.count) }
+            let indices = mesh.indices.withUnsafeBytes { device.makeBuffer(bytes: $0.baseAddress!, length: $0.count) }
+            guard let vertices, let indices else { throw RendererError.unavailable }
+            uploads.append(Upload(stroke: stroke, vertices: vertices, indices: indices))
+            bufferBuildCount += 2
+        }
+    }
+
+    /// A single 4x MSAA pass for either output. Pass a drawable to present without blocking;
+    /// without one, wait for offscreen pixel inspection. No per-stroke render passes.
+    /// `wet` is the live-ink layer: drawn after the committed strokes in this same pass, continuing
+    /// the same stencil references, so a live highlighter stroke is one coverage like a committed one.
+    /// `stage` gets (name, monotonic ns) as the frame goes through: "encoded", "scheduled", "gpu done",
+    /// "presented" (the drawable's presented time; "presented (handler time)" when the system reports none;
+    /// offscreen, GPU completion).  `afterScheduled`: present only once the GPU work is scheduled, for
+    /// layers with `presentsWithTransaction`.
+    func render(_ drawing: Drawing?, wet: WetFrame? = nil, viewport: Viewport, dark: Bool, target: MTLTexture,
+                presenting drawable: MTLDrawable? = nil,
+                completion: (@Sendable (String?) -> Void)? = nil,
+                stage: (@Sendable (String, UInt64) -> Void)? = nil,
+                afterScheduled: Bool = false) throws {
+        try prepare(drawing, width: target.width, height: target.height)
+        guard let buffer = queue.makeCommandBuffer() else { throw RendererError.unavailable }
+        let visible = viewport.visibleSize(CGSize(width: target.width, height: target.height))
+        let pass = MTLRenderPassDescriptor()
+        pass.colorAttachments[0].texture = colourTarget
+        pass.colorAttachments[0].resolveTexture = target
+        pass.colorAttachments[0].loadAction = .clear
+        pass.colorAttachments[0].storeAction = .multisampleResolve
+        let paper = NotePalette.rgba(NotePalette.paper(dark))
+        pass.colorAttachments[0].clearColor = MTLClearColor(red: Double(paper.x), green: Double(paper.y), blue: Double(paper.z), alpha: 1)
+        pass.stencilAttachment.texture = stencilTarget
+        pass.stencilAttachment.loadAction = .clear
+        pass.stencilAttachment.storeAction = .dontCare
+        pass.stencilAttachment.clearStencil = 0
+        guard let encoder = buffer.makeRenderCommandEncoder(descriptor: pass) else { throw RendererError.unavailable }
+        lastPassCount = 1; lastStencilResetCount = 0
+        var reference: UInt32 = 0
+        /// Binds pipeline and stencil state for one stroke. Highlighters take the next stencil reference.
+        func bind(_ highlighter: Bool) {
+            if highlighter {
+                if reference == 255 {
+                    // Hardware stencil clear is a load action. On wrap, emulate it with
+                    // a colour-masked fullscreen triangle *inside this same pass*.
+                    encoder.setRenderPipelineState(reset)
+                    encoder.setDepthStencilState(resetMask)
+                    encoder.setStencilReferenceValue(0)
+                    encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+                    reference = 0; lastStencilResetCount += 1
+                }
+                reference += 1
+                encoder.setDepthStencilState(mask)
+                encoder.setStencilReferenceValue(reference)
+            } else { encoder.setDepthStencilState(unmasked) }
+            encoder.setRenderPipelineState(highlighter ? translucent : ordinary)
+        }
+        func draw(_ vertices: MTLBuffer, _ indices: MTLBuffer, count: Int, origin: SIMD2<Float>, colour: SIMD4<Float>) {
+            var uniforms = MeshUniforms(origin: origin, viewport: SIMD2(viewport.left, viewport.top), size: visible, colour: colour)
             encoder.setVertexBuffer(vertices, offset: 0, index: 0)
             encoder.setVertexBuffer(indices, offset: 0, index: 1)
             encoder.setVertexBytes(&uniforms, length: MemoryLayout<MeshUniforms>.stride, index: 2)
             encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: count)
-            encoder.endEncoding()
         }
-        buffer.commit()
-        buffer.waitUntilCompleted()
-        if buffer.status == .error { throw buffer.error ?? RendererError.unavailable }
-    }
-
-    private static func colour(_ value: InkColour, dark: Bool, highlighter: Bool) -> SIMD4<Float> {
-        let alpha: Float = highlighter ? 0.35 : 1
-        switch value {
-        case .ink: return SIMD4(dark ? 0.93 : 0.12, dark ? 0.93 : 0.14, dark ? 0.91 : 0.17, alpha)
-        case .red: return SIMD4(0.82, 0.19, 0.22, alpha)
-        case .green: return SIMD4(0.12, 0.62, 0.31, alpha)
-        case .blue: return SIMD4(0.13, 0.35, 0.83, alpha)
-        case .orange: return SIMD4(0.92, 0.48, 0.10, alpha)
+        func visibleBounds(_ minX: Float, _ minY: Float, _ maxX: Float, _ maxY: Float) -> Bool {
+            !(maxX < viewport.left || minX > viewport.left + visible.x || maxY < viewport.top || minY > viewport.top + visible.y)
+        }
+        for upload in uploads {
+            let stroke = upload.stroke, mesh = stroke.mesh
+            guard visibleBounds(mesh.minX + stroke.originX, mesh.minY + stroke.originY,
+                                mesh.maxX + stroke.originX, mesh.maxY + stroke.originY) else { continue }
+            bind(stroke.highlighter)
+            draw(upload.vertices, upload.indices, count: mesh.indices.count / 4, origin: SIMD2(stroke.originX, stroke.originY),
+                 colour: NotePalette.colour(stroke.colour, dark: dark, highlighter: stroke.highlighter))
+        }
+        // Wet layer. Sheet origin is zero: only the first sheet of a Mac note takes live ink.
+        for stroke in wet?.strokes ?? [] {
+            var bound = false
+            for piece in stroke.pieces where visibleBounds(piece.minX, piece.minY, piece.maxX, piece.maxY) {
+                if !bound { bind(stroke.highlighter); bound = true }
+                draw(piece.vertices, piece.indices, count: piece.indexCount, origin: .zero,
+                     colour: NotePalette.colour(stroke.colour, dark: dark, highlighter: stroke.highlighter))
+            }
+        }
+        if let hover = wet?.hover {
+            // A fixed on-screen size whatever the zoom: 5 px radius.
+            let radius = 5 * visible.x / Float(target.width)
+            var points: [SIMD2<Float>] = [SIMD2(hover.x, hover.y)]
+            for i in 0..<16 { let a = Float(i) * .pi / 8; points.append(SIMD2(hover.x + radius * cos(a), hover.y + radius * sin(a))) }
+            var triangles: [UInt32] = []
+            for i in 0..<16 { triangles += [0, UInt32(1 + i), UInt32(1 + (i + 1) % 16)] }
+            if let v = device.makeBuffer(bytes: points, length: points.count * MemoryLayout<SIMD2<Float>>.stride),
+               let i = device.makeBuffer(bytes: triangles, length: triangles.count * 4) {
+                bind(false)
+                draw(v, i, count: triangles.count, origin: .zero, colour: NotePalette.colour(.blue, dark: dark, highlighter: false))
+            }
+        }
+        encoder.endEncoding()
+        stage?("encoded", monotonicNs())
+        if let stage {
+            buffer.addScheduledHandler { _ in stage("scheduled", monotonicNs()) }
+            buffer.addCompletedHandler { _ in stage("gpu done", monotonicNs()) }
+        }
+        if let drawable {
+            if let stage {
+                drawable.addPresentedHandler { d in
+                    if d.presentedTime > 0 { stage("presented", UInt64(d.presentedTime * 1e9)) }
+                    else { stage("presented (handler time)", monotonicNs()) }
+                }
+            }
+            if let completion { buffer.addCompletedHandler { completion($0.error?.localizedDescription) } }
+            if afterScheduled {
+                buffer.commit(); buffer.waitUntilScheduled(); drawable.present()
+            } else {
+                buffer.present(drawable); buffer.commit()
+            }
+        } else {
+            buffer.commit(); buffer.waitUntilCompleted()
+            if buffer.status == .error { throw buffer.error ?? RendererError.unavailable }
+            stage?("presented", monotonicNs())
         }
     }
 }
