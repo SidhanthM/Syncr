@@ -11,15 +11,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.syncr.prototype.notes.LibraryFilter
 import dev.syncr.prototype.notes.NoteCanvasView
-import dev.syncr.core.PageFormat
 
 /**
  * Screen switching plus the closure guard. Every path that leaves a note goes through [closeOrGuard];
  * only the repository decides whether leaving is allowed (receipt, export or confirmed discard).
  */
 @Composable
-fun SyncrApp(vm: NotesViewModel = viewModel(), dark: Boolean, appearance: Appearance, defaultFormat: PageFormat,
-    onAppearance: (Appearance) -> Unit, onDefaultFormat: (PageFormat) -> Unit,
+fun SyncrApp(vm: NotesViewModel = viewModel(), dark: Boolean, appearance: Appearance,
+    onAppearance: (Appearance) -> Unit,
     onFinish: () -> Unit, onPointer: () -> Unit) {
     val repo = vm.repository
     val state by repo.state.collectAsStateWithLifecycle()
@@ -65,7 +64,7 @@ fun SyncrApp(vm: NotesViewModel = viewModel(), dark: Boolean, appearance: Appear
 
     val snapshot = state.snapshot
     LaunchedEffect(snapshot == null) {
-        if (snapshot == null) { more = false; renaming = false; moving = false; paper = null
+        if (snapshot == null) { more = false; renaming = false; moving = false; paper = null; vm.canvasViewport = null
             tools = tools.copy(barOpen = false, optionsOpen = false) }
     }
     // A notebook that no longer exists (renamed elsewhere, deleted) falls back to All.
@@ -86,7 +85,7 @@ fun SyncrApp(vm: NotesViewModel = viewModel(), dark: Boolean, appearance: Appear
     if (snapshot == null) {
         LibraryScreen(state, filter, LibraryActions(
             onFilter = { filter = it },
-            onNew = { format -> vm.run { repo.create(defaultNoteTitle(System.currentTimeMillis()), format, filter.newNoteNotebook) } },
+            onNew = { vm.run { repo.create(defaultNoteTitle(System.currentTimeMillis()), filter.newNoteNotebook) } },
             onOpen = { id -> vm.run { repo.open(id) } },
             onPointer = { closeOrGuard(onPointer) },
             onSettings = { settings = true },
@@ -104,7 +103,7 @@ fun SyncrApp(vm: NotesViewModel = viewModel(), dark: Boolean, appearance: Appear
             onPurgeNote = { id -> vm.run { repo.purgeNote(id) } },
             onUndoDelete = { vm.run { repo.undoDelete() } },
             onDismissDeleted = { repo.dismissDeleted() },
-        ), defaultFormat = defaultFormat, banner = banner)
+        ), banner = banner)
     } else {
         NoteScreen(vm, state, dark, tools, onTools = { tools = it }, onPaper = { paper = it },
             onUndo = { paper?.cancelGesture(); paper?.deselect(); vm.run { repo.history(false) } },
@@ -114,13 +113,12 @@ fun SyncrApp(vm: NotesViewModel = viewModel(), dark: Boolean, appearance: Appear
             banner = banner)
     }
 
-    if (settings && snapshot == null) SettingsSheet(appearance, defaultFormat, vm.location, onAppearance, onDefaultFormat,
+    if (settings && snapshot == null) SettingsSheet(appearance, vm.location, onAppearance,
         onDismiss = { settings = false })
     if (more && snapshot != null) MoreSheet(state, vm.location,
         onDismiss = { more = false },
         onRename = { renaming = true },
         onMove = { moving = true },
-        onAddPage = { vm.run { repo.addSheet() } },
         onExport = { exportConfirm = true },
         onPointer = { more = false; closeOrGuard(onPointer) },
         onLibrary = { more = false; closeOrGuard {} },

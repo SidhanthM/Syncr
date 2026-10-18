@@ -46,7 +46,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.syncr.core.NoteSummary
-import dev.syncr.core.PageFormat
 import dev.syncr.prototype.notes.LibraryFilter
 import dev.syncr.prototype.notes.NotesState
 import dev.syncr.prototype.notes.Thumbnail
@@ -57,7 +56,7 @@ import kotlinx.coroutines.withContext
 /** Library actions; all storage happens in the repository's worker. */
 class LibraryActions(
     val onFilter: (LibraryFilter) -> Unit,
-    val onNew: (PageFormat) -> Unit,
+    val onNew: () -> Unit,
     val onOpen: (String) -> Unit,
     val onPointer: () -> Unit,
     val onSettings: () -> Unit,
@@ -83,7 +82,7 @@ class LibraryActions(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun LibraryScreen(state: NotesState, filter: LibraryFilter, actions: LibraryActions,
-    defaultFormat: PageFormat, banner: @Composable () -> Unit) {
+    banner: @Composable () -> Unit) {
     val c = Syncr.colors
     val enabled = !state.busy && !state.unsaved && state.libraryTask == null
     val names = state.notebooks.map { it.name }
@@ -99,7 +98,7 @@ fun LibraryScreen(state: NotesState, filter: LibraryFilter, actions: LibraryActi
     Column(Modifier.fillMaxSize().background(c.desk).safeDrawingPadding().padding(horizontal = 20.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Spacer(Modifier.weight(1f))
-            LabelButton("Settings", actions.onSettings, description = "Open appearance and new note settings")
+            LabelButton("Settings", actions.onSettings, description = "Open appearance and input settings")
             LabelButton("Tablet mode", actions.onPointer, enabled = !state.busy,
                 description = "Tablet mode: use the phone as a pen pad for the Mac over Bluetooth. Nothing is stored.")
         }
@@ -139,7 +138,7 @@ fun LibraryScreen(state: NotesState, filter: LibraryFilter, actions: LibraryActi
             else LazyVerticalGrid(GridCells.Fixed(2), Modifier.fillMaxSize().padding(top = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(20.dp),
                 contentPadding = PaddingValues(bottom = 88.dp)) {
-                if (filter.allowsNewNotes) item(key = "new") { NewNoteCell(enabled, defaultFormat, actions.onNew) }
+                if (filter.allowsNewNotes) item(key = "new") { NewNoteCell(enabled, actions.onNew) }
                 items(shown, key = { it.id }) { note ->
                     NoteCard(note, state.thumbnails[note.id], showNotebook = filter == LibraryFilter.All || filter == LibraryFilter.Archived,
                         now = now, enabled = enabled,
@@ -262,27 +261,13 @@ private fun IconAction(glyph: MenuGlyph, label: String, tint: Color, enabled: Bo
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun NewNoteCell(enabled: Boolean, defaultFormat: PageFormat, onNew: (PageFormat) -> Unit) {
+private fun NewNoteCell(enabled: Boolean, onNew: () -> Unit) {
     val c = Syncr.colors
-    var menu by remember { mutableStateOf(false) }
     Column {
         Box(Modifier.fillMaxWidth().aspectRatio(CARD_ASPECT).clip(RoundedCornerShape(8.dp)).hairlineBorder(c.dots)
-            .combinedClickable(enabled = enabled, role = Role.Button, onLongClick = { menu = true }) { onNew(defaultFormat) }
-            .semantics { contentDescription = "New note with ${defaultFormat.label()}. Long-press for page formats" },
-            contentAlignment = Alignment.Center) {
+            .combinedClickable(enabled = enabled, role = Role.Button, onClick = onNew)
+            .semantics { contentDescription = "New note" }, contentAlignment = Alignment.Center) {
             Text("+", style = Syncr.type.heading, color = if (enabled) c.muted else c.dots)
-            Box(Modifier.align(Alignment.TopEnd)) {
-                Box(Modifier.size(48.dp).combinedClickable(enabled = enabled, role = Role.Button) { menu = true }
-                    .semantics { contentDescription = "Choose page format" }, contentAlignment = Alignment.Center) {
-                    Text("⌄", style = Syncr.type.title, color = c.muted)
-                }
-                DropdownMenu(menu, { menu = false }, containerColor = c.chrome) {
-                    DropdownMenuItem({ Column { Text("Phone pages"); Text("Tall pages that scroll", style = Syncr.type.caption, color = c.muted) } },
-                        onClick = { menu = false; onNew(PageFormat.PHONE) })
-                    DropdownMenuItem({ Column { Text("16:10 sheets"); Text("The shape of a Mac screen", style = Syncr.type.caption, color = c.muted) } },
-                        onClick = { menu = false; onNew(PageFormat.SHEET16X10) })
-                }
-            }
         }
         Text("New note", style = Syncr.type.title, color = if (enabled) c.ink else c.muted, modifier = Modifier.padding(top = 8.dp))
     }
@@ -328,7 +313,7 @@ private const val CARD_ASPECT = 1.25f
 private const val THUMB_W = 400
 private const val THUMB_H = 320
 
-/** Renders the decoded first-page ink into a small bitmap off the main thread (no FFI here). */
+/** Renders the decoded top-left canvas ink into a small bitmap off the main thread (no FFI here). */
 @Composable
 private fun rememberThumbnail(thumbnail: Thumbnail?, dark: Boolean): ImageBitmap? {
     val context = LocalContext.current
@@ -340,14 +325,15 @@ private fun rememberThumbnail(thumbnail: Thumbnail?, dark: Boolean): ImageBitmap
     }.value
 }
 
-private fun renderThumbnail(t: Thumbnail, dark: Boolean, ink: InkPreferences): Bitmap {
+internal fun renderThumbnail(t: Thumbnail, dark: Boolean, ink: InkPreferences): Bitmap {
     val bitmap = Bitmap.createBitmap(THUMB_W, THUMB_H, Bitmap.Config.ARGB_8888)
     val canvas = android.graphics.Canvas(bitmap)
-    // Width-fit with a small margin, top-aligned: the top of the first page.
+    // Width-fit with a small margin, top-aligned: the top-left of the canvas.
     val margin = THUMB_W * 0.04f
-    val scale = (THUMB_W - 2 * margin) / t.pageWidth
+    val scale = (THUMB_W - 2 * margin) / t.width
     canvas.translate(margin, margin)
-    // Same Ink brushes as the page, so the card matches the note (drawThumbnail applies the scale).
+    canvas.scale(scale, scale)
+    // CanvasStrokeRenderer expects the Canvas already transformed; its matrix is for screen-space rendering quality.
     drawThumbnail(canvas, t, dark, scale, ink)
     return bitmap
 }

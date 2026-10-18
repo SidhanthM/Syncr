@@ -17,8 +17,8 @@ class NotesRepositoryTest {
     private val identity = Affine(1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
     private fun snapshot(seq: ULong = 1u, strokes: List<StrokeView> = emptyList(), undo: String? = null, redo: String? = null,
         undoDependencies: List<String> = emptyList(), redoDependencies: List<String> = emptyList()) =
-        NoteSnapshot("note", "Test", null, PageFormat.PHONE, 1600f, 3200f, EntityHead("creation", null), EntityHead("creation", null),
-            listOf(SheetView("sheet", "creation")),
+        NoteSnapshot("note", "Test", null, EntityHead("creation", null), EntityHead("creation", null),
+            listOf(SheetView("sheet", "creation", 0f, 0f)),
             strokes, seq, EventCursor("stream", seq), undo, redo, undoDependencies, redoDependencies)
     private fun preview(id: String = "mark") = InkPreview(id, "sheet", samples, brush)
 
@@ -62,15 +62,15 @@ class NotesRepositoryTest {
         override fun decode(bytes: ByteArray): SampleChannels { worker(); return samples }
         override fun authorId(): String { worker(); return "author" }
         override fun listNotes(): List<NoteSummary> { worker()
-            return listOf(NoteSummary("old", "Old", 1u, PageFormat.SHEET16X10, "Physics", 10, 20, false),
-                NoteSummary("note", current.title, current.localSequence, PageFormat.PHONE, current.notebook, 10, 30, current.archived))
+            return listOf(NoteSummary("old", "Old", 1u, "Physics", 10, 20, false),
+                NoteSummary("note", current.title, current.localSequence, current.notebook, 10, 30, current.archived))
                 .filter { it.id !in deleted && it.id !in purged } }
         override fun deleteNote(id: String) {
             worker(); trashCalls += "delete:$id"; failDelete?.let { throw it }
             if (id !in deleted) deleted[id] = clock
         }
         override fun listDeletedNotes(): List<DeletedNoteSummary> { worker()
-            return deleted.entries.sortedByDescending { it.value }.map { (id, at) -> DeletedNoteSummary(id, "Deleted $id", null, PageFormat.PHONE, at, 10) } }
+            return deleted.entries.sortedByDescending { it.value }.map { (id, at) -> DeletedNoteSummary(id, "Deleted $id", null, at, 10) } }
         override fun restoreNote(id: String) { worker(); trashCalls += "restore:$id"; failRestore?.let { throw it }; deleted -= id }
         override fun purgeNote(id: String) { worker(); trashCalls += "purge:$id"; failPurge?.let { throw it }; deleted -= id; purged += id }
         override fun purgeDeletedOlderThan(cutoffMs: Long): UInt { worker(); trashCalls += "purgeOlderThan:$cutoffMs"
@@ -228,14 +228,15 @@ class NotesRepositoryTest {
         repo.history(false); repo.history(true)
         assertTrue(fake.commands.isEmpty()); assertFalse(repo.state.value.unsaved)
     }
-    @Test fun selectedSheetProvenanceIsCapturedBeforeRefreshAndExportPreparesPayloadOnlyOnce() = runTest {
+    @Test fun firstSheetProvenanceIsCapturedBeforeRefreshAndExportPreparesPayloadOnlyOnce() = runTest {
         val fake = Fake()
         fake.current = snapshot().copy(structureHead = EntityHead("reorder", null),
-            sheets = listOf(SheetView("sheet", "first-creation"), SheetView("new-sheet", "new-creation")))
+            sheets = listOf(SheetView("sheet", "first-creation", 0f, 0f), SheetView("old-sheet", "old-creation", 0f, 3200f)))
         val repo = repo(fake, StandardTestDispatcher(testScheduler)); repo.open("note")
         assertFalse(repo.stageStroke(preview().copy(sheetId = "unknown")))
-        assertTrue(repo.stageStroke(preview().copy(sheetId = "new-sheet")))
-        assertEquals(listOf("new-creation"), repo.state.value.pending.single().dependencies)
+        assertFalse(repo.stageStroke(preview().copy(sheetId = "old-sheet")))
+        assertTrue(repo.stageStroke(preview()))
+        assertEquals(listOf("first-creation"), repo.state.value.pending.single().dependencies)
         fake.current = snapshot().copy(structureHead = EntityHead("later-structure", null))
         repo.refresh()
         var original: Command? = null
@@ -246,9 +247,9 @@ class NotesRepositoryTest {
         repo.exportRecovery { assertSame(original, it.commands.single()) }
         fake.failSubmit = CoreException.StorageFull("Storage is full", true); repo.retry()
         assertSame(original, fake.commands.single())
-        assertEquals(listOf("new-creation"), original!!.dependencies)
+        assertEquals(listOf("first-creation"), original!!.dependencies)
         val add = (original!!.body as CommandBody.Marks).mutations.single() as MarkMutation.AddStroke
-        assertEquals("new-sheet", add.sheetId); assertEquals("mark", add.markId)
+        assertEquals("sheet", add.sheetId); assertEquals("mark", add.markId)
         assertArrayEquals(byteArrayOf(1, 2, 3), add.samples)
         fake.failSubmit = null; fake.afterSubmit = { fake.current = snapshot(2u) }; repo.retry()
         assertSame(original, fake.commands.last()); assertEquals(1, fake.encodeCount)
@@ -358,6 +359,26 @@ class NotesRepositoryTest {
         assertEquals(3, fake.commands.size)
         assertTrue((fake.commands.last().body as CommandBody.Marks).mutations.all { it is MarkMutation.DeleteStroke })
     }
+    @Test fun oneCanvasResizeAcrossLegacySheetsStoresSheetLocalTransforms() = runTest {
+        val fake = Fake()
+        val first = SheetView("sheet", "creation", 0f, 0f)
+        val old = SheetView("legacy", "legacy-create", 0f, 3200f)
+        fake.current = snapshot(strokes = listOf(stroke("a", "a-head"), stroke("b", "b-head").copy(sheetId = old.id)))
+            .copy(sheets = listOf(first, old))
+        val repo = repo(fake, StandardTestDispatcher(testScheduler)); repo.open("note")
+        val resize = scaleAbout(2.0, 100.0, 3300.0)
+        assertTrue(repo.stageMarks(MarkEdit.Transform(setOf("a", "b"), resize)))
+        val pending = repo.state.value.pending.single()
+        assertEquals(resize, pending.transforms["a"])
+        assertEquals(localGesture(old, resize), pending.transforms["b"])
+        assertEquals(listOf("a-head", "b-head"), pending.command!!.dependencies)
+        for ((mark, sheet) in listOf("a" to first, "b" to old)) {
+            val before = transformedPoint(10f, 20f, canvasTransform(sheet, IDENTITY))
+            val expected = transformedPoint(before.first, before.second, resize)
+            assertEquals(expected, transformedPoint(10f, 20f, canvasTransform(sheet, pending.transforms.getValue(mark))))
+        }
+    }
+
     @Test fun selectionEditsWaitForSavedInkRejectSingularAndOversizedGestures() = runTest {
         val fake = Fake(); fake.current = snapshot(strokes = listOf(stroke("a", "head")))
         val repo = repo(fake, StandardTestDispatcher(testScheduler)); repo.open("note")
@@ -372,28 +393,24 @@ class NotesRepositoryTest {
         assertEquals(1, repo.state.value.pending.size)
         assertTrue(fake.commands.isEmpty())
     }
-    @Test fun autoAddPageQueuesExactlyOneAddSheetBehindPendingInk() = runTest {
-        val fake = Fake(); fake.current = snapshot().copy(structureHead = EntityHead("structure", null))
-        val repo = repo(fake, StandardTestDispatcher(testScheduler)); repo.open("note")
-        assertTrue(repo.stageStroke(preview()))
-        assertTrue(repo.stageAddSheet()); assertTrue(repo.addSheetPending)
-        assertFalse(repo.stageAddSheet()) // never a second one while one is pending
-        fake.afterSubmit = { fake.current = fake.current.copy(localSequence = 2u, cursor = EventCursor("stream", 2u)) }
+    @Test fun drawingFarDownAndRightSubmitsOnlyInkWithoutAddingStructure() = runTest {
+        val fake = Fake(); val repo = repo(fake, StandardTestDispatcher(testScheduler)); repo.open("note")
+        val far = preview().copy(channels = samples.copy(x = listOf(3200f, 4700f), y = listOf(10000f, 11000f)))
+        assertTrue(repo.stageStroke(far))
+        fake.afterSubmit = { fake.current = snapshot(2u) }
         repo.retry()
-        assertEquals(2, fake.commands.size)
-        assertTrue(fake.commands[0].body is CommandBody.Marks)
-        val add = fake.commands[1]
-        assertEquals(listOf("structure"), add.dependencies)
-        assertEquals(Base.Operation("structure"), (add.body as CommandBody.AddSheet).base)
-        assertFalse(repo.addSheetPending); assertTrue(repo.stageAddSheet())
+        val add = ((fake.commands.single().body as CommandBody.Marks).mutations.single() as MarkMutation.AddStroke)
+        assertEquals("sheet", add.sheetId)
+        assertEquals(1, repo.state.value.snapshot!!.sheets.size)
+        assertFalse(repo.state.value.unsaved)
     }
-    @Test fun createUsesPhonePagesByDefaultAndTheChosenNotebook() = runTest {
+    @Test fun createUsesCanvasAndTheChosenNotebook() = runTest {
         val fake = Fake(); val repo = repo(fake, StandardTestDispatcher(testScheduler))
-        repo.create("Phone note")
-        assertEquals(PageFormat.PHONE, fake.creates.single().pageFormat); assertNull(fake.creates.single().notebook)
+        repo.create("Canvas note")
+        assertEquals("Canvas note", fake.creates.single().title); assertNull(fake.creates.single().notebook)
         val other = Fake(); val second = repo(other, StandardTestDispatcher(testScheduler))
-        second.create("Sheet note", PageFormat.SHEET16X10, "Physics")
-        assertEquals(PageFormat.SHEET16X10, other.creates.single().pageFormat); assertEquals("Physics", other.creates.single().notebook)
+        second.create("Physics note", "Physics")
+        assertEquals("Physics", other.creates.single().notebook)
     }
     @Test fun movingClosedNoteOpensSubmitsOneSetNotebookAndClosesDurablyWithImmutableRetry() = runTest {
         val fake = Fake(); fake.current = snapshot().copy(metadataHead = EntityHead("meta", null))

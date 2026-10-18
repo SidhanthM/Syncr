@@ -1,5 +1,11 @@
 # Syncr Android — offline Write + separate Bluetooth Pointer
 
+## Current canvas amendment
+
+The approved canvas amendment is implemented against core `ce10fc7`: continuous 4800-wide canvas, first-sheet canvas-coordinate ink, fixed legacy-sheet origins, no page-format/add-page/auto-add/page-indicator UI, canvas thumbnails and recovery v2. See **[CANVAS-HANDOFF.md](CANVAS-HANDOFF.md)** for current behavior, exact changed paths, executed test/build results, artifact hashes and remaining device/Stream acceptance.
+
+The sections below and the F1–F2 handoff/plan describe earlier milestones. Their page-layout descriptions, API shapes, test counts and artifact hashes are historical and superseded by the canvas handoff. Build commands remain applicable; the checked-in daemon criteria now select Java 25 even when the wrapper is launched with the documented JDK 21 path.
+
 Application ID/namespace remain **`dev.syncr.prototype`**; minSdk 26, compile/target SDK 36, JVM target 17. No device was installed, pairing changed, HID descriptor rewritten, Mac app added, or sync connection simulated.
 
 ## Implemented paths

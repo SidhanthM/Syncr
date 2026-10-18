@@ -30,7 +30,7 @@ import kotlinx.coroutines.launch
 /**
  * The note's draggable tool bubble. Its centre is stored as fractions of the safe viewport, so it survives
  * rotation and app restarts; until it is moved it sits in the bottom corner on the writing hand's side.
- * The bubble and its bar are one shape ([MorphingBubble]); the page indicator takes the other corner.
+ * The bubble and its bar are one shape ([MorphingBubble]).
  */
 @Composable
 fun FloatingChrome(open: Boolean, optionsOpen: Boolean, description: String, stateDescription: String,
@@ -38,8 +38,7 @@ fun FloatingChrome(open: Boolean, optionsOpen: Boolean, description: String, sta
     ring: @Composable () -> Unit,
     glyph: @Composable () -> Unit,
     bar: @Composable BubbleBarScope.(onDrag: (Offset) -> Unit, onRelease: (Offset) -> Unit) -> Unit,
-    options: @Composable () -> Unit,
-    indicator: @Composable () -> Unit) {
+    options: @Composable () -> Unit) {
     val context = LocalContext.current
     val prefs by remember(context) { AppPreferencesStore.state(context) }.collectAsState()
     var position by remember { mutableStateOf(Offset(prefs.bubbleX, prefs.bubbleY)) }
@@ -85,8 +84,6 @@ fun FloatingChrome(open: Boolean, optionsOpen: Boolean, description: String, sta
     }
     Box(Modifier.fillMaxSize().safeDrawingPadding().onSizeChanged { viewport = it }) {
         if (width < radius * 2 + margin * 2 || height < radius * 2 + margin * 2) return@Box
-        Box(Modifier.align(if (leftHanded) Alignment.BottomEnd else Alignment.BottomStart)
-            .padding(start = 12.dp, end = 12.dp, bottom = 8.dp)) { indicator() }
         MorphingBubble(open, centerOf(position), description, stateDescription, onOpen, ring, glyph,
             bar = { this.bar(::move, ::release) }, optionsOpen = optionsOpen, options = options,
             onDrag = ::move, onRelease = ::release)

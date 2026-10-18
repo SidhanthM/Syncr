@@ -9,25 +9,25 @@ import java.io.DataOutputStream
 import java.io.File
 
 /**
- * Library card preview of a note's FIRST page: transformed, decimated samples in page units, with
+ * Library card preview of the canvas's top-left: origin-placed, transformed, decimated samples, with
  * pressure and time so cards draw with the same Ink brushes as the page. Disposable display data
  * built on the IO worker; never a source of truth.
  */
 class ThumbStroke(val points: FloatArray, val brush: Brush, val pressure: FloatArray = FloatArray(points.size / 2) { 0.5f },
     val elapsedMs: IntArray = IntArray(points.size / 2) { it })
-class Thumbnail(val localSequence: ULong, val pageWidth: Float, val pageHeight: Float, val strokes: List<ThumbStroke>)
+class Thumbnail(val localSequence: ULong, val width: Float, val viewHeight: Float, val strokes: List<ThumbStroke>)
 
 /** Pure: keeps at most about [maxPoints] points overall by taking every k-th sample (and each last one). */
 fun buildThumbnail(snapshot: NoteSnapshot, samples: (String) -> SampleChannels?, maxPoints: Int = 4000): Thumbnail {
-    val sheet = snapshot.sheets.firstOrNull()?.id
-    val strokes = snapshot.strokes.filter { it.sheetId == sheet && !it.tombstone }.mapNotNull { s -> samples(s.id)?.let { s to it } }
+    val sheets = snapshot.sheets.associateBy { it.id }
+    val strokes = snapshot.strokes.filter { !it.tombstone && it.sheetId in sheets }.mapNotNull { s -> samples(s.id)?.let { s to it } }
     val total = strokes.sumOf { it.second.x.size }
     val step = maxOf(1, (total + maxPoints - 1) / maxPoints)
-    return Thumbnail(snapshot.localSequence, snapshot.pageWidth, snapshot.pageHeight, strokes.map { (stroke, channels) ->
+    return Thumbnail(snapshot.localSequence, CanvasLayout.WIDTH, CanvasLayout.VIEW_HEIGHT, strokes.map { (stroke, channels) ->
         val kept = channels.x.indices.filter { it % step == 0 || it == channels.x.lastIndex }
         val points = FloatArray(kept.size * 2)
         kept.forEachIndexed { i, index ->
-            val (x, y) = transformedPoint(channels.x[index], channels.y[index], stroke.transform)
+            val (x, y) = transformedPoint(channels.x[index], channels.y[index], canvasTransform(sheets.getValue(stroke.sheetId), stroke.transform))
             points[2 * i] = x; points[2 * i + 1] = y
         }
         ThumbStroke(points, stroke.brush.copy(), FloatArray(kept.size) { channels.pressure[kept[it]] },
@@ -37,7 +37,7 @@ fun buildThumbnail(snapshot: NoteSnapshot, samples: (String) -> SampleChannels?,
 
 /** Optional on-disk cache so library cards don't reopen every note on each launch. Failures are ignored. */
 internal object ThumbnailCache {
-    private const val MAGIC = 0x53544843 // STHC: v2 adds pressure and time; older files are ignored
+    private const val MAGIC = 0x53544844 // STHD: canvas origins/dimensions; old page caches are ignored
     private fun file(dir: File, noteId: String) =
         if (noteId.isNotEmpty() && noteId.all { it.isLetterOrDigit() }) File(dir, "$noteId.thumb") else null
 
@@ -78,7 +78,7 @@ internal object ThumbnailCache {
             val temp = File(dir, "${target.name}.tmp")
             DataOutputStream(temp.outputStream().buffered()).use { out ->
                 out.writeInt(MAGIC); out.writeLong(thumbnail.localSequence.toLong())
-                out.writeFloat(thumbnail.pageWidth); out.writeFloat(thumbnail.pageHeight)
+                out.writeFloat(thumbnail.width); out.writeFloat(thumbnail.viewHeight)
                 out.writeInt(thumbnail.strokes.size)
                 thumbnail.strokes.forEach { s ->
                     out.writeByte(s.brush.family.ordinal); out.writeByte(s.brush.size.ordinal); out.writeByte(s.brush.colour.ordinal)

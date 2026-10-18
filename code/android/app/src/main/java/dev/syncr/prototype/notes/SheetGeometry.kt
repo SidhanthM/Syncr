@@ -3,9 +3,8 @@ package dev.syncr.prototype.notes
 import dev.syncr.core.Affine
 import dev.syncr.core.SampleChannels
 import kotlin.math.hypot
-import kotlin.math.min
 
-/** Same scalar in both axes: screen = units × scale + (tx, ty). Never stretches a page. */
+/** Same scalar in both axes: screen = units × scale + (tx, ty). Never stretches canvas ink. */
 data class SheetMapping(val scale: Float, val tx: Float, val ty: Float) {
     fun toSheet(x: Float, y: Float) = Pair((x - tx) / scale, (y - ty) / scale)
     fun toScreen(x: Float, y: Float) = Pair(x * scale + tx, y * scale + ty)
@@ -13,13 +12,6 @@ data class SheetMapping(val scale: Float, val tx: Float, val ty: Float) {
         val next = (scale * factor).coerceIn(0.05f, 10f)
         val ratio = next / scale
         return SheetMapping(next, focusX - (focusX - tx) * ratio + dx, focusY - (focusY - ty) * ratio + dy)
-    }
-    companion object {
-        /** Whole page letterboxed into the view; sizes come from the note, never hardcoded. */
-        fun fit(width: Int, height: Int, pageWidth: Float, pageHeight: Float): SheetMapping {
-            val scale = min(width / pageWidth, height / pageHeight).coerceAtLeast(0.001f)
-            return SheetMapping(scale, (width - pageWidth * scale) / 2, (height - pageHeight * scale) / 2)
-        }
     }
 }
 

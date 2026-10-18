@@ -31,10 +31,9 @@ import kotlin.math.max
 import androidx.compose.ui.graphics.toArgb
 
 /**
- * All of a note's pages stacked vertically (owner decision 6). AndroidX Ink strokes are a disposable
- * per-stroke cache; canonical samples always come from Rust. Fingers never ink: one finger pans,
- * pinch zooms, long-press selects; the pen draws, erases or lassos. Every pen gesture freezes the
- * mapping of the page it started on, and samples are stored in that page's units.
+ * One continuous canvas. AndroidX Ink strokes are disposable caches; canonical samples and sheet
+ * origins come from Rust. Fingers navigate; the pen draws, erases or lassos. New ink freezes the
+ * canvas mapping and always targets the first sheet. Existing ink keeps its sheet-local samples.
  *
  * Wet ink (design §4.1) is drawn by Ink's [InProgressStrokesView] overlaid on this view, on the
  * front-buffer path, from the same pen MotionEvents and with the same brush as dry ink, so a stroke
@@ -49,9 +48,9 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     var onTap: (TapCommand) -> Unit = {}
     /** Any new touch on the paper, e.g. to collapse floating tool chrome. */
     var onTouchStart: () -> Unit = {}
-    var onAddPage: () -> Unit = {}
-    /** Current page (1-based) and total, whenever either changes. */
-    var onViewport: (Int, Int) -> Unit = { _, _ -> }
+    /** Transient viewport retained by the ViewModel across Activity recreation, never note data. */
+    var restoredViewport: Pair<String, SheetMapping>? = null
+    var onViewportChanged: (String, SheetMapping) -> Unit = { _, _ -> }
     /** Number of selected strokes; 0 when nothing is selected. */
     var onSelection: (Int) -> Unit = {}
     var brush = Brush(BrushFamily.PEN, BrushSize.MEDIUM, InkColour.INK)
@@ -59,25 +58,21 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     var lasso = false
 
     private val density = context.resources.displayMetrics.density
-    private val gutter = 12f * density
-    private val topPad = 56f * density
-    private val bottomPad = 112f * density
     private var scene = NotesState()
     private var noteId: String? = null
     private var dark = false
-    private var layout = PageLayout(1600f, 1000f, 0)
-    private var sheetIds = emptyList<String>()
+    private var layout = CanvasLayout()
+    private var sheets = emptyMap<String, SheetView>()
+    private var firstSheet: String? = null
     private var strokeById = emptyMap<String, StrokeView>()
     private var pendingTransforms = emptyMap<String, Affine>()
     private var pendingRestyles = emptyMap<String, Brush>()
     private var view: SheetMapping? = null
-    private var lastViewport = 0 to 0
 
     // Pen gesture
     private enum class PenMode { NONE, IGNORED, INK, ERASE, LASSO, SELECTION }
     private var penMode = PenMode.NONE
     private var frozen = SheetMapping(1f, 0f, 0f)
-    private var gesturePage = -1
     private var activePointer = -1
     private var lastPenUp = Long.MIN_VALUE / 2
     private var palmBlocked = false
@@ -106,8 +101,8 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     private val slop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
     private val longPress = Runnable { onLongPress() }
 
-    // Selection (design §8.5): ids on one page, outline in that page's units.
-    private class Selection(val sheetId: String, val page: Int, val ids: Set<String>, val outline: List<Pt>)
+    // Selection outlines and gestures are in canvas space, including across legacy sheets.
+    private class Selection(val ids: Set<String>, val outline: List<Pt>)
     private var selection: Selection? = null
     private var selGesture: Affine? = null
     private var selResize = false
@@ -120,15 +115,12 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val pagePaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val edgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 1f }
     private val dottedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeWidth = 1.8f * density
         pathEffect = DashPathEffect(floatArrayOf(0.01f, 5f * density), 0f)
     }
     private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 14f * density; textAlign = Paint.Align.CENTER }
     private val accent = DustyRose.toArgb()
-    private var addPageRect: RectF? = null
     private val renderer by lazy { CanvasStrokeRenderer.create() }
     private var scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var cacheJob: Job? = null
@@ -141,7 +133,6 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     private val extraInk = mutableMapOf<String, CachedInk>()
     private var syncBudgetEnd = 0L
     private var previews = emptyList<InkPreview>()
-    private var bySheet = emptyMap<String, List<InkPreview>>()
     // Bridge the input callback → Compose state handoff without a deliberate blank frame.
     private val handoffs = mutableListOf<InkPreview>()
     private var eraseHandoff = emptySet<String>()
@@ -165,8 +156,8 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         setWillNotDraw(false)
         addView(wet, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         wet.addFinishedStrokesListener(wetListener)
-        contentDescription = "Note pages. Stylus draws; one finger scrolls, pinch zooms. Two-finger tap undoes, three-finger tap redoes, " +
-            "double-tap fits the width, long-press selects a stroke."
+        contentDescription = "Note canvas. Stylus draws; one finger scrolls, pinch zooms. Two-finger tap undoes, three-finger tap redoes, " +
+            "double-tap fits a phone column, long-press selects a stroke."
         isFocusable = true
     }
 
@@ -175,16 +166,16 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         val newNote = snapshot?.noteId != noteId
         if (newNote) {
             cancelGesture(); clearWet(); handoffs.clear(); eraseHandoff = emptySet(); transformHandoff = emptyMap(); restyleHandoff = emptyMap()
-            extraInk.clear(); clearSelection(); noteId = snapshot?.noteId; view = null
+            extraInk.clear(); clearSelection(); noteId = snapshot?.noteId
+            view = restoredViewport?.takeIf { it.first == noteId }?.second?.copy(tx = 0f)
         }
         val themeChanged = dark != night
         dark = night; scene = state
-        layout = snapshot?.let { PageLayout(it.pageWidth, it.pageHeight, it.sheets.size) } ?: PageLayout(1600f, 1000f, 0)
-        sheetIds = snapshot?.sheets?.map { it.id }.orEmpty()
+        sheets = snapshot?.sheets.orEmpty().associateBy { it.id }
+        firstSheet = snapshot?.sheets?.firstOrNull()?.id
         strokeById = snapshot?.strokes.orEmpty().associateBy { it.id }
         pendingTransforms = state.pending.flatMap { it.transforms.entries }.associate { it.key to it.value }
         pendingRestyles = state.pending.flatMap { it.restyles.entries }.associate { it.key to it.value }
-        if (width > 0) view = view?.let(::clamp) ?: Viewport.fitWidth(layout, null, width, height, gutter, topPad)
         val wanted = buildList {
             snapshot?.strokes?.filter { !it.tombstone }?.forEach { stroke ->
                 state.samples[stroke.id]?.let { add(InkPreview(stroke.id, stroke.sheetId, it, pendingRestyles[stroke.id] ?: stroke.brush)) }
@@ -196,10 +187,18 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         eraseHandoff = eraseHandoff - representedDeletes
         transformHandoff = transformHandoff.filter { (id, affine) -> transformOf(id, includeHandoff = false) != affine }
         restyleHandoff = restyleHandoff.filter { (id, b) -> (pendingRestyles[id] ?: strokeById[id]?.brush) != b }
-        selection?.let { s -> if (s.ids.any { strokeById[it]?.tombstone != false } || s.page !in 0 until layout.count) clearSelection() }
+        selection?.let { s -> if (s.ids.any { strokeById[it]?.tombstone != false }) clearSelection() }
+        val hidden = state.pending.flatMap { it.hidden }.toSet() + eraseHandoff
+        layout = CanvasLayout(maxOf(0f, (wanted + handoffs).filterNot { it.id in hidden }.maxOfOrNull { preview ->
+            val affine = canvasTransformOf(preview.id, preview.sheetId)
+            val radiusY = brushWidth(preview.brush) / 2 * hypot(affine.b, affine.d).toFloat()
+            preview.channels.x.indices.maxOfOrNull { i ->
+                transformedPoint(preview.channels.x[i], preview.channels.y[i], affine).second + radiusY
+            } ?: 0f
+        } ?: 0f))
+        if (width > 0 && height > 0) view = view?.let(::clamp) ?: Viewport.defaultView(layout, width, height)
         if (wanted != previews || themeChanged) {
             previews = wanted
-            bySheet = wanted.groupBy { it.sheetId }
             rebuildCache()
         }
         invalidate()
@@ -227,6 +226,9 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     private fun transformOf(id: String, includeHandoff: Boolean = true): Affine =
         (if (includeHandoff) transformHandoff[id] else null) ?: pendingTransforms[id] ?: strokeById[id]?.transform ?: IDENTITY
 
+    private fun canvasTransformOf(id: String, sheetId: String): Affine =
+        sheets[sheetId]?.let { canvasTransform(it, transformOf(id)) } ?: transformOf(id)
+
     private fun makeInk(preview: InkPreview, night: Boolean, style: InkPreferences) =
         CachedInk(preview, night, style, InkBrushes.stroke(preview.channels, InkBrushes.brush(preview.brush, night, style)))
 
@@ -249,15 +251,15 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
 
     private fun startWet(event: MotionEvent, index: Int) {
         if (!wetAvailable()) return
-        val pw = layout.pageWidth * frozen.scale; val ph = layout.pageHeight * frozen.scale
-        // Wet ink is clipped to its page like dry ink: mask everything outside the frozen page rect.
+        val pw = CanvasLayout.WIDTH * frozen.scale
+        // Only the canvas's horizontal edges and top clip ink; there is no bottom page edge.
         wet.maskPath = Path().apply {
             addRect(0f, 0f, width.toFloat(), height.toFloat(), Path.Direction.CW)
-            op(Path().apply { addRect(frozen.tx, frozen.ty, frozen.tx + pw, frozen.ty + ph, Path.Direction.CW) }, Path.Op.DIFFERENCE)
+            op(Path().apply { addRect(frozen.tx, frozen.ty, frozen.tx + pw, height.toFloat(), Path.Direction.CW) }, Path.Op.DIFFERENCE)
         }
-        // Stroke (= world) units are the frozen page's units, exactly as MeasuredGesture stores them.
-        val toPage = Matrix().apply { setTranslate(-frozen.tx, -frozen.ty); postScale(1f / frozen.scale, 1f / frozen.scale) }
-        val id = wet.startStroke(event, index, InkBrushes.brush(gestureBrush, dark, prefs), toPage, Matrix())
+        // New stroke units are canvas units, exactly as MeasuredGesture stores them.
+        val toCanvas = Matrix().apply { setTranslate(-frozen.tx, -frozen.ty); postScale(1f / frozen.scale, 1f / frozen.scale) }
+        val id = wet.startStroke(event, index, InkBrushes.brush(gestureBrush, dark, prefs), toCanvas, Matrix())
         wetStroke = Live(id, dark, prefs)
     }
 
@@ -296,12 +298,12 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
 
     // ---- Viewport ----
 
-    private fun clamp(m: SheetMapping) = Viewport.clamp(m, layout, width, height, gutter, topPad, bottomPad)
-    private fun fitScale() = Viewport.fitScale(layout, width, gutter)
+    private fun clamp(m: SheetMapping) = Viewport.clamp(m, layout, width, height)
+    private fun fitScale() = Viewport.fitScale(width, height)
     fun fit() {
         if (activePointer != -1 || width == 0) return
         scroller.forceFinished(true)
-        view = Viewport.fitWidth(layout, view, width, height, gutter, topPad); invalidate()
+        view = Viewport.fitColumn(layout, view, width, height); invalidate()
     }
     private fun zoomTo(target: Float, fx: Float, fy: Float) {
         val m = view ?: return
@@ -320,19 +322,18 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     }
     private fun fling(vx: Float, vy: Float) {
         val m = view ?: return
-        val w = layout.pageWidth * m.scale
-        val (minX, maxX) = if (w + 2 * gutter <= width) m.tx to m.tx else (width - w - gutter) to gutter
-        val minY = minOf(topPad, height - layout.height * m.scale - bottomPad)
-        scroller.fling(m.tx.toInt(), m.ty.toInt(), vx.toInt(), vy.toInt(), minX.toInt(), maxX.toInt(), minY.toInt(), topPad.toInt())
+        val minX = minOf(0f, width - CanvasLayout.WIDTH * m.scale)
+        val minY = -layout.lowestInk * m.scale
+        scroller.fling(m.tx.toInt(), m.ty.toInt(), vx.toInt(), vy.toInt(), minX.toInt(), 0, minY.toInt(), 0)
         postInvalidateOnAnimation()
     }
-    private fun pageAtScreen(x: Float, y: Float): Int? {
-        val m = view ?: return null
+    private fun onCanvas(x: Float, y: Float): Boolean {
+        val m = view ?: return false
         val (dx, dy) = m.toSheet(x, y)
-        return layout.pageAt(dx, dy)
+        return firstSheet != null && layout.contains(dx, dy)
     }
-    /** Test hook: the current mapping of one page's units to view pixels. */
-    internal fun pageMapping(index: Int): SheetMapping? = view?.let { layout.pageMapping(it, index) }
+    /** Test hook: canvas units to view pixels. */
+    internal fun canvasMapping(): SheetMapping? = view
 
     // ---- Lifecycle ----
 
@@ -343,7 +344,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         velocity?.recycle(); velocity = null; invalidate()
     }
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        cancelGesture(); view = Viewport.fitWidth(layout, view?.takeIf { oldw > 0 }, w, h, gutter, topPad)
+        cancelGesture(); view = Viewport.resized(layout, view?.takeIf { oldw > 0 }, w, h)
     }
     override fun onDetachedFromWindow() { cancelGesture(); clearWet(); cacheJob?.cancel(); scope.cancel(); super.onDetachedFromWindow() }
     override fun onAttachedToWindow() {
@@ -361,40 +362,29 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     override fun onDraw(canvas: Canvas) {
         canvas.drawColor(PaperPalette.desk(dark))
         val m = view ?: return
+        noteId?.let { onViewportChanged(it, m) }
         syncBudgetEnd = System.nanoTime() + SYNC_BUDGET_NS
         val wetIds = wetFinished.values.mapNotNullTo(HashSet()) { it.preview?.id }
-        val pw = layout.pageWidth; val ph = layout.pageHeight
         val hidden = scene.pending.flatMap { it.hidden }.toSet() + erased + eraseHandoff
-        for (page in layout.visible(m, height)) {
-            val pm = layout.pageMapping(m, page)
-            val rect = RectF(pm.tx, pm.ty, pm.tx + pw * pm.scale, pm.ty + ph * pm.scale)
-            pagePaint.color = PaperPalette.paper(dark)
-            pagePaint.setShadowLayer(6f * density, 0f, 1.5f * density, PaperPalette.shadow(dark))
-            canvas.drawRect(rect, pagePaint)
-            edgePaint.color = PaperPalette.hairline(dark)
-            canvas.drawRect(rect, edgePaint)
-            val save = canvas.save()
-            canvas.clipRect(rect)
-            canvas.translate(pm.tx, pm.ty); canvas.scale(pm.scale, pm.scale)
-            val sheet = sheetIds.getOrNull(page)
-            val onPage = bySheet[sheet].orEmpty() + handoffs.filter { p -> p.sheetId == sheet && previews.none { it.id == p.id } }
-            val selected = selection?.takeIf { it.sheetId == sheet }?.ids.orEmpty()
-            onPage.forEach { preview ->
-                if (preview.id in hidden || preview.id in wetIds) return@forEach
-                var affine = transformOf(preview.id)
-                if (preview.id in selected) selGesture?.let { affine = compose(it, affine) }
-                drawStroke(canvas, preview, affine, pm.scale)
-            }
-            // Fallback only (no window, e.g. tests): the in-progress stroke, rebuilt with the same Ink brush.
-            if (page == gesturePage && penMode == PenMode.INK && wetStroke == null && !wetAvailable()) gesture?.channels()?.let {
-                renderer.draw(canvas, InkBrushes.stroke(it, InkBrushes.brush(gestureBrush, dark, prefs)), Matrix().apply { setScale(pm.scale, pm.scale) })
-            }
-            canvas.restoreToCount(save)
+        val rect = RectF(m.tx, m.ty, m.tx + CanvasLayout.WIDTH * m.scale, height.toFloat())
+        pagePaint.color = PaperPalette.paper(dark)
+        canvas.drawRect(rect, pagePaint)
+        val save = canvas.save()
+        canvas.clipRect(rect)
+        canvas.translate(m.tx, m.ty); canvas.scale(m.scale, m.scale)
+        val visible = previews + handoffs.filter { p -> previews.none { it.id == p.id } }
+        val selected = selection?.ids.orEmpty()
+        visible.forEach { preview ->
+            if (preview.id in hidden || preview.id in wetIds) return@forEach
+            var affine = canvasTransformOf(preview.id, preview.sheetId)
+            if (preview.id in selected) selGesture?.let { affine = compose(it, affine) }
+            drawStroke(canvas, preview, affine, m.scale)
         }
-        drawAddPage(canvas, m)
+        if (penMode == PenMode.INK && wetStroke == null && !wetAvailable()) gesture?.channels()?.let {
+            renderer.draw(canvas, InkBrushes.stroke(it, InkBrushes.brush(gestureBrush, dark, prefs)), Matrix().apply { setScale(m.scale, m.scale) })
+        }
+        canvas.restoreToCount(save)
         drawLassoAndSelection(canvas, m)
-        val current = layout.current(m, height) to layout.count
-        if (current != lastViewport) { lastViewport = current; post { onViewport(current.first, current.second) } }
     }
     private fun drawStroke(canvas: Canvas, preview: InkPreview, affine: Affine, scale: Float) {
         val local = Matrix().apply { setValues(floatArrayOf(affine.a.toFloat(), affine.c.toFloat(), affine.tx.toFloat(),
@@ -413,24 +403,11 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         paint.style = Paint.Style.STROKE; paint.strokeCap = Paint.Cap.ROUND; paint.strokeJoin = Paint.Join.ROUND
         if (samples.x.size == 1) canvas.drawPoint(samples.x[0], samples.y[0], paint) else canvas.drawPath(path, paint)
     }
-    private fun drawAddPage(canvas: Canvas, m: SheetMapping) {
-        addPageRect = null
-        if (layout.count == 0) return
-        val bottom = m.ty + layout.height * m.scale
-        val centre = m.tx + layout.pageWidth * m.scale / 2
-        val rect = RectF(centre - 72 * density, bottom + 12 * density, centre + 72 * density, bottom + 56 * density)
-        if (rect.top > height || rect.bottom < 0) return
-        addPageRect = rect
-        textPaint.color = PaperPalette.quiet(dark)
-        canvas.drawText(if (scene.pending.any { it.command?.body is CommandBody.AddSheet }) "Adding page…" else "+  Add page",
-            rect.centerX(), rect.centerY() + textPaint.textSize / 3, textPaint)
-    }
     private fun drawLassoAndSelection(canvas: Canvas, m: SheetMapping) {
         dottedPaint.color = accent
         if (penMode == PenMode.LASSO && lassoPoints.size > 1) canvas.drawPath(screenPath(lassoPoints, frozen, close = false), dottedPaint)
         val s = selection ?: return
-        if (s.page !in 0 until layout.count) return
-        val pm = if (selGesture != null) selFrozen else layout.pageMapping(m, s.page)
+        val pm = if (selGesture != null) selFrozen else m
         val outline = selGesture?.let { transformPolygon(s.outline, it) } ?: s.outline
         canvas.drawPath(screenPath(outline, pm, close = true), dottedPaint)
         val bounds = Bounds.of(outline) ?: return
@@ -532,10 +509,9 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         val erase = eraser || tool == MotionEvent.TOOL_TYPE_ERASER || (sideButtonErases && (event.buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0)
         gestureRejected = false; erased.clear(); eraseLast = null; lassoPoints.clear(); gestureBrush = brush
         if (lasso && !erase && beginSelectionGesture(x, y)) { penMode = PenMode.SELECTION; return }
-        val page = pageAtScreen(x, y)
-        if (page == null || page >= sheetIds.size) { penMode = PenMode.IGNORED; return } // gaps never ink
+        if (!onCanvas(x, y)) { penMode = PenMode.IGNORED; return }
         if (!lasso) clearSelection()
-        gesturePage = page; frozen = layout.pageMapping(view!!, page)
+        frozen = view!!
         penMode = when { erase -> PenMode.ERASE; lasso -> PenMode.LASSO; else -> PenMode.INK }
         if (penMode == PenMode.ERASE && scene.unsaved) { gestureRejected = true; onError("Resolve unsaved ink before erasing.") }
         val device = event.device
@@ -550,7 +526,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         if (!gestureRejected) when (penMode) {
             PenMode.INK -> {
                 val preview = gesture?.channels()?.let { channels ->
-                    sheetIds.getOrNull(gesturePage)?.let { sheet -> onStroke(sheet, channels, gestureBrush)?.also { handoffs += it } }
+                    firstSheet?.let { sheet -> onStroke(sheet, channels, gestureBrush)?.also { handoffs += it } }
                 }
                 finishWet(event, index, preview)
             }
@@ -571,10 +547,9 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
             PenMode.ERASE -> {
                 val point = frozen.toSheet(x, y)
                 val previous = eraseLast ?: point
-                val sheet = sheetIds.getOrNull(gesturePage)
-                scene.snapshot?.strokes?.filter { it.sheetId == sheet && !it.tombstone && it.id !in erased }?.forEach { stroke ->
+                scene.snapshot?.strokes?.filter { !it.tombstone && it.id !in erased }?.forEach { stroke ->
                     scene.samples[stroke.id]?.let { samples ->
-                        if (hitsSweep(previous, point, 12f + brushWidth(stroke.brush) / 2, samples, transformOf(stroke.id))) erased += stroke.id
+                        if (hitsSweep(previous, point, 12f + brushWidth(stroke.brush) / 2, samples, canvasTransformOf(stroke.id, stroke.sheetId))) erased += stroke.id
                     }
                 }
                 eraseLast = point
@@ -656,9 +631,8 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         navFocus = x to y; navSpan = span
     }
     private fun singleTap(x: Float, y: Float) {
-        if (addPageRect?.contains(x, y) == true) { onAddPage(); return }
         val s = selection ?: return
-        val (px, py) = layout.pageMapping(view ?: return, s.page).toSheet(x, y)
+        val (px, py) = (view ?: return).toSheet(x, y)
         if (Bounds.of(s.outline)?.contains(px, py) != true) clearSelection() // tap on empty paper clears
     }
 
@@ -688,18 +662,17 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         }
     }
 
-    /** Topmost visible stroke near a screen point, with its page. */
-    private fun strokeAt(x: Float, y: Float): Pair<Int, String>? {
-        val page = pageAtScreen(x, y) ?: return null
-        val pm = layout.pageMapping(view ?: return null, page)
+    /** Topmost visible stroke near a screen point, in canvas space. */
+    private fun strokeAt(x: Float, y: Float): String? {
+        if (!onCanvas(x, y)) return null
+        val pm = view ?: return null
         val (sx, sy) = pm.toSheet(x, y)
         val radius = 20f * density / pm.scale
-        val sheet = sheetIds.getOrNull(page) ?: return null
         val hidden = scene.pending.flatMap { it.hidden }.toSet() + eraseHandoff
         return scene.snapshot?.strokes.orEmpty().lastOrNull { stroke ->
-            stroke.sheetId == sheet && !stroke.tombstone && stroke.id !in hidden &&
-                scene.samples[stroke.id]?.let { hitsStroke(sx, sy, radius, it, transformOf(stroke.id)) } == true
-        }?.let { page to it.id }
+            !stroke.tombstone && stroke.id !in hidden &&
+                scene.samples[stroke.id]?.let { hitsStroke(sx, sy, radius, it, canvasTransformOf(stroke.id, stroke.sheetId)) } == true
+        }?.id
     }
 
     // ---- Selection ----
@@ -726,12 +699,12 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         val start = tapStart ?: return
         if (fingerMode != FingerMode.PAN || !tapCandidate || activePointer != -1) return
         tapCandidate = false
-        val (page, id) = strokeAt(start.first, start.second) ?: return
+        val id = strokeAt(start.first, start.second) ?: return
         val samples = scene.samples[id] ?: return
-        val pm = layout.pageMapping(view ?: return, page)
-        val bounds = Bounds.of(strokePoints(samples, transformOf(id))) ?: return
+        val pm = view ?: return
+        val bounds = Bounds.of(strokePoints(samples, canvasTransformOf(id, strokeById.getValue(id).sheetId))) ?: return
         val pad = 10f * density / pm.scale + brushWidth(strokeById[id]?.brush ?: brush) / 2
-        selection = Selection(sheetIds[page], page, setOf(id), roundedOutline(bounds, pad, 8f * density / pm.scale))
+        selection = Selection(setOf(id), roundedOutline(bounds, pad, 8f * density / pm.scale))
         onSelection(1)
         performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
         // Keep holding and drag: the long-pressed stroke moves.
@@ -740,22 +713,20 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     }
     private fun finishLasso() {
         val polygon = lassoPoints.toList()
-        val sheet = sheetIds.getOrNull(gesturePage)
         val hidden = scene.pending.flatMap { it.hidden }.toSet() + eraseHandoff
-        val ids = if (polygon.size < 3 || sheet == null) emptySet() else scene.snapshot?.strokes.orEmpty().filter { stroke ->
-            stroke.sheetId == sheet && !stroke.tombstone && stroke.id !in hidden &&
-                scene.samples[stroke.id]?.let { lassoSelects(it, transformOf(stroke.id), polygon) } == true
+        val ids = if (polygon.size < 3) emptySet() else scene.snapshot?.strokes.orEmpty().filter { stroke ->
+            !stroke.tombstone && stroke.id !in hidden &&
+                scene.samples[stroke.id]?.let { lassoSelects(it, canvasTransformOf(stroke.id, stroke.sheetId), polygon) } == true
         }.map { it.id }.toSet()
         if (ids.isEmpty()) { clearSelection(); return }
-        selection = Selection(sheet!!, gesturePage, ids, polygon)
+        selection = Selection(ids, polygon)
         onSelection(ids.size)
     }
     /** Starts a move (inside the outline's bounds) or a uniform resize (on a corner handle). */
     private fun beginSelectionGesture(x: Float, y: Float): Boolean {
         val s = selection ?: return false
         val m = view ?: return false
-        if (s.page !in 0 until layout.count) return false
-        val pm = layout.pageMapping(m, s.page)
+        val pm = m
         val (px, py) = pm.toSheet(x, y)
         val bounds = Bounds.of(s.outline) ?: return false
         val handle = handleAt(bounds, px, py, 24f * density / pm.scale)
@@ -783,8 +754,10 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         val s = selection ?: return
         if (!selMoved || isIdentity(g)) return
         if (onMarks(MarkEdit.Transform(s.ids, g))) {
-            transformHandoff = transformHandoff + s.ids.associateWith { compose(g, transformOf(it)) }
-            selection = Selection(s.sheetId, s.page, s.ids, transformPolygon(s.outline, g))
+            transformHandoff = transformHandoff + s.ids.associateWith { id ->
+                compose(localGesture(sheets.getValue(strokeById.getValue(id).sheetId), g), transformOf(id))
+            }
+            selection = Selection(s.ids, transformPolygon(s.outline, g))
         }
         invalidate()
     }

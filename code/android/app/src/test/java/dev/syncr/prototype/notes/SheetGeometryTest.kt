@@ -6,16 +6,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SheetGeometryTest {
-    @Test fun canonicalSheetIsUniformLetterboxedAndRoundTripsPortraitAndLandscape() {
-        for ((width, height) in listOf(1000 to 1600, 1920 to 1080, 1600 to 1000)) for ((pw, ph) in listOf(1600f to 1000f, 1600f to 3200f)) {
-            val mapping = SheetMapping.fit(width, height, pw, ph)
-            val zero = mapping.toScreen(0f, 0f); val far = mapping.toScreen(pw, ph)
-            assertTrue(zero.first >= 0 && zero.second >= 0)
-            assertTrue(far.first <= width + .01f && far.second <= height + .01f)
-            assertEquals((far.first - zero.first) / pw, (far.second - zero.second) / ph, .0001f)
-            val point = mapping.toScreen(300f, 450f)
-            assertEquals(300f, mapping.toSheet(point.first, point.second).first, .001f)
-            assertEquals(450f, mapping.toSheet(point.first, point.second).second, .001f)
+    @Test fun canvasMappingIsUniformAndRoundTripsInBothOrientations() {
+        for ((width, height) in listOf(1000 to 1600, 1920 to 1080, 1600 to 1000)) {
+            val mapping = Viewport.defaultView(CanvasLayout(), width, height)
+            val zero = mapping.toScreen(0f, 0f); val far = mapping.toScreen(4800f, 3000f)
+            assertEquals(0f to 0f, zero)
+            assertEquals((far.first - zero.first) / 4800f, (far.second - zero.second) / 3000f, .0001f)
+            val point = mapping.toScreen(3400f, 12000f)
+            assertEquals(3400f, mapping.toSheet(point.first, point.second).first, .001f)
+            assertEquals(12000f, mapping.toSheet(point.first, point.second).second, .001f)
         }
     }
     @Test fun realSamplesPreserveOrderPressureTimeAndFreezeMapping() {

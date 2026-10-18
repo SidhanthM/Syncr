@@ -12,6 +12,8 @@ import java.io.File
 class NotesViewModel(application: Application) : AndroidViewModel(application) {
     val location = File(application.filesDir, "syncr-library").absolutePath
     val repository = NotesRepository(location, thumbnailDir = File(application.cacheDir, "thumbnails"))
+    /** Presentation only: keeps zoom through configuration changes, not across closing a note. */
+    var canvasViewport: Pair<String, dev.syncr.prototype.notes.SheetMapping>? = null
     init { run { repository.loadLibrary() } }
     fun run(block: suspend () -> Unit) { viewModelScope.launch { block() } }
     fun export(uri: Uri) = run {

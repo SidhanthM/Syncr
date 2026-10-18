@@ -12,11 +12,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import dev.syncr.core.PageFormat
 import dev.syncr.prototype.notes.NotesState
 import dev.syncr.prototype.ui.theme.Syncr
-
-fun PageFormat.label() = when (this) { PageFormat.PHONE -> "Phone pages"; PageFormat.SHEET16X10 -> "16:10 sheets" }
 
 /**
  * "More" (design §8.3) leads with where the note is stored and its save state. The Mac part is
@@ -25,7 +22,7 @@ fun PageFormat.label() = when (this) { PageFormat.PHONE -> "Phone pages"; PageFo
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MoreSheet(state: NotesState, location: String, onDismiss: () -> Unit, onRename: () -> Unit, onMove: () -> Unit,
-    onAddPage: () -> Unit, onExport: () -> Unit, onPointer: () -> Unit, onLibrary: () -> Unit,
+    onExport: () -> Unit, onPointer: () -> Unit, onLibrary: () -> Unit,
     onArchive: (Boolean) -> Unit, onDelete: () -> Unit) {
     val c = Syncr.colors
     val snapshot = state.snapshot ?: return
@@ -57,12 +54,6 @@ fun MoreSheet(state: NotesState, location: String, onDismiss: () -> Unit, onRena
             else IconMenuRow(MenuGlyph.ARCHIVE, "Archive", "Keep it, out of the way, under Archived", editable) { onArchive(true) }
             // Leaving goes through the unsaved-changes guard first; the library then offers Undo.
             IconMenuRow(MenuGlyph.TRASH, "Delete", "Moves it to Recently deleted for 30 days", !state.busy, tint = c.attention, onClick = onDelete)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                val count = snapshot.sheets.size
-                Text("${if (count == 1) "1 page" else "$count pages"} · ${snapshot.pageFormat.label()}", style = Syncr.type.body,
-                    color = c.ink, modifier = Modifier.weight(1f))
-                LabelButton("Add page", onAddPage, enabled = !state.busy && !state.closing, description = "Add a page at the end")
-            }
 
             Hairline(Modifier.padding(top = 16.dp))
             SectionLabel("Mac")

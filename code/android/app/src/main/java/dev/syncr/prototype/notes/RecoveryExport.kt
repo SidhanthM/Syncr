@@ -9,14 +9,14 @@ import java.io.OutputStream
 fun writeRecovery(output: OutputStream, data: RecoveryData) {
     JsonWriter(output.writer(Charsets.UTF_8)).use { json ->
         json.setIndent("  ")
-        json.beginObject().name("format").value("syncr-recovery").name("version").value(1L)
+        json.beginObject().name("format").value("syncr-recovery").name("version").value(2L)
         json.name("note_id").value(data.noteId).name("author_id").value(data.authorId)
         json.name("warning").value("Private handwriting. Pending commands are NOT applied. Automatic import/merge is not available.")
         json.name("creation")
         data.creation?.let {
             json.beginObject().name("operation_id").value(it.operationId).name("note_id").value(it.noteId)
                 .name("first_sheet_id").value(it.firstSheetId).name("title").value(it.title)
-                .name("page_format").value(it.pageFormat.name).name("notebook").value(it.notebook).endObject()
+                .name("notebook").value(it.notebook).endObject()
         } ?: json.nullValue()
         json.name("commands").beginArray()
         data.commands.forEach { command ->

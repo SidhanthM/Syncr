@@ -32,7 +32,6 @@ import dev.syncr.prototype.notes.NoteCanvasView
 import dev.syncr.prototype.notes.NotesState
 import dev.syncr.prototype.notes.TapCommand
 import dev.syncr.prototype.notes.inkColour
-import dev.syncr.prototype.notes.shouldAutoAddPage
 import dev.syncr.prototype.ui.theme.Syncr
 
 /** Tool choice and floating-chrome visibility, hoisted so it survives leaving and reopening notes. */
@@ -45,8 +44,8 @@ data class ToolState(
 )
 
 /**
- * The note: all pages stacked vertically. At rest the chrome is a quiet "Title · Notebook" header,
- * the page indicator and the tool dot; a banner only when something needs attention, and the
+ * The note: one continuous canvas. At rest the chrome is a quiet "Title · Notebook" header
+ * and the tool dot; a banner only when something needs attention, and the
  * selection bar only while strokes are selected.
  */
 @Composable
@@ -62,12 +61,15 @@ fun NoteScreen(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: Tool
     val pen = !tools.eraser && !tools.lasso && tools.brush.family == BrushFamily.PEN
     val highlighter = !tools.eraser && !tools.lasso && tools.brush.family == BrushFamily.HIGHLIGHTER
     var view by remember { mutableStateOf<NoteCanvasView?>(null) }
-    var page by remember(snapshot.noteId) { mutableStateOf(1 to snapshot.sheets.size) }
     var selected by remember(snapshot.noteId) { mutableIntStateOf(0) }
     val context = LocalContext.current
     val gestures by remember(context) { AppPreferencesStore.state(context) }.collectAsState()
     Box(Modifier.fillMaxSize().background(c.desk)) {
-        AndroidView(factory = { context -> NoteCanvasView(context).also { view = it; onPaper(it) } }, modifier = Modifier.fillMaxSize(),
+        AndroidView(factory = { context -> NoteCanvasView(context).also { canvas ->
+            canvas.restoredViewport = vm.canvasViewport
+            canvas.onViewportChanged = { id, mapping -> vm.canvasViewport = id to mapping }
+            view = canvas; onPaper(canvas)
+        } }, modifier = Modifier.fillMaxSize(),
             update = { canvas ->
                 canvas.brush = tools.brush; canvas.eraser = tools.eraser; canvas.lasso = tools.lasso
                 canvas.sideButtonErases = gestures.sideButton == SideButtonAction.ERASE
@@ -76,17 +78,10 @@ fun NoteScreen(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: Tool
                 canvas.onStroke = { sheetId, channels, usedBrush ->
                     val preview = InkPreview(newId(), sheetId, channels, usedBrush)
                     if (repo.stageStroke(preview)) {
-                        // Auto-add (owner decision 6): writing low on the last page queues exactly one new page.
-                        repo.state.value.snapshot?.let { current ->
-                            val index = current.sheets.indexOfFirst { it.id == sheetId }
-                            if (shouldAutoAddPage(index, current.sheets.size, channels.y.max(), current.pageHeight, repo.addSheetPending))
-                                repo.stageAddSheet()
-                        }
                         vm.run { repo.retry() }; preview
                     } else null
                 }
                 canvas.onMarks = { edit -> repo.stageMarks(edit).also { staged -> if (staged) vm.run { repo.retry() } } }
-                canvas.onAddPage = { if (repo.stageAddSheet()) vm.run { repo.retry() } }
                 canvas.onTap = { command ->
                     when (command) {
                         TapCommand.UNDO -> if (gestures.twoFingerUndo) { canvas.deselect(); vm.run { repo.history(false) } }
@@ -94,7 +89,6 @@ fun NoteScreen(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: Tool
                         TapCommand.FIT -> Unit // already handled by the view
                     }
                 }
-                canvas.onViewport = { current, total -> page = current to total }
                 canvas.onSelection = { selected = it }
                 canvas.onTouchStart = { if (tools.barOpen) onTools(tools.copy(barOpen = false, optionsOpen = false)) }
                 canvas.update(state, dark)
@@ -136,15 +130,7 @@ fun NoteScreen(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: Tool
                 onDrag = drag, onRelease = release) },
             options = { ToolOptions(tools.brush,
                 onSize = { onTools(tools.copy(brush = tools.brush.copy(size = it))) },
-                onColour = { onTools(tools.copy(brush = tools.brush.copy(colour = it))) }) },
-            indicator = {
-                val (current, total) = page.first.coerceIn(1, maxOf(1, snapshot.sheets.size)) to snapshot.sheets.size
-                Box(Modifier.heightIn(min = 48.dp).widthIn(min = 48.dp).clickable(role = Role.Button, onClick = onMore)
-                    .semantics { contentDescription = "Page $current of $total. Opens More" },
-                    contentAlignment = Alignment.CenterStart) {
-                    Text("$current / $total", style = Syncr.type.pageIndicator, color = c.muted, modifier = Modifier.padding(start = 4.dp))
-                }
-            })
+                onColour = { onTools(tools.copy(brush = tools.brush.copy(colour = it))) }) })
     }
 }
 

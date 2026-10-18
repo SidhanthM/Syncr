@@ -14,7 +14,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class StylusInputTest {
     private data class Pointer(val id: Int, val tool: Int, val x: Float, val y: Float)
-    // y = 400 lies on the first page (below the top padding) at any test density.
+    // y = 400 lies inside the continuous canvas.
     private fun finger(id: Int = 7, x: Float = 100f, y: Float = 400f) = Pointer(id, MotionEvent.TOOL_TYPE_FINGER, x, y)
     private fun pen(id: Int = 42, x: Float = 100f, y: Float = 400f) = Pointer(id, MotionEvent.TOOL_TYPE_STYLUS, x, y)
     private fun event(action: Int, time: Long, vararg pointers: Pointer): MotionEvent = MotionEvent.obtain(
@@ -30,12 +30,12 @@ class StylusInputTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         return NoteCanvasView(context).apply {
             layout(0, 0, 1600, 1000)
-            update(NotesState(snapshot = NoteSnapshot("note", "Test", null, PageFormat.SHEET16X10, 1600f, 1000f,
-                EntityHead("create", null), EntityHead("create", null), listOf(SheetView("sheet", "create")), emptyList(), 1u,
+            update(NotesState(snapshot = NoteSnapshot("note", "Test", null,
+                EntityHead("create", null), EntityHead("create", null), listOf(SheetView("sheet", "create", 0f, 0f)), emptyList(), 1u,
                 EventCursor("stream", 1u), null, null, emptyList(), emptyList())), false)
         }
     }
-    private fun pageX(view: NoteCanvasView, screenX: Float) = view.pageMapping(0)!!.toSheet(screenX, 400f).first
+    private fun pageX(view: NoteCanvasView, screenX: Float) = view.canvasMapping()!!.toSheet(screenX, 400f).first
     @Test fun fingersNeverInkAndStableStylusIdWinsOverPalmNavigation() = onMain {
         val view = paper(); val completed = mutableListOf<SampleChannels>(); val sheets = mutableListOf<String>()
         view.onStroke = { sheet, samples, _ -> sheets += sheet; completed += samples; null }
@@ -57,14 +57,14 @@ class StylusInputTest {
         send(view, MotionEvent.ACTION_UP, 270, pen())
         assertEquals(pageX(view, 100f), completed.last().x.first(), .001f)
         // Palm rule v1: a finger landing within 300 ms of pen-up neither pans nor taps.
-        val before = view.pageMapping(0)
+        val before = view.canvasMapping()
         send(view, MotionEvent.ACTION_DOWN, 400, finger(y = 600f))
         send(view, MotionEvent.ACTION_MOVE, 410, finger(y = 100f))
         send(view, MotionEvent.ACTION_UP, 420, finger(y = 100f))
-        assertEquals(before, view.pageMapping(0))
-        // Pen-down in the gap above the first page never inks.
+        assertEquals(before, view.canvasMapping())
+        // No gap or page padding: ink can start at the canvas's top edge.
         send(view, MotionEvent.ACTION_DOWN, 1000, pen(y = 1f)); send(view, MotionEvent.ACTION_UP, 1010, pen(y = 1f))
-        assertEquals(2, completed.size)
+        assertEquals(3, completed.size)
     }
     @Test fun historicalSamplesAreOldestFirstAndCancelBackgroundOrLostContactNeverSave() = onMain {
         val view = paper(); val completed = mutableListOf<SampleChannels>()
@@ -84,5 +84,55 @@ class StylusInputTest {
         send(view, MotionEvent.ACTION_UP, 420, finger())
         assertEquals(1, completed.size)
     }
+    @Test fun swipeRightwardOnCanvasExposesInkBeyondThePortraitColumnAndRotationKeepsScale() = onMain {
+        val view = paper()
+        view.layout(0, 0, 1000, 2000)
+        view.fit()
+        val completed = mutableListOf<SampleChannels>()
+        view.onStroke = { sheet, samples, brush ->
+            assertEquals("sheet", sheet)
+            completed += samples
+            InkPreview("wide", sheet, samples, brush)
+        }
+        val initial = view.canvasMapping()!!
+        assertEquals(1600f, initial.toSheet(1000f, 0f).first, .001f)
+        // Drag paper left to reveal the portion to its right. Three moves pass slop and establish focus.
+        send(view, MotionEvent.ACTION_DOWN, 1000, finger(x = 900f))
+        send(view, MotionEvent.ACTION_MOVE, 1100, finger(x = 850f))
+        send(view, MotionEvent.ACTION_MOVE, 1200, finger(x = 100f))
+        send(view, MotionEvent.ACTION_UP, 1300, finger(x = 100f))
+        send(view, MotionEvent.ACTION_DOWN, 2000, pen(x = 900f))
+        send(view, MotionEvent.ACTION_UP, 2010, pen(x = 920f))
+        assertTrue(completed.single().x.all { it > 1600f })
+        assertEquals(initial.scale, view.canvasMapping()!!.scale)
+        // Rotation resets the left edge, not the zoom.
+        view.layout(0, 0, 2000, 1000)
+        assertEquals(initial.scale, view.canvasMapping()!!.scale)
+        assertEquals(0f, view.canvasMapping()!!.tx)
+        send(view, MotionEvent.ACTION_DOWN, 3000, pen(x = 100f))
+        send(view, MotionEvent.ACTION_UP, 3010, pen(x = 120f))
+        assertTrue(completed.last().x.all { it < 1600f })
+    }
+
+    @Test fun recreatedCanvasRestoresZoomButNotHorizontalPanForTheOpenNote() = onMain {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val state = NotesState(snapshot = NoteSnapshot("note", "Test", null,
+            EntityHead("create", null), EntityHead("create", null), listOf(SheetView("sheet", "create", 0f, 0f)),
+            emptyList(), 1u, EventCursor("stream", 1u), null, null, emptyList(), emptyList()))
+        val recreated = NoteCanvasView(context).apply {
+            restoredViewport = "note" to SheetMapping(1.3f, -900f, 0f)
+            layout(0, 0, 2000, 1000)
+            update(state, false)
+        }
+        assertEquals(1.3f, recreated.canvasMapping()!!.scale)
+        assertEquals(0f, recreated.canvasMapping()!!.tx)
+        val differentNote = NoteCanvasView(context).apply {
+            restoredViewport = "other" to SheetMapping(1.3f, -900f, 0f)
+            layout(0, 0, 2000, 1000)
+            update(state, false)
+        }
+        assertEquals(1000f / 1600f, differentNote.canvasMapping()!!.scale)
+    }
+
     private fun onMain(block: () -> Unit) = InstrumentationRegistry.getInstrumentation().runOnMainSync(block)
 }

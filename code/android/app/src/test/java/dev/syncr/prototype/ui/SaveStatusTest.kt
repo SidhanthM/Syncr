@@ -23,7 +23,7 @@ class SaveStatusTest {
         // Even with a receipt, a draft not yet reflected in a snapshot is still pending.
         val receipted = pending.copy(receipt = Receipt("op", 2u, EventCursor("s", 2u), false))
         assertEquals(SaveRing.SAVING, saveStatus(NotesState(pending = listOf(receipted))).ring)
-        assertEquals(SaveRing.SAVING, saveStatus(NotesState(creation = CreateNoteRequest("a", "b", "c", "t", PageFormat.PHONE, null))).ring)
+        assertEquals(SaveRing.SAVING, saveStatus(NotesState(creation = CreateNoteRequest("a", "b", "c", "t", null))).ring)
     }
 
     @Test fun failuresAndExportsNeedAttention() {

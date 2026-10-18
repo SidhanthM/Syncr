@@ -39,7 +39,6 @@ import androidx.compose.ui.semantics.selectableGroup
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
-import dev.syncr.core.PageFormat
 import dev.syncr.prototype.notes.InkPreferencesStore
 import dev.syncr.prototype.notes.PenLook
 import dev.syncr.prototype.tablet.MappingMode
@@ -56,8 +55,8 @@ enum class Appearance { SYSTEM, LIGHT, DARK;
 /** Preferences change only local presentation and input; they never rewrite a note or its ink. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsSheet(appearance: Appearance, defaultFormat: PageFormat, location: String, onAppearance: (Appearance) -> Unit,
-    onDefaultFormat: (PageFormat) -> Unit, onDismiss: () -> Unit) {
+fun SettingsSheet(appearance: Appearance, location: String, onAppearance: (Appearance) -> Unit,
+    onDismiss: () -> Unit) {
     val c = Syncr.colors
     val context = LocalContext.current
     val ink by remember(context) { InkPreferencesStore.state(context) }.collectAsState()
@@ -80,15 +79,6 @@ fun SettingsSheet(appearance: Appearance, defaultFormat: PageFormat, location: S
                         choice == appearance) { onAppearance(choice) }
                 }
             }
-            Hairline(Modifier.padding(vertical = 12.dp))
-            SectionLabel("New notes")
-            Text("Default page shape. Existing notes are unchanged.", style = Syncr.type.caption, color = c.muted)
-            Column(Modifier.semantics { selectableGroup() }) {
-                listOf(PageFormat.PHONE, PageFormat.SHEET16X10).forEach { format ->
-                    SettingsOption(format.label(), format == defaultFormat) { onDefaultFormat(format) }
-                }
-            }
-
             Hairline(Modifier.padding(vertical = 12.dp))
             SectionLabel("Ink")
             Text("How strokes are drawn on this phone. Stored ink is unchanged.", style = Syncr.type.caption, color = c.muted)
@@ -117,7 +107,7 @@ fun SettingsSheet(appearance: Appearance, defaultFormat: PageFormat, location: S
                 SettingsOption("Off", app.sideButton == SideButtonAction.OFF) { app { it.copy(sideButton = SideButtonAction.OFF) } }
             }
             SettingsSwitch("Two-finger tap to undo", null, app.twoFingerUndo) { on -> app { it.copy(twoFingerUndo = on) } }
-            SettingsSwitch("Double-tap to fit", "Double-tap empty paper to fit the page.", app.doubleTapFit) { on -> app { it.copy(doubleTapFit = on) } }
+            SettingsSwitch("Double-tap to fit", "Double-tap empty canvas to fit a phone column.", app.doubleTapFit) { on -> app { it.copy(doubleTapFit = on) } }
             Label("Palm rejection delay", Modifier.padding(top = 12.dp))
             Text("How long finger touches are ignored after the pen lifts.", style = Syncr.type.caption, color = c.muted)
             Column(Modifier.semantics { selectableGroup() }) {
@@ -129,7 +119,7 @@ fun SettingsSheet(appearance: Appearance, defaultFormat: PageFormat, location: S
 
             Hairline(Modifier.padding(vertical = 12.dp))
             SectionLabel("Tool bubble")
-            SettingsSwitch("Left-handed", "The bubble starts in the bottom-left corner, the page number in the bottom-right.",
+            SettingsSwitch("Left-handed", "The bubble starts in the bottom-left corner.",
                 app.leftHanded) { on -> app { it.copy(leftHanded = on) } }
             MenuRow("Reset bubble position", if (app.bubbleX.isNaN()) "In its default corner" else "Back to the default corner",
                 enabled = !app.bubbleX.isNaN()) { AppPreferencesStore.resetBubble(context) }

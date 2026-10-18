@@ -213,8 +213,8 @@ fun BubbleBarScope.NoteToolBar(brush: Brush, eraser: Boolean, eraserEnabled: Boo
         Box(Modifier.morphItem(5, n, active).padding(horizontal = 4.dp).size(1.dp, 24.dp)) { VerticalDots() }
         BarItem(Glyph.UNDO, "Undo", Modifier.morphItem(6, n, active), enabled = canUndo, onClick = onUndo)
         BarItem(Glyph.REDO, "Redo", Modifier.morphItem(7, n, active), enabled = canRedo, onClick = onRedo)
-        BarItem(Glyph.FIT, "Fit page width to screen", Modifier.morphItem(8, n, active), onClick = onFit)
-        BarItem(Glyph.MORE, "More: storage, pages, note and modes", Modifier.morphItem(9, n, active), onClick = onMore)
+        BarItem(Glyph.FIT, "Fit a phone column to screen", Modifier.morphItem(8, n, active), onClick = onFit)
+        BarItem(Glyph.MORE, "More: storage, note and modes", Modifier.morphItem(9, n, active), onClick = onMore)
     }
 }
 

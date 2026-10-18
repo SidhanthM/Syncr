@@ -18,10 +18,10 @@ class NativeNoteSmokeTest {
         val core = GeneratedCoreAdapter()
         val library = core.open(root.absolutePath)
         try {
-            val request = CreateNoteRequest(newId(), newId(), newId(), "Native smoke", PageFormat.PHONE, null)
+            val request = CreateNoteRequest(newId(), newId(), newId(), "Native smoke", null)
             library.create(request)
             val note = library.openNote(request.noteId)
-            val channels = SampleChannels(listOf(10f, 20f), listOf(20f, 30f), listOf(.5f, 1f), listOf(0u, 10u), null, null)
+            val channels = SampleChannels(listOf(3400f, 4700f), listOf(12000f, 12100f), listOf(.5f, 1f), listOf(0u, 10u), null, null)
             val mark = newId()
             val add = Command(newId(), listOf(note.snapshot().sheets.single().creationOperationId), CommandBody.Marks(listOf(MarkMutation.AddStroke(
                 mark, request.firstSheetId, core.encode(channels), Brush(BrushFamily.PEN, BrushSize.MEDIUM, InkColour.INK)))))
@@ -44,6 +44,9 @@ class NativeNoteSmokeTest {
             note.closeDurably()
             val reopened = library.openNote(request.noteId)
             assertEquals(finalSequence, reopened.snapshot().localSequence)
+            assertEquals(channels, core.decode(reopened.samples(mark)))
+            assertEquals(CanvasSize(4800f, 3000f, 1600f), canvasSize())
+            assertEquals(listOf(0f to 0f), reopened.snapshot().sheets.map { it.originX to it.originY })
             assertTrue(reopened.snapshot().strokes.single().tombstone)
             assertNotNull(reopened.snapshot().undoTarget)
             reopened.closeDurably()

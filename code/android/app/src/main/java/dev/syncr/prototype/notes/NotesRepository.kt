@@ -29,7 +29,7 @@ data class PendingEdit(
 sealed interface MarkEdit {
     val ids: Set<String>
     data class Delete(override val ids: Set<String>) : MarkEdit
-    /** [gesture] is applied after each mark's current transform: new = gesture ∘ existing. */
+    /** Canvas-space [gesture], converted to each sheet's local space before composing with existing ink. */
     data class Transform(override val ids: Set<String>, val gesture: Affine) : MarkEdit
     data class Restyle(override val ids: Set<String>, val colour: InkColour) : MarkEdit
 }
@@ -152,10 +152,10 @@ class NotesRepository(
             ThumbnailCache.retainOnly(thumbnailDir, keep)
         } catch (_: Exception) { }
     }
-    suspend fun create(title: String, format: PageFormat = PageFormat.PHONE, notebook: String? = null) {
+    suspend fun create(title: String, notebook: String? = null) {
         // Allocate once, before dispatch. A failed/lost reply retains the same request.
         if (state.value.creation == null) mutable.update {
-            it.copy(creation = CreateNoteRequest(id(), id(), id(), title, format, notebook), error = null, recoveryExported = false)
+            it.copy(creation = CreateNoteRequest(id(), id(), id(), title, notebook), error = null, recoveryExported = false)
         }
         retry()
     }
@@ -241,7 +241,7 @@ class NotesRepository(
                 val after = handle.snapshot().localSequence
                 // Metadata only: an up-to-date thumbnail stays valid at the new sequence.
                 state.value.thumbnails[task.noteId]?.takeIf { it.localSequence == before.localSequence }?.let { old ->
-                    val bumped = Thumbnail(after, old.pageWidth, old.pageHeight, old.strokes)
+                    val bumped = Thumbnail(after, old.width, old.viewHeight, old.strokes)
                     mutable.update { it.copy(thumbnails = it.thumbnails + (task.noteId to bumped)) }
                     ThumbnailCache.write(thumbnailDir, task.noteId, bumped)
                 }
@@ -307,7 +307,7 @@ class NotesRepository(
         val s = state.value
         val snapshot = s.snapshot ?: return false
         if (s.closing) return false
-        val sheet = snapshot.sheets.find { it.id == preview.sheetId } ?: return false
+        val sheet = snapshot.sheets.firstOrNull()?.takeIf { it.id == preview.sheetId } ?: return false
         if (s.pending.size >= 64 || s.pending.sumOf { it.preview?.channels?.x?.size ?: 0 } + preview.channels.x.size > 500_000) {
             message("Draft limit reached. Retry, export recovery or discard before drawing more.")
             return false
@@ -343,7 +343,8 @@ class NotesRepository(
             val mutation = when (edit) {
                 is MarkEdit.Delete -> MarkMutation.DeleteStroke(stroke.id, base)
                 is MarkEdit.Transform -> {
-                    val next = compose(edit.gesture, stroke.transform)
+                    val sheet = snapshot.sheets.first { it.id == stroke.sheetId }
+                    val next = compose(localGesture(sheet, edit.gesture), stroke.transform)
                     if (!isValidTransform(next)) { message("That transform can't be applied. Entire gesture cancelled."); return false }
                     transforms[stroke.id] = next
                     MarkMutation.TransformStroke(stroke.id, base, next)
@@ -367,20 +368,6 @@ class NotesRepository(
         mutable.update { it.copy(pending = it.pending + PendingEdit(command.operationId, command, hidden = hidden),
             error = null, recoveryExported = false) }
     }
-    /**
-     * Queues one AddSheet behind any pending ink (marks don't move the structure head). Never a second
-     * one while one is pending: its base would be stale.
-     */
-    fun stageAddSheet(): Boolean {
-        val s = state.value
-        val snapshot = s.snapshot ?: return false
-        if (s.closing || s.creation != null || s.pending.any { it.command?.body is CommandBody.AddSheet }) return false
-        val head = snapshot.structureHead.operationId
-        stageCommand(Command(id(), listOf(head), CommandBody.AddSheet(id(), Base.Operation(head))))
-        return true
-    }
-    val addSheetPending get() = state.value.pending.any { it.command?.body is CommandBody.AddSheet }
-    suspend fun addSheet() { if (stageAddSheet()) retry() }
     /** Moves the OPEN note; like rename it waits for saved changes. */
     suspend fun moveOpenNote(notebook: String?) {
         val s = state.value
