@@ -1,0 +1,4 @@
+.build/
+Native/libsyncr_core.dylib
+Native/include/syncr_coreFFI.h
+Sources/SyncrCore/syncr_core.swift
