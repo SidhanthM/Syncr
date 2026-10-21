@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Metal
 import SyncrCore
@@ -13,7 +14,7 @@ func expectError(_ action: () throws -> Void, _ message: String) throws {
     throw CheckFailure(description: message)
 }
 
-func importMigratesOnlyLocalCopy() throws {
+@MainActor func importMigratesOnlyLocalCopy() throws {
     let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         .appendingPathComponent("../../../core/fixtures/canvas-v2").standardizedFileURL
     let sources = try FileManager.default.contentsOfDirectory(at: fixture, includingPropertiesForKeys: nil)
@@ -26,6 +27,7 @@ func importMigratesOnlyLocalCopy() throws {
     try check(model.error == nil, "open library")
     for source in sources {
         let added = try model.importCopy(from: source)
+        try model.open(id: added.id)
         try check(model.drawing?.title == added.title, "imported title")
         let origins = Set(model.drawing?.strokes.map(\.originY) ?? [])
         let height: Float = added.notebook == "Fixtures" ? 3200 : 1000
@@ -35,7 +37,7 @@ func importMigratesOnlyLocalCopy() throws {
     }
     try check(model.notes.count == 2, "indexed notes")
     try check(try sources.map { try Data(contentsOf: $0) } == original, "sources unchanged")
-    let root = temp.appendingPathComponent("Imported Copies")
+    let root = temp
     let copies = try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
     try check(copies.filter { $0.pathExtension == "syncr" }.count == 2, "two local copies")
     try check(try FileManager.default.contentsOfDirectory(at: root.appendingPathComponent(".backups"),
@@ -46,6 +48,61 @@ func importMigratesOnlyLocalCopy() throws {
     try expectError({ _ = try model.importCopy(from: bad) }, "invalid import must fail")
     try check(model.notes.count == 2, "failed imports did not add notes")
     try check(try sources.map { try Data(contentsOf: $0) } == original, "sources unchanged after failed imports")
+}
+
+/// A note arriving over the link is imported without holding the main thread: the heavy step runs elsewhere
+/// (slowed here to 0.4 s to make a stall visible), the main run loop keeps turning meanwhile, the library
+/// changes only in the main-thread completion, and the failure and refusal paths still report.
+@MainActor func asyncImportKeepsMainThreadFree() throws {
+    let fixture = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .appendingPathComponent("../../../core/fixtures/canvas-v2").standardizedFileURL
+    let sources = try FileManager.default.contentsOfDirectory(at: fixture, includingPropertiesForKeys: nil)
+        .filter { $0.pathExtension == "syncr" }.sorted { $0.path < $1.path }
+    let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: temp); LibraryModel.prepareHook = nil }
+    let model = LibraryModel(folder: temp)
+    final class Seen: @unchecked Sendable { let lock = NSLock(); var onMain: Bool?; var done = false
+        func set(_ v: Bool) { lock.lock(); onMain = v; lock.unlock() } }
+    let seen = Seen()
+    LibraryModel.prepareHook = { seen.set(Thread.isMainThread); Thread.sleep(forTimeInterval: 0.4) }
+    var result: Result<NoteSummary, Error>?
+    var completedOnMain = false
+    model.importCopyAsync(from: sources[0]) { r in completedOnMain = Thread.isMainThread; result = r }
+    try check(result == nil && model.notes.isEmpty, "the import does not finish inside the call")
+    var ticks = 0, longest = 0.0, last = Date()
+    let end = Date().addingTimeInterval(15)
+    while result == nil {
+        if Date() > end { throw CheckFailure(description: "async import never completed") }
+        RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.005))
+        let now = Date(); longest = max(longest, now.timeIntervalSince(last)); last = now; ticks += 1
+        if model.notes.isEmpty == false && result == nil { throw CheckFailure(description: "library changed before the completion ran") }
+    }
+    try check(seen.onMain == false, "validation ran off the main thread")
+    try check(completedOnMain, "completion runs on the main thread")
+    try check(ticks > 20 && longest < 0.2, "main run loop stayed free during the import (ticks \(ticks), longest \(longest) s)")
+    guard case .success(let added)? = result else { throw CheckFailure(description: "async import failed: \(String(describing: result))") }
+    try check(model.notes.map(\.id) == [added.id], "note installed after completion")
+    try check(!FileManager.default.fileExists(atPath: temp.path + "/.incoming-" ) && (try FileManager.default.contentsOfDirectory(atPath: temp.path)).allSatisfy { !$0.hasPrefix(".incoming-") }, "staging removed")
+    try model.open(id: added.id)
+    try check(model.drawing?.strokes.isEmpty == false, "installed note reads")
+    // The same copy again is not newer; garbage is refused; both leave the library as it was.
+    LibraryModel.prepareHook = nil
+    for (name, source) in [("duplicate", sources[0]), ("garbage", temp.appendingPathComponent("bad.syncr"))] {
+        if name == "garbage" { try Data([1, 2, 3]).write(to: source) }
+        var r: Result<NoteSummary, Error>?
+        model.importCopyAsync(from: source) { r = $0 }
+        try pump(name) { r != nil }
+        if case .success? = r { throw CheckFailure(description: "\(name) import must fail") }
+        try check(model.notes.count == 1, "\(name) import changed nothing")
+    }
+}
+
+@MainActor private func pump(_ what: String, until condition: () -> Bool) throws {
+    let end = Date().addingTimeInterval(15)
+    while !condition() {
+        if Date() > end { throw CheckFailure(description: "timed out waiting for \(what)") }
+        RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.002))
+    }
 }
 
 func viewportAndOffscreenMeshPixels() throws {
@@ -84,11 +141,26 @@ func viewportAndOffscreenMeshPixels() throws {
 }
 
 @main struct Checks {
-    static func main() {
+    @MainActor static func main() {
         do {
+            _ = NSApplication.shared
+            try notebookLogicChecks()
+            try markdownMappingChecks()
+            try notebookCoreN1Checks()
+            try notebookCoreN2N3Checks()
+            try companionCoreChecks()
+            try companionDrawingChecks()
             try importMigratesOnlyLocalCopy()
+            try asyncImportKeepsMainThreadFree()
             try viewportAndOffscreenMeshPixels()
-            print("Mac viewer checks: OK")
+            try newerCopiesAndCancelledLoads()
+            try rendererCoverageOverlapAndReuse()
+            try notebookWorkspaceChecks()
+            try switcherAndCommandChecks()
+            try readOnlyAndSessionChecks()
+            try liveInkChecks()
+            try linkChecks()
+            print("Mac viewer checks: OK (migration, newer copies, cancelled loads, MSAA, overlap/wrap, GPU reuse, notebooks, switcher, read-only vs Mac notes, session, live ink, phone link)")
         } catch {
             fputs("Mac viewer checks: FAILED: \(error)\n", stderr)
             exit(1)
