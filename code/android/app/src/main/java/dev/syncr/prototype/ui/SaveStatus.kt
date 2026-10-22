@@ -1,5 +1,7 @@
 package dev.syncr.prototype.ui
 
+import dev.syncr.prototype.notes.LibraryTask
+import dev.syncr.prototype.notes.NoteChange
 import dev.syncr.prototype.notes.NotesState
 
 /**
@@ -10,18 +12,18 @@ enum class SaveRing { SAVED_ON_PHONE, SAVING, ATTENTION }
 
 data class SaveStatus(val ring: SaveRing, val headline: String)
 
-/** Only a core receipt reflected in a snapshot counts as saved: anything still pending is not. */
+/** Only a change the core has confirmed and that shows in a snapshot counts as saved: anything still pending is not. */
 fun saveStatus(state: NotesState): SaveStatus = when {
-    state.unsaved && state.error != null -> SaveStatus(SaveRing.ATTENTION, "Save failed. Unsaved changes are kept on screen")
-    state.unsaved && state.recoveryExported -> SaveStatus(SaveRing.ATTENTION, "Recovery exported. Changes are not saved to the note")
-    state.unsaved -> SaveStatus(SaveRing.SAVING, "Saving, not yet saved")
+    state.unsaved && state.error != null -> SaveStatus(SaveRing.ATTENTION, "Couldn't save. Your writing is still here")
+    state.unsaved && state.recoveryExported -> SaveStatus(SaveRing.ATTENTION, "Copy exported. Not saved to the note yet")
+    state.unsaved -> SaveStatus(SaveRing.SAVING, "Saving")
     else -> SaveStatus(SaveRing.SAVED_ON_PHONE, "Saved on this phone")
 }
 
 /**
- * Human copy for a repository error. Core diagnostics arrive as `KindName: detail`; plain
- * repository/view messages are already written for people and pass through unchanged.
- * The raw text stays available to the caller as the detail.
+ * Human copy for a repository or canvas message. Core diagnostics arrive as `KindName: detail`; the canvas and
+ * repository's own messages are reworded here when known. Anything else passes through unchanged, and the raw
+ * text stays available to the caller as the detail.
  */
 fun friendlyError(raw: String, saving: Boolean): String {
     val kind = Regex("^([A-Za-z]+): ").find(raw)?.groupValues?.get(1) ?: return raw
@@ -39,12 +41,12 @@ fun friendlyError(raw: String, saving: Boolean): String {
 }
 
 /** What a failed library action means for the note, in words; null for actions with no special wording. */
-fun libraryTaskFailure(task: dev.syncr.prototype.notes.LibraryTask?): String? = when (task) {
-    is dev.syncr.prototype.notes.LibraryTask.DeleteNote -> "Couldn't move the note to Recently deleted. It is still in your library."
-    is dev.syncr.prototype.notes.LibraryTask.RestoreNote -> "Couldn't restore the note. It is still in Recently deleted."
-    is dev.syncr.prototype.notes.LibraryTask.PurgeNote -> "Couldn't delete the note forever. It is still in Recently deleted."
-    is dev.syncr.prototype.notes.LibraryTask.EditNote -> when (val change = task.change) {
-        is dev.syncr.prototype.notes.NoteChange.Archive ->
+fun libraryTaskFailure(task: LibraryTask?): String? = when (task) {
+    is LibraryTask.DeleteNote -> "Couldn't move the note to Recently deleted. It's still in your library."
+    is LibraryTask.RestoreNote -> "Couldn't restore the note. It's still in Recently deleted."
+    is LibraryTask.PurgeNote -> "Couldn't delete the note forever. It's still in Recently deleted."
+    is LibraryTask.EditNote -> when (val change = task.change) {
+        is NoteChange.Archive ->
             if (change.archived) "Couldn't archive the note. Nothing changed." else "Couldn't unarchive the note. Nothing changed."
         else -> null
     }

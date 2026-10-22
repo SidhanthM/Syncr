@@ -1,22 +1,18 @@
 package dev.syncr.prototype.ui
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.VectorConverter
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.onSizeChanged
@@ -26,6 +22,8 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import dev.syncr.prototype.ui.theme.Motion
+import dev.syncr.prototype.ui.theme.Syncr
 
 /**
  * The note's draggable tool bubble. Its centre is stored as fractions of the safe viewport, so it survives
@@ -47,11 +45,11 @@ fun FloatingChrome(open: Boolean, optionsOpen: Boolean, description: String, sta
     var viewport by remember { mutableStateOf(IntSize.Zero) }
     var settle by remember { mutableStateOf<Job?>(null) }
     val scope = rememberCoroutineScope()
-    val reducedMotion = rememberReducedMotion()
+    val reducedMotion = Syncr.reducedMotion
     val density = LocalDensity.current
     val width = viewport.width.toFloat()
     val height = viewport.height.toFloat()
-    val radius = with(density) { 32.dp.toPx() }
+    val radius = with(density) { 32.dp.toPx() } // half the bubble's touch target
     val margin = with(density) { 8.dp.toPx() }
     val leftHanded = prefs.leftHanded
     fun clamp(p: Offset) = Offset(p.x.coerceIn(radius + margin, width - radius - margin),
@@ -74,8 +72,7 @@ fun FloatingChrome(open: Boolean, optionsOpen: Boolean, description: String, sta
         if (reducedMotion) { persist(position); return }
         val target = clamp(start + velocity * 0.12f)
         settle = scope.launch {
-            Animatable(start, Offset.VectorConverter).animateTo(target,
-                spring(dampingRatio = 0.58f, stiffness = Spring.StiffnessMediumLow), initialVelocity = velocity) {
+            Animatable(start, Offset.VectorConverter).animateTo(target, Motion.settle(), initialVelocity = velocity) {
                 val p = clamp(value)
                 position = Offset(p.x / width, p.y / height)
             }

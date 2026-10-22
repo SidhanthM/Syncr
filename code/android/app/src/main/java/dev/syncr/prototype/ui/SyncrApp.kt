@@ -1,9 +1,16 @@
 package dev.syncr.prototype.ui
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -11,10 +18,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.syncr.prototype.notes.LibraryFilter
 import dev.syncr.prototype.notes.NoteCanvasView
+import dev.syncr.prototype.notes.NotesState
+import kotlinx.coroutines.delay
+
+/** Which sheet or note dialog is open over the app; one at a time. */
+private enum class Overlay { NONE, SETTINGS, MORE, RENAME, MOVE }
 
 /**
- * Screen switching plus the closure guard. Every path that leaves a note goes through [closeOrGuard];
- * only the repository decides whether leaving is allowed (receipt, export or confirmed discard).
+ * Screen switching, the sheets, and the closure guard. Every path that leaves a note goes through
+ * [ClosureGuard.close]; only the repository decides whether leaving is allowed.
  */
 @Composable
 fun SyncrApp(vm: NotesViewModel = viewModel(), dark: Boolean, appearance: Appearance,
@@ -22,50 +34,39 @@ fun SyncrApp(vm: NotesViewModel = viewModel(), dark: Boolean, appearance: Appear
     onFinish: () -> Unit, onPointer: () -> Unit) {
     val repo = vm.repository
     val state by repo.state.collectAsStateWithLifecycle()
-    val lifecycle = LocalLifecycleOwner.current
+    val guard = remember(vm) { ClosureGuard(vm) }
     var paper by remember { mutableStateOf<NoteCanvasView?>(null) }
     var filter by remember { mutableStateOf<LibraryFilter>(LibraryFilter.All) }
     var tools by remember { mutableStateOf(ToolState()) }
-    var renaming by remember { mutableStateOf(false) }
-    var moving by remember { mutableStateOf(false) }
-    var more by remember { mutableStateOf(false) }
-    var settings by remember { mutableStateOf(false) }
-    var guard by remember { mutableStateOf(false) }
-    var discardConfirm by remember { mutableStateOf(false) }
-    var exportConfirm by remember { mutableStateOf(false) }
-    var leaving by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var overlay by remember { mutableStateOf(Overlay.NONE) }
+    val libraryReady = rememberLibraryReady(state)
     val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) vm.export(uri)
     }
-    fun closeOrGuard(after: () -> Unit) {
+    fun closeNote(after: () -> Unit) {
         paper?.cancelGesture()
-        leaving = after
-        if (state.unsaved) guard = true
-        else vm.run { if (repo.leave()) { after(); leaving = null } }
+        guard.close(state, after)
     }
-    DisposableEffect(lifecycle) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) paper?.cancelGesture()
-            if (event == Lifecycle.Event.ON_RESUME) vm.run { repo.refresh() }
-        }
-        lifecycle.lifecycle.addObserver(observer)
-        onDispose { lifecycle.lifecycle.removeObserver(observer); paper?.cancelGesture() }
-    }
+    ReleaseGesturesWhenHidden(vm) { paper }
+
     BackHandler {
         val finishLibrary: () -> Unit = { vm.run { repo.releaseLibrary(); onFinish() } }
-        closeOrGuard(if (state.snapshot != null) ({}) else finishLibrary)
+        closeNote(if (state.snapshot != null) ({}) else finishLibrary)
     }
     // Back from Archived or Recently deleted returns to All rather than leaving the app.
     BackHandler(enabled = state.snapshot == null && (filter == LibraryFilter.Archived || filter == LibraryFilter.Deleted)) {
         filter = LibraryFilter.All
     }
     // Registered later, so it wins: back first folds away the tool bar.
-    BackHandler(enabled = state.snapshot != null && tools.barOpen) { tools = tools.copy(barOpen = false, optionsOpen = false) }
+    BackHandler(enabled = state.snapshot != null && tools.barOpen) { tools = tools.folded() }
 
     val snapshot = state.snapshot
     LaunchedEffect(snapshot == null) {
-        if (snapshot == null) { more = false; renaming = false; moving = false; paper = null; vm.canvasViewport = null
-            tools = tools.copy(barOpen = false, optionsOpen = false) }
+        if (snapshot == null) {
+            if (overlay != Overlay.SETTINGS) overlay = Overlay.NONE
+            paper = null; vm.canvasViewport = null
+            tools = tools.folded()
+        }
     }
     // A notebook that no longer exists (renamed elsewhere, deleted) falls back to All.
     LaunchedEffect(state.notebooks) {
@@ -78,71 +79,102 @@ fun SyncrApp(vm: NotesViewModel = viewModel(), dark: Boolean, appearance: Appear
     val banner: @Composable () -> Unit = {
         StatusBanner(state,
             onRetry = { vm.run { if (state.unsaved || state.libraryTask != null) repo.retry() else repo.refresh() } },
-            onExport = { exportConfirm = true },
-            onResolve = { leaving = {}; guard = true },
+            onExport = { guard.confirmExport = true },
+            onResolve = guard::resolve,
             onDismiss = { repo.dismissMessage() })
     }
     if (snapshot == null) {
-        LibraryScreen(state, filter, LibraryActions(
-            onFilter = { filter = it },
-            onNew = { vm.run { repo.create(defaultNoteTitle(System.currentTimeMillis()), filter.newNoteNotebook) } },
-            onOpen = { id -> vm.run { repo.open(id) } },
-            onPointer = { closeOrGuard(onPointer) },
-            onSettings = { settings = true },
-            onCreateNotebook = { name -> vm.run { repo.createNotebook(name) } },
-            onRenameNotebook = { old, new -> vm.run {
-                repo.renameNotebook(old, new)
-                if (filter == LibraryFilter.Notebook(old) && repo.state.value.notebooks.any { it.name == new }) filter = LibraryFilter.Notebook(new)
-            } },
-            onDeleteNotebook = { name -> vm.run { repo.deleteNotebook(name) } },
-            onMoveNote = { id, notebook -> vm.run { repo.moveNote(id, notebook) } },
-            onRenameNote = { id, title -> vm.run { repo.renameNote(id, title) } },
-            onArchiveNote = { id, archived -> vm.run { repo.archiveNote(id, archived) } },
-            onDeleteNote = { id -> vm.run { repo.deleteNote(id) } },
-            onRestoreNote = { id -> vm.run { repo.restoreNote(id) } },
-            onPurgeNote = { id -> vm.run { repo.purgeNote(id) } },
-            onUndoDelete = { vm.run { repo.undoDelete() } },
-            onDismissDeleted = { repo.dismissDeleted() },
-        ), banner = banner)
+        LibraryScreen(state, filter, libraryReady, libraryActions(vm, filter, onFilter = { filter = it },
+            onPointer = { closeNote(onPointer) }, onSettings = { overlay = Overlay.SETTINGS }), banner = banner)
     } else {
-        NoteScreen(vm, state, dark, tools, onTools = { tools = it }, onPaper = { paper = it },
+        NoteScreen(vm, state, dark, tools, NoteActions(
+            onTools = { tools = it }, onPaper = { paper = it },
             onUndo = { paper?.cancelGesture(); paper?.deselect(); vm.run { repo.history(false) } },
             onRedo = { paper?.cancelGesture(); paper?.deselect(); vm.run { repo.history(true) } },
             onFit = { paper?.fit() },
-            onMore = { tools = tools.copy(barOpen = false, optionsOpen = false); more = true },
-            banner = banner)
+            onMore = { tools = tools.folded(); overlay = Overlay.MORE }), banner = banner)
     }
 
-    if (settings && snapshot == null) SettingsSheet(appearance, vm.location, onAppearance,
-        onDismiss = { settings = false })
-    if (more && snapshot != null) MoreSheet(state, vm.location,
-        onDismiss = { more = false },
-        onRename = { renaming = true },
-        onMove = { moving = true },
-        onExport = { exportConfirm = true },
-        onPointer = { more = false; closeOrGuard(onPointer) },
-        onLibrary = { more = false; closeOrGuard {} },
-        onArchive = { archived -> vm.run { repo.archiveOpenNote(archived) } },
-        // Close through the guard (unsaved changes), then delete the now-closed note; the library offers Undo.
-        onDelete = { val id = snapshot.noteId; more = false; closeOrGuard { vm.run { repo.deleteNote(id) } } })
-    if (renaming && snapshot != null) RenameDialog(snapshot.title, onDismiss = { renaming = false },
-        onSave = { title -> renaming = false; vm.run { repo.rename(title) } })
-    if (moving && snapshot != null) MoveNoteDialog(snapshot.title, snapshot.notebook, state.notebooks.map { it.name },
-        onDismiss = { moving = false },
-        onPick = { target -> moving = false; if (target != snapshot.notebook) vm.run { repo.moveOpenNote(target) } })
-    if (guard) GuardDialog(state,
-        onStay = { guard = false; leaving = null },
-        onRetry = { vm.run { repo.retry(); if (!repo.state.value.unsaved && repo.leave()) {
-            guard = false; leaving?.invoke(); leaving = null
-        } } },
-        onExport = { exportConfirm = true },
-        onLeaveAfterExport = { vm.run { if (repo.leave()) { guard = false; leaving?.invoke(); leaving = null } } },
-        onDiscard = { discardConfirm = true })
-    if (discardConfirm) DiscardDialog(onKeep = { discardConfirm = false }, onDiscard = {
-        discardConfirm = false
-        vm.run { if (repo.leave(discard = true)) { guard = false; leaving?.invoke(); leaving = null } }
+    when {
+        overlay == Overlay.SETTINGS && snapshot == null -> SettingsSheet(appearance, vm.location, onAppearance,
+            onDismiss = { overlay = Overlay.NONE })
+        snapshot == null -> Unit
+        overlay == Overlay.MORE -> MoreSheet(state, MoreActions(
+            onDismiss = { overlay = Overlay.NONE },
+            onRename = { overlay = Overlay.RENAME },
+            onMove = { overlay = Overlay.MOVE },
+            onExport = { guard.confirmExport = true },
+            onPointer = { overlay = Overlay.NONE; closeNote(onPointer) },
+            onLibrary = { overlay = Overlay.NONE; closeNote {} },
+            onArchive = { archived -> vm.run { repo.archiveOpenNote(archived) } },
+            // Close through the guard (unsaved changes), then delete the now-closed note; the library offers Undo.
+            onDelete = { val id = snapshot.noteId; overlay = Overlay.NONE; closeNote { vm.run { repo.deleteNote(id) } } }))
+        overlay == Overlay.RENAME -> RenameDialog(snapshot.title, onDismiss = { overlay = Overlay.NONE },
+            onSave = { title -> overlay = Overlay.NONE; vm.run { repo.rename(title) } })
+        overlay == Overlay.MOVE -> MoveNoteDialog(snapshot.title, snapshot.notebook, state.notebooks.map { it.name },
+            onDismiss = { overlay = Overlay.NONE },
+            onPick = { target -> overlay = Overlay.NONE; if (target != snapshot.notebook) vm.run { repo.moveOpenNote(target) } })
+    }
+    ClosureGuardDialogs(guard, state, onChooseExport = {
+        export.launch("Syncr-${snapshot?.noteId ?: "unsaved"}.syncr-recovery.json")
     })
-    if (exportConfirm) ExportDialog(onCancel = { exportConfirm = false }, onChoose = {
-        exportConfirm = false; export.launch("Syncr-${snapshot?.noteId ?: "unsaved"}.syncr-recovery.json")
-    })
+}
+
+/** Library actions, each a call on the repository's worker. */
+private fun libraryActions(vm: NotesViewModel, filter: LibraryFilter, onFilter: (LibraryFilter) -> Unit,
+    onPointer: () -> Unit, onSettings: () -> Unit): LibraryActions {
+    val repo = vm.repository
+    return LibraryActions(
+        onFilter = onFilter,
+        onNew = { vm.run { repo.create(defaultNoteTitle(System.currentTimeMillis()), filter.newNoteNotebook) } },
+        onOpen = { id -> vm.run { repo.open(id) } },
+        onPointer = onPointer,
+        onSettings = onSettings,
+        onCreateNotebook = { name -> vm.run { repo.createNotebook(name) } },
+        onRenameNotebook = { old, new -> vm.run {
+            repo.renameNotebook(old, new)
+            if (filter == LibraryFilter.Notebook(old) && repo.state.value.notebooks.any { it.name == new }) onFilter(LibraryFilter.Notebook(new))
+        } },
+        onDeleteNotebook = { name -> vm.run { repo.deleteNotebook(name) } },
+        onMoveNote = { id, notebook -> vm.run { repo.moveNote(id, notebook) } },
+        onRenameNote = { id, title -> vm.run { repo.renameNote(id, title) } },
+        onArchiveNote = { id, archived -> vm.run { repo.archiveNote(id, archived) } },
+        onDeleteNote = { id -> vm.run { repo.deleteNote(id) } },
+        onRestoreNote = { id -> vm.run { repo.restoreNote(id) } },
+        onPurgeNote = { id -> vm.run { repo.purgeNote(id) } },
+        onUndoDelete = { vm.run { repo.undoDelete() } },
+        onDismissDeleted = { repo.dismissDeleted() },
+    )
+}
+
+/** Cancels a half-drawn stroke when the app goes to the background, and refreshes the library on return. */
+@Composable
+private fun ReleaseGesturesWhenHidden(vm: NotesViewModel, paper: () -> NoteCanvasView?) {
+    val lifecycle = LocalLifecycleOwner.current
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) paper()?.cancelGesture()
+            if (event == Lifecycle.Event.ON_RESUME) vm.run { vm.repository.refresh() }
+        }
+        lifecycle.lifecycle.addObserver(observer)
+        onDispose { lifecycle.lifecycle.removeObserver(observer); paper()?.cancelGesture() }
+    }
+}
+
+/**
+ * True once the library has loaded at least once, so the first frame shows placeholders rather than
+ * "No notes yet". Loading starts on a worker, so the first frames can be neither busy nor loaded: anything in the
+ * library, an error, having seen it busy, or a short grace period all count as ready.
+ */
+@Composable
+private fun rememberLibraryReady(state: NotesState): Boolean {
+    var ready by rememberSaveable { mutableStateOf(false) }
+    var sawBusy by remember { mutableStateOf(false) }
+    var graceOver by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { delay(600); graceOver = true }
+    LaunchedEffect(state.busy) { if (state.busy) sawBusy = true }
+    val loaded = !state.busy && (sawBusy || graceOver || state.error != null || state.notes.isNotEmpty() ||
+        state.notebooks.isNotEmpty() || state.deleted.isNotEmpty())
+    LaunchedEffect(loaded) { if (loaded) ready = true }
+    return ready || loaded
 }

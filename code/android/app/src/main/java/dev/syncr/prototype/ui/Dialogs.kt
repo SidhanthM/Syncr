@@ -1,147 +1,124 @@
 package dev.syncr.prototype.ui
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.runtime.*
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.text.font.FontWeight
-import dev.syncr.prototype.notes.NotesState
 import dev.syncr.prototype.notes.notebookNameProblem
+import dev.syncr.prototype.ui.theme.Space
 import dev.syncr.prototype.ui.theme.Syncr
+import dev.syncr.prototype.ui.theme.TouchTarget
 
-/*
- * The unsaved-changes guard, discard confirmation and recovery export confirmation, restyled.
- * Their decisions (when closure is allowed) live in the caller and the repository, unchanged.
- */
+/* Note and notebook dialogs. Their decisions (what is allowed) live in the repository and the caller. */
 
-@Composable
-private fun DialogText(text: String) = Text(text, style = Syncr.type.body, color = Syncr.colors.ink)
+/** Quotes a user-supplied name for a dialog title. */
+internal fun quoted(name: String) = "“$name”"
 
 @Composable
 fun RenameDialog(initial: String, onDismiss: () -> Unit, onSave: (String) -> Unit) {
-    var title by remember { mutableStateOf(initial) }
-    AlertDialog(onDismiss, containerColor = Syncr.colors.chrome, title = { Label("Rename note", color = Syncr.colors.ink) },
-        text = { OutlinedTextField(title, { title = it }, label = { Text("Title") }, singleLine = true) },
-        confirmButton = { LabelButton("Save", { onSave(title.trim()) }, enabled = title.isNotBlank()) },
-        dismissButton = { LabelButton("Cancel", onDismiss) })
-}
-
-@Composable
-fun GuardDialog(state: NotesState, onStay: () -> Unit, onRetry: () -> Unit, onExport: () -> Unit, onLeaveAfterExport: () -> Unit,
-    onDiscard: () -> Unit) {
-    AlertDialog(onStay, containerColor = Syncr.colors.chrome,
-        title = { Label("Unsaved changes. Closing is blocked", color = Syncr.colors.attention) },
-        text = {
-            Column {
-                state.error?.let { Text(friendlyError(it, saving = true), style = Syncr.type.caption, color = Syncr.colors.muted) }
-                DialogText(if (state.recoveryExported) "Recovery archive written. It is not a saved note and needs manual recovery. You can leave now."
-                    else "These changes are not saved yet. Retry saving, export a private recovery archive, or discard them. Leaving the app in the background never discards them.")
-            }
-        },
-        confirmButton = { Row {
-            LabelButton("Retry", onRetry, enabled = !state.busy)
-            if (state.recoveryExported) LabelButton("Leave", onLeaveAfterExport, enabled = !state.busy, description = "Leave after export")
-            else LabelButton("Export", onExport, enabled = !state.busy, description = "Export recovery")
-        } },
-        dismissButton = { Row {
-            LabelButton("Discard…", onDiscard, enabled = !state.busy, description = "Discard unsaved changes")
-            LabelButton("Stay", onStay)
-        } })
-}
-
-@Composable
-fun DiscardDialog(onKeep: () -> Unit, onDiscard: () -> Unit) {
-    AlertDialog(onKeep, containerColor = Syncr.colors.chrome, title = { Label("Discard unsaved changes?", color = Syncr.colors.ink) },
-        text = { DialogText("The unsaved strokes and edits are lost. Changes already saved on this phone stay. This can't be undone.") },
-        confirmButton = { LabelButton("Discard and leave", onDiscard) },
-        dismissButton = { LabelButton("Keep changes", onKeep) })
-}
-
-@Composable
-fun ExportDialog(onCancel: () -> Unit, onChoose: () -> Unit) {
-    AlertDialog(onCancel, containerColor = Syncr.colors.chrome, title = { Label("Export recovery archive", color = Syncr.colors.ink) },
-        text = { DialogText("Contains your private handwriting and pending changes, plus a backup of the note when available. Choose a place you trust. This is not a normal backup and is not imported automatically. A failed or cancelled export doesn't allow closing.") },
-        confirmButton = { LabelButton("Choose destination", onChoose) },
-        dismissButton = { LabelButton("Cancel", onCancel) })
+    NameDialog("Rename note", "Title", initial, problem = { if (it.isBlank()) "" else null }, onDismiss, onSave)
 }
 
 /** Name entry for a new or renamed notebook. Trims, and blocks reserved names and case-insensitive duplicates. */
 @Composable
 fun NotebookNameDialog(heading: String, initial: String, existing: List<String>, renaming: String?, onDismiss: () -> Unit,
     onSave: (String) -> Unit) {
-    var name by remember { mutableStateOf(initial) }
+    NameDialog(heading, "Name", initial, problem = { notebookNameProblem(it, existing, renaming) }, onDismiss, onSave)
+}
+
+/**
+ * One text field, focused with its text selected. [problem] returns why the name can't be saved (an empty string
+ * blocks saving without showing a message), shown only once the user has typed.
+ */
+@Composable
+private fun NameDialog(heading: String, fieldLabel: String, initial: String, problem: (String) -> String?,
+    onDismiss: () -> Unit, onSave: (String) -> Unit) {
+    var value by remember { mutableStateOf(TextFieldValue(initial, TextRange(0, initial.length))) }
     var touched by remember { mutableStateOf(false) }
-    val problem = notebookNameProblem(name, existing, renaming)
-    AlertDialog(onDismiss, containerColor = Syncr.colors.chrome, title = { Label(heading, color = Syncr.colors.ink) },
-        text = {
-            OutlinedTextField(name, { name = it; touched = true }, label = { Text("Name") }, singleLine = true,
-                isError = touched && problem != null,
-                supportingText = { if (touched && problem != null) Text(problem) })
-        },
-        confirmButton = { LabelButton("Save", { onSave(name.trim()) }, enabled = problem == null) },
-        dismissButton = { LabelButton("Cancel", onDismiss) })
+    val focus = remember { FocusRequester() }
+    val issue = problem(value.text)
+    val save = { if (issue == null) onSave(value.text.trim()) }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    SyncrDialog(onDismiss, title = heading,
+        confirm = { TextAction("Save", save, enabled = issue == null) },
+        dismiss = { TextAction("Cancel", onDismiss) }) {
+        OutlinedTextField(value, { value = it; touched = true }, Modifier.fillMaxWidth().focusRequester(focus),
+            label = { Text(fieldLabel) }, singleLine = true, isError = touched && !issue.isNullOrEmpty(),
+            supportingText = if (touched && !issue.isNullOrEmpty()) ({ Text(issue) }) else null,
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { save() }))
+    }
 }
 
 /** Deleting is only allowed for an empty notebook; otherwise explain what to do instead. */
 @Composable
 fun DeleteNotebookDialog(name: String, noteCount: Long, onDismiss: () -> Unit, onDelete: () -> Unit) {
-    if (noteCount > 0) AlertDialog(onDismiss, containerColor = Syncr.colors.chrome,
-        title = { Label("Can't delete \"$name\"", color = Syncr.colors.ink) },
-        text = { DialogText("It still holds ${if (noteCount == 1L) "1 note" else "$noteCount notes"}. Move them to Inbox or another notebook first (long-press a note).") },
-        confirmButton = { LabelButton("OK", onDismiss) })
-    else AlertDialog(onDismiss, containerColor = Syncr.colors.chrome,
-        title = { Label("Delete \"$name\"?", color = Syncr.colors.ink) },
-        text = { DialogText("The notebook is empty. No notes are affected.") },
-        confirmButton = { LabelButton("Delete", onDelete) },
-        dismissButton = { LabelButton("Cancel", onDismiss) })
+    if (noteCount > 0) SyncrDialog(onDismiss, title = "Can't delete ${quoted(name)}",
+        confirm = { TextAction("OK", onDismiss) }) {
+        DialogText("It still has ${if (noteCount == 1L) "1 note" else "$noteCount notes"}. Move them to Inbox or another " +
+            "notebook first: long-press a note to move it.")
+    }
+    else SyncrDialog(onDismiss, title = "Delete ${quoted(name)}?",
+        confirm = { TextAction("Delete", onDelete, tone = ActionTone.DESTRUCTIVE) },
+        dismiss = { TextAction("Cancel", onDismiss) }) {
+        DialogText("It's empty, so no notes are affected.")
+    }
 }
 
-/** Inbox or any notebook; the current one is marked. */
+/** Inbox or any notebook, as a radio list; the current one is checked. */
 @Composable
 fun MoveNoteDialog(title: String, current: String?, notebooks: List<String>, onDismiss: () -> Unit, onPick: (String?) -> Unit) {
-    AlertDialog(onDismiss, containerColor = Syncr.colors.chrome, title = { Label("Move \"$title\"", color = Syncr.colors.ink) },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                (listOf<String?>(null) + notebooks).forEach { target ->
-                    val selected = target == current
-                    Text((target ?: "Inbox") + if (selected) "  ✓" else "", style = Syncr.type.body,
-                        color = if (selected) Syncr.colors.muted else Syncr.colors.ink,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.RadioButton) { onPick(target) }
-                            .semantics { this.selected = selected }.padding(vertical = 12.dp))
+    val c = Syncr.colors
+    SyncrDialog(onDismiss, title = "Move ${quoted(title)}", confirm = { TextAction("Cancel", onDismiss) }) {
+        Column(Modifier.selectableGroup().verticalScroll(rememberScrollState())) {
+            (listOf<String?>(null) + notebooks).forEach { target ->
+                val selected = target == current
+                Row(Modifier.fillMaxWidth().heightIn(min = TouchTarget)
+                    .selectable(selected, role = Role.RadioButton) { onPick(target) }
+                    .padding(vertical = Space.s), verticalAlignment = Alignment.CenterVertically) {
+                    SyncrIcon(SyncrIcons.Folder, c.muted, size = 20.dp)
+                    Text(target ?: "Inbox", style = Syncr.type.body, color = c.ink, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f).padding(horizontal = Space.m))
+                    if (selected) SyncrIcon(SyncrIcons.Check, c.ink, size = 20.dp)
                 }
-                if (notebooks.isEmpty()) Text("Create notebooks with + in the library.", style = Syncr.type.caption, color = Syncr.colors.muted)
             }
-        },
-        confirmButton = { LabelButton("Cancel", onDismiss) })
+            if (notebooks.isEmpty()) DialogDetail("Make a notebook with + in the library.", Modifier.padding(top = Space.s))
+        }
+    }
 }
 
 /** The only permanent step: confirmed every time, from Recently deleted. */
 @Composable
 fun PurgeDialog(title: String, onCancel: () -> Unit, onDelete: () -> Unit) {
-    AlertDialog(onCancel, containerColor = Syncr.colors.chrome,
-        title = { Label("Delete \"$title\" forever?", color = Syncr.colors.ink) },
-        text = { DialogText("The note and its handwriting are removed from this phone. This can't be undone.") },
-        confirmButton = { TextButtonAttention("Delete forever", onDelete) },
-        dismissButton = { LabelButton("Cancel", onCancel) })
-}
-
-@Composable
-private fun TextButtonAttention(text: String, onClick: () -> Unit) {
-    androidx.compose.material3.TextButton(onClick, Modifier.heightIn(min = 48.dp)) {
-        Text(text, style = Syncr.type.label.copy(fontSize = 14.sp, fontWeight = FontWeight.SemiBold), color = Syncr.colors.attention)
+    SyncrDialog(onCancel, title = "Delete ${quoted(title)} forever?",
+        confirm = { TextAction("Delete forever", onDelete, tone = ActionTone.DESTRUCTIVE) },
+        dismiss = { TextAction("Cancel", onCancel) }) {
+        DialogText("The note and its handwriting are removed from this phone. This can't be undone.")
     }
 }
