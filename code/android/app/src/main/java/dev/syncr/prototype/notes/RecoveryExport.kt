@@ -21,7 +21,8 @@ fun writeRecovery(output: OutputStream, data: RecoveryData) {
         json.name("commands").beginArray()
         data.commands.forEach { command ->
             json.beginObject().name("operation_id").value(command.operationId).name("dependencies").beginArray()
-            command.dependencies.forEach { json.value(it) }; json.endArray().name("body").beginObject()
+            command.dependencies.forEach { json.value(it) }
+            json.endArray().name("body").beginObject()
             when (val body = command.body) {
                 is CommandBody.Marks -> {
                     json.name("type").value("Marks").name("mutations").beginArray()
@@ -34,32 +35,61 @@ fun writeRecovery(output: OutputStream, data: RecoveryData) {
                                     .value(Base64.encodeToString(mutation.samples, Base64.NO_WRAP))
                                 json.brush(mutation.brush)
                             }
-                            is MarkMutation.DeleteStroke -> { json.name("type").value("DeleteStroke").name("mark_id").value(mutation.markId); json.base(mutation.base) }
-                            is MarkMutation.RestoreStroke -> { json.name("type").value("RestoreStroke").name("mark_id").value(mutation.markId); json.base(mutation.base) }
+                            is MarkMutation.DeleteStroke -> {
+                                json.name("type").value("DeleteStroke").name("mark_id").value(mutation.markId)
+                                json.base(mutation.base)
+                            }
+                            is MarkMutation.RestoreStroke -> {
+                                json.name("type").value("RestoreStroke").name("mark_id").value(mutation.markId)
+                                json.base(mutation.base)
+                            }
                             is MarkMutation.RestyleStroke -> {
-                                json.name("type").value("RestyleStroke").name("mark_id").value(mutation.markId); json.base(mutation.base); json.brush(mutation.brush)
+                                json.name("type").value("RestyleStroke").name("mark_id").value(mutation.markId)
+                                json.base(mutation.base)
+                                json.brush(mutation.brush)
                             }
                             is MarkMutation.TransformStroke -> {
-                                json.name("type").value("TransformStroke").name("mark_id").value(mutation.markId); json.base(mutation.base)
+                                json.name("type").value("TransformStroke").name("mark_id").value(mutation.markId)
+                                json.base(mutation.base)
                                 val t = mutation.transform
                                 json.name("transform").beginObject().name("a").value(t.a).name("b").value(t.b)
                                     .name("c").value(t.c).name("d").value(t.d).name("tx").value(t.tx).name("ty").value(t.ty).endObject()
                             }
+                            // The phone never stages text edits. Fail closed rather than silently dropping an unknown mutation.
+                            is MarkMutation.AddText, is MarkMutation.SpliceText, is MarkMutation.SetTextWidth,
+                            is MarkMutation.DeleteText, is MarkMutation.RestoreText, is MarkMutation.TransformText,
+                            is MarkMutation.RestyleText -> error("Text edits are not supported in phone recovery commands")
                         }
                         json.endObject()
                     }
                     json.endArray()
                 }
-                is CommandBody.AddSheet -> { json.name("type").value("AddSheet").name("sheet_id").value(body.sheetId); json.base(body.base) }
-                is CommandBody.SetNotebook -> { json.name("type").value("SetNotebook").name("notebook").value(body.notebook); json.base(body.base) }
-                is CommandBody.SetArchived -> { json.name("type").value("SetArchived").name("archived").value(body.archived); json.base(body.base) }
-                is CommandBody.RenameNote -> { json.name("type").value("RenameNote").name("title").value(body.title); json.base(body.base) }
+                is CommandBody.AddSheet -> {
+                    json.name("type").value("AddSheet").name("sheet_id").value(body.sheetId)
+                    json.base(body.base)
+                }
+                is CommandBody.SetNotebook -> {
+                    json.name("type").value("SetNotebook").name("notebook").value(body.notebook)
+                    json.base(body.base)
+                }
+                is CommandBody.SetArchived -> {
+                    json.name("type").value("SetArchived").name("archived").value(body.archived)
+                    json.base(body.base)
+                }
+                is CommandBody.RenameNote -> {
+                    json.name("type").value("RenameNote").name("title").value(body.title)
+                    json.base(body.base)
+                }
                 is CommandBody.ReorderSheets -> {
                     json.name("type").value("ReorderSheets").name("sheet_ids").beginArray()
-                    body.sheetIds.forEach { json.value(it) }; json.endArray(); json.base(body.base)
+                    body.sheetIds.forEach { json.value(it) }
+                    json.endArray()
+                    json.base(body.base)
                 }
                 is CommandBody.Undo -> json.name("type").value("Undo").name("target_operation_id").value(body.targetOperationId)
                 is CommandBody.Redo -> json.name("type").value("Redo").name("target_operation_id").value(body.targetOperationId)
+                is CommandBody.CompanionMarks, is CommandBody.SetCompanionSettings ->
+                    error("Companion edits are not supported in phone recovery commands")
             }
             json.endObject().endObject()
         }

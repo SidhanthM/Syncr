@@ -4,6 +4,7 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import dev.syncr.prototype.link.android.LinkController
 import dev.syncr.prototype.notes.NotesRepository
 import dev.syncr.prototype.notes.writeRecovery
 import kotlinx.coroutines.launch
@@ -14,7 +15,12 @@ class NotesViewModel(application: Application) : AndroidViewModel(application) {
     val repository = NotesRepository(location, thumbnailDir = File(application.cacheDir, "thumbnails"))
     /** Presentation only: keeps zoom through configuration changes, not across closing a note. */
     var canvasViewport: Pair<String, dev.syncr.prototype.notes.SheetMapping>? = null
-    init { run { repository.loadLibrary() } }
+    private val link = LinkController.get(application)
+    init {
+        run { repository.loadLibrary() }
+        link.attachNotes(repository)
+    }
+    override fun onCleared() { link.attachNotes(null) }
     fun run(block: suspend () -> Unit) { viewModelScope.launch { block() } }
     fun export(uri: Uri) = run {
         repository.exportRecovery { data ->

@@ -130,7 +130,7 @@ class NotesRepositoryTest {
         assertSame(fake.commands.first(), fake.commands.last())
         assertEquals(1, fake.encodeCount)
         assertFalse(repo.state.value.unsaved)
-        assertTrue(repo.state.value.status.startsWith("Saved on this phone"))
+        assertEquals("Saved on this phone", repo.state.value.status) // no claim about Mac sync: the link says that itself
         assertTrue(repo.leave()); assertEquals(1, fake.closes)
     }
     @Test fun receiptIsNotEnoughOverlayRemainsUntilSnapshotThenLostReplyUsesLookup() = runTest {
@@ -385,11 +385,11 @@ class NotesRepositoryTest {
         assertFalse(repo.stageMarks(MarkEdit.Transform(setOf("a"), scaleAbout(0.0, 0.0, 0.0))))
         assertTrue(repo.state.value.pending.isEmpty())
         assertFalse(repo.stageMarks(MarkEdit.Transform((1..1025).map { "m$it" }.toSet(), translation(1.0, 1.0))))
-        assertEquals("Selection limit: entire gesture cancelled (maximum 1024 strokes).", repo.state.value.error)
+        assertEquals("That's too many strokes at once (1,024 at most). Nothing changed.", repo.state.value.error)
         assertFalse(repo.stageMarks(MarkEdit.Transform(setOf("missing"), translation(1.0, 1.0))))
         repo.stageStroke(preview("unsaved"))
         assertFalse(repo.stageMarks(MarkEdit.Transform(setOf("a"), translation(1.0, 1.0))))
-        assertTrue(repo.state.value.error!!.startsWith("Wait for saved ink"))
+        assertTrue(repo.state.value.error!!.startsWith("Wait a moment"))
         assertEquals(1, repo.state.value.pending.size)
         assertTrue(fake.commands.isEmpty())
     }
@@ -521,8 +521,9 @@ class NotesRepositoryTest {
         repo.deleteNote("note")
         assertEquals(LibraryTask.DeleteNote("note"), repo.state.value.libraryTask)
         assertEquals("StorageIo: disk", repo.state.value.error)
-        assertEquals("Couldn't move the note to Recently deleted. It is still in your library.",
-            dev.syncr.prototype.ui.libraryTaskFailure(repo.state.value.libraryTask))
+        // The UI explains the retained task; its exact copy is ui/'s to own.
+        assertTrue(dev.syncr.prototype.ui.libraryTaskFailure(repo.state.value.libraryTask)!!
+            .startsWith("Couldn't move the note to Recently deleted."))
         assertTrue(repo.state.value.notes.any { it.id == "note" }); assertNull(repo.state.value.recentlyDeleted)
         repo.deleteNote("old") // one library task at a time
         assertEquals(listOf("delete:note"), fake.trashCalls)
@@ -550,7 +551,8 @@ class NotesRepositoryTest {
             assertNotNull(ThumbnailCache.read(dir, "note", 1u))
             fake.failRestore = CoreException.IdCollision("taken", false)
             repo.restoreNote("note")
-            assertEquals("Couldn't restore the note. It is still in Recently deleted.", dev.syncr.prototype.ui.libraryTaskFailure(repo.state.value.libraryTask))
+            assertEquals(LibraryTask.RestoreNote("note"), repo.state.value.libraryTask)
+            assertTrue(dev.syncr.prototype.ui.libraryTaskFailure(repo.state.value.libraryTask)!!.startsWith("Couldn't restore the note."))
             repo.dismissMessage(); fake.failRestore = null
             repo.restoreNote("note"); assertTrue(repo.state.value.notes.any { it.id == "note" })
             repo.deleteNote("note")

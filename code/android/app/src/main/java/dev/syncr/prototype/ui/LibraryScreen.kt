@@ -1,57 +1,48 @@
 package dev.syncr.prototype.ui
 
-import dev.syncr.prototype.notes.drawThumbnail
-
-import dev.syncr.prototype.notes.InkPreferencesStore
-
-import dev.syncr.prototype.notes.InkPreferences
-
-import androidx.compose.ui.platform.LocalContext
-
-import android.graphics.Bitmap
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.Image
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.Text
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.liveRegion
-import dev.syncr.core.DeletedNoteSummary
-import kotlinx.coroutines.delay
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items as rows
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalAccessibilityManager
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.syncr.core.DeletedNoteSummary
 import dev.syncr.core.NoteSummary
 import dev.syncr.prototype.notes.LibraryFilter
 import dev.syncr.prototype.notes.NotesState
-import dev.syncr.prototype.notes.Thumbnail
+import dev.syncr.prototype.ui.theme.Motion
+import dev.syncr.prototype.ui.theme.Radius
+import dev.syncr.prototype.ui.theme.Space
 import dev.syncr.prototype.ui.theme.Syncr
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import dev.syncr.prototype.ui.theme.floatingSurface
+import kotlinx.coroutines.delay
 
 /** Library actions; all storage happens in the repository's worker. */
 class LibraryActions(
@@ -75,265 +66,117 @@ class LibraryActions(
     val onDismissDeleted: () -> Unit,
 )
 
+/** Which library dialog is open; one at a time. */
+private sealed interface LibraryDialog {
+    data object NewNotebook : LibraryDialog
+    data class RenameNotebook(val name: String) : LibraryDialog
+    data class DeleteNotebook(val name: String) : LibraryDialog
+    data class MoveNote(val note: NoteSummary) : LibraryDialog
+    data class RenameNote(val note: NoteSummary) : LibraryDialog
+    data class Purge(val note: DeletedNoteSummary) : LibraryDialog
+}
+
 /**
- * Library (design §8.3, owner decision 10): a calm document page. A large "Notes" heading, a row of
- * notebook chips (All · Inbox · notebooks · +), and a two-column grid with "New note" first.
+ * The library (design "Write mode on the phone", Library): a calm page with the "Notes" heading, a row of
+ * notebook chips and a grid with "New note" first. Problems and Undo float at the bottom, above the gesture bar,
+ * so they never push the grid around. Content scrolls behind the navigation bar; the header keeps clear of the
+ * status bar and cutout.
+ *
+ * [ready] is false until the library has loaded once, so the empty state never flashes at launch.
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun LibraryScreen(state: NotesState, filter: LibraryFilter, actions: LibraryActions,
+fun LibraryScreen(state: NotesState, filter: LibraryFilter, ready: Boolean, actions: LibraryActions,
     banner: @Composable () -> Unit) {
     val c = Syncr.colors
     val enabled = !state.busy && !state.unsaved && state.libraryTask == null
-    val names = state.notebooks.map { it.name }
-    var creatingNotebook by remember { mutableStateOf(false) }
-    var renamingNotebook by remember { mutableStateOf<String?>(null) }
-    var deletingNotebook by remember { mutableStateOf<String?>(null) }
-    var movingNote by remember { mutableStateOf<NoteSummary?>(null) }
-    var renamingNote by remember { mutableStateOf<NoteSummary?>(null) }
-    var purging by remember { mutableStateOf<DeletedNoteSummary?>(null) }
+    var dialog by remember { mutableStateOf<LibraryDialog?>(null) }
+    var overlayHeight by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
     val now = remember(state.notes, state.deleted) { System.currentTimeMillis() }
-    val shown = state.notes.filter { filter.accepts(it.notebook, it.archived) }
+    val navigation = WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom).asPaddingValues()
+    val bottom = navigation.calculateBottomPadding() + with(density) { overlayHeight.toDp() } + Space.xl
+    val content = PaddingValues(start = Space.page, end = Space.page, top = Space.s, bottom = bottom)
 
-    Column(Modifier.fillMaxSize().background(c.desk).safeDrawingPadding().padding(horizontal = 20.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Spacer(Modifier.weight(1f))
-            LabelButton("Settings", actions.onSettings, description = "Open appearance and input settings")
-            LabelButton("Tablet mode", actions.onPointer, enabled = !state.busy,
-                description = "Tablet mode: use the phone as a pen pad for the Mac over Bluetooth. Nothing is stored.")
-        }
-        Text("Notes", style = Syncr.type.heading, color = c.ink, modifier = Modifier.semantics { heading() }.padding(bottom = 16.dp))
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Chip("All", filter == LibraryFilter.All) { actions.onFilter(LibraryFilter.All) }
-            Chip("Inbox", filter == LibraryFilter.Inbox) { actions.onFilter(LibraryFilter.Inbox) }
-            state.notebooks.forEach { notebook ->
-                var menu by remember { mutableStateOf(false) }
-                Box {
-                    Chip(notebook.name, filter == LibraryFilter.Notebook(notebook.name), onLongClick = { menu = true }) {
-                        actions.onFilter(LibraryFilter.Notebook(notebook.name))
-                    }
-                    DropdownMenu(menu, { menu = false }, containerColor = c.chrome) {
-                        DropdownMenuItem({ Text("Rename…") }, enabled = enabled, onClick = { menu = false; renamingNotebook = notebook.name })
-                        DropdownMenuItem({ Text("Delete…") }, enabled = enabled, onClick = { menu = false; deletingNotebook = notebook.name })
-                    }
-                }
-            }
-            Chip("+", false, description = "New notebook", enabled = enabled) { creatingNotebook = true }
-            // Secondary places: quieter, after the notebooks.
-            Box(Modifier.padding(horizontal = 4.dp).width(1.dp).height(20.dp).background(c.dots))
-            Chip("Archived", filter == LibraryFilter.Archived, glyph = MenuGlyph.ARCHIVE, secondary = true) {
-                actions.onFilter(LibraryFilter.Archived)
-            }
-            Chip("Recently deleted", filter == LibraryFilter.Deleted, glyph = MenuGlyph.TRASH, secondary = true) {
-                actions.onFilter(LibraryFilter.Deleted)
+    Box(Modifier.fillMaxSize().background(c.desk)) {
+        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))) {
+            LibraryTopBar(tabletEnabled = !state.busy, onPointer = actions.onPointer, onSettings = actions.onSettings)
+            NotebookChips(state.notebooks, filter, enabled, onFilter = actions.onFilter,
+                onNewNotebook = { dialog = LibraryDialog.NewNotebook },
+                onRenameNotebook = { dialog = LibraryDialog.RenameNotebook(it) },
+                onDeleteNotebook = { dialog = LibraryDialog.DeleteNotebook(it) })
+            Box(Modifier.weight(1f)) {
+                if (filter == LibraryFilter.Deleted) RecentlyDeletedList(state.deleted, now, enabled, ready, content,
+                    onRestore = actions.onRestoreNote, onPurge = { dialog = LibraryDialog.Purge(it) })
+                else NoteGrid(state, filter, now, enabled, ready, content, NoteGridActions(
+                    onNew = actions.onNew, onOpen = actions.onOpen,
+                    onMove = { dialog = LibraryDialog.MoveNote(it) }, onRename = { dialog = LibraryDialog.RenameNote(it) },
+                    onArchive = { actions.onArchiveNote(it.id, !it.archived) }, onDelete = { actions.onDeleteNote(it.id) }))
             }
         }
-        Hairline()
-        Spacer(Modifier.height(12.dp))
-        banner()
-        Box(Modifier.weight(1f)) {
-            if (filter == LibraryFilter.Deleted) RecentlyDeletedList(state.deleted, now, enabled,
-                onRestore = actions.onRestoreNote, onPurge = { purging = it })
-            else LazyVerticalGrid(GridCells.Fixed(2), Modifier.fillMaxSize().padding(top = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(20.dp),
-                contentPadding = PaddingValues(bottom = 88.dp)) {
-                if (filter.allowsNewNotes) item(key = "new") { NewNoteCell(enabled, actions.onNew) }
-                items(shown, key = { it.id }) { note ->
-                    NoteCard(note, state.thumbnails[note.id], showNotebook = filter == LibraryFilter.All || filter == LibraryFilter.Archived,
-                        now = now, enabled = enabled,
-                        onOpen = { actions.onOpen(note.id) }, onMove = { movingNote = note }, onRename = { renamingNote = note },
-                        onArchive = { actions.onArchiveNote(note.id, !note.archived) }, onDelete = { actions.onDeleteNote(note.id) })
-                }
-                if (shown.isEmpty() && !state.busy) item(span = { GridItemSpan(2) }, key = "empty") {
-                    Text(when {
-                        filter == LibraryFilter.Archived -> "No archived notes. Archive a note (long-press it) to keep it out of the way without deleting it."
-                        state.notes.isEmpty() -> "Nothing here yet. Notes you write stay on this phone."
-                        else -> "No notes here yet."
-                    }, style = Syncr.type.caption, color = c.muted, modifier = Modifier.padding(top = 8.dp))
-                }
-            }
-            state.recentlyDeleted?.let { id ->
-                UndoBar("Moved to Recently deleted", enabled = !state.busy && state.libraryTask == null,
-                    onUndo = actions.onUndoDelete, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp))
-                LaunchedEffect(id) { delay(8_000); actions.onDismissDeleted() }
-            }
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
+            .padding(horizontal = Space.page).padding(bottom = Space.l)
+            .onSizeChanged { overlayHeight = it.height },
+            verticalArrangement = Arrangement.spacedBy(Space.s)) {
+            banner()
+            UndoDeleteBar(state.recentlyDeleted, enabled = !state.busy && state.libraryTask == null,
+                onUndo = actions.onUndoDelete, onTimeout = actions.onDismissDeleted)
         }
     }
-    purging?.let { note ->
-        PurgeDialog(note.title, onCancel = { purging = null }, onDelete = { purging = null; actions.onPurgeNote(note.id) })
-    }
+    LibraryDialogs(dialog, state, onClose = { dialog = null }, actions)
+}
 
-    if (creatingNotebook) NotebookNameDialog("New notebook", "", names, null,
-        onDismiss = { creatingNotebook = false }, onSave = { creatingNotebook = false; actions.onCreateNotebook(it) })
-    renamingNotebook?.let { old ->
-        NotebookNameDialog("Rename notebook", old, names, old,
-            onDismiss = { renamingNotebook = null }, onSave = { renamingNotebook = null; actions.onRenameNotebook(old, it) })
-    }
-    deletingNotebook?.let { name ->
-        val count = state.notebooks.find { it.name == name }?.noteCount?.toLong() ?: 0L
-        DeleteNotebookDialog(name, count, onDismiss = { deletingNotebook = null },
-            onDelete = { deletingNotebook = null; actions.onDeleteNotebook(name) })
-    }
-    movingNote?.let { note ->
-        MoveNoteDialog(note.title, note.notebook, names, onDismiss = { movingNote = null },
-            onPick = { target -> movingNote = null; if (target != note.notebook) actions.onMoveNote(note.id, target) })
-    }
-    renamingNote?.let { note ->
-        RenameDialog(note.title, onDismiss = { renamingNote = null },
-            onSave = { title -> renamingNote = null; if (title != note.title) actions.onRenameNote(note.id, title) })
+@Composable
+private fun LibraryDialogs(dialog: LibraryDialog?, state: NotesState, onClose: () -> Unit, actions: LibraryActions) {
+    val names = state.notebooks.map { it.name }
+    when (dialog) {
+        null -> Unit
+        LibraryDialog.NewNotebook -> NotebookNameDialog("New notebook", "", names, null,
+            onDismiss = onClose, onSave = { onClose(); actions.onCreateNotebook(it) })
+        is LibraryDialog.RenameNotebook -> NotebookNameDialog("Rename notebook", dialog.name, names, dialog.name,
+            onDismiss = onClose, onSave = { onClose(); actions.onRenameNotebook(dialog.name, it) })
+        is LibraryDialog.DeleteNotebook -> {
+            val count = state.notebooks.find { it.name == dialog.name }?.noteCount?.toLong() ?: 0L
+            DeleteNotebookDialog(dialog.name, count, onDismiss = onClose, onDelete = { onClose(); actions.onDeleteNotebook(dialog.name) })
+        }
+        is LibraryDialog.MoveNote -> MoveNoteDialog(dialog.note.title, dialog.note.notebook, names, onDismiss = onClose,
+            onPick = { target -> onClose(); if (target != dialog.note.notebook) actions.onMoveNote(dialog.note.id, target) })
+        is LibraryDialog.RenameNote -> RenameDialog(dialog.note.title, onDismiss = onClose,
+            onSave = { title -> onClose(); if (title != dialog.note.title) actions.onRenameNote(dialog.note.id, title) })
+        is LibraryDialog.Purge -> PurgeDialog(dialog.note.title, onCancel = onClose,
+            onDelete = { onClose(); actions.onPurgeNote(dialog.note.id) })
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+/**
+ * "Moved to Recently deleted · Undo", floating above the content. It stays for 8 seconds, or longer when the
+ * system asks for more time (TalkBack, accessibility timeout settings).
+ */
 @Composable
-private fun Chip(text: String, selected: Boolean, description: String? = null, enabled: Boolean = true,
-    glyph: MenuGlyph? = null, secondary: Boolean = false, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
+private fun UndoDeleteBar(noteId: String?, enabled: Boolean, onUndo: () -> Unit, onTimeout: () -> Unit) {
     val c = Syncr.colors
-    val shape = RoundedCornerShape(8.dp)
-    val content = when { selected -> c.desk; !enabled -> c.muted; secondary -> c.muted; else -> c.ink }
-    Box(Modifier.heightIn(min = 48.dp), contentAlignment = Alignment.Center) {
-        Row(Modifier.clip(shape)
-            .then(when { selected -> Modifier.background(c.ink, shape); secondary -> Modifier; else -> Modifier.hairlineBorder(c.dots) })
-            .combinedClickable(enabled = enabled, role = Role.Tab, onLongClick = onLongClick, onClick = onClick)
-            .semantics(mergeDescendants = true) { contentDescription = description ?: text; this.selected = selected }
-            .padding(horizontal = if (secondary) 10.dp else 14.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            if (glyph != null) { MenuIcon(glyph, content, size = 16.dp); Spacer(Modifier.width(6.dp)) }
-            Text(text, style = Syncr.type.label, color = content, maxLines = 1)
+    val reduced = Syncr.reducedMotion
+    val accessibility = LocalAccessibilityManager.current
+    noteId?.let { id ->
+        LaunchedEffect(id) {
+            delay(accessibility?.calculateRecommendedTimeoutMillis(8_000, containsIcons = false, containsText = true,
+                containsControls = true) ?: 8_000)
+            onTimeout()
+        }
+    }
+    AnimatedVisibility(noteId != null, enter = Motion.appear(reduced), exit = Motion.disappear(reduced)) {
+        androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().floatingSurface(Radius.m)
+            .semantics { liveRegion = LiveRegionMode.Polite }
+            .padding(start = Space.l, end = Space.xs), verticalAlignment = Alignment.CenterVertically) {
+            Text("Moved to Recently deleted", style = Syncr.type.body, color = c.ink, maxLines = 2,
+                overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(vertical = Space.m))
+            TextAction("Undo", onUndo, enabled = enabled, description = "Undo, put the note back")
         }
     }
 }
 
-/** A calm bottom bar for a reversible action, e.g. delete → Undo. Announced politely. */
-@Composable
-private fun UndoBar(message: String, enabled: Boolean, onUndo: () -> Unit, modifier: Modifier = Modifier) {
-    val c = Syncr.colors
-    Row(modifier.fillMaxWidth().background(c.chrome, RoundedCornerShape(8.dp)).hairlineBorder(c.dots)
-        .semantics { liveRegion = LiveRegionMode.Polite }
-        .padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(message, style = Syncr.type.body, color = c.ink, modifier = Modifier.weight(1f))
-        LabelButton("Undo", onUndo, enabled = enabled, description = "Undo: restore the note")
-    }
-}
+/** Card thumbnails are 4:5, like the design's tall cards showing the top of the page. */
+internal const val CARD_ASPECT = 0.8f
 
-/** Recently deleted: restore, or delete forever after confirming. Notes are removed after 30 days. */
-@Composable
-private fun RecentlyDeletedList(deleted: List<DeletedNoteSummary>, now: Long, enabled: Boolean,
-    onRestore: (String) -> Unit, onPurge: (DeletedNoteSummary) -> Unit) {
-    val c = Syncr.colors
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 4.dp, bottom = 88.dp)) {
-        item(key = "about") {
-            Text("Deleted notes stay here for 30 days, then they're removed from this phone.",
-                style = Syncr.type.caption, color = c.muted, modifier = Modifier.padding(bottom = 8.dp))
-        }
-        if (deleted.isEmpty()) item(key = "empty") {
-            Text("Nothing in Recently deleted.", style = Syncr.type.body, color = c.muted, modifier = Modifier.padding(top = 8.dp))
-        }
-        rows(deleted, key = { it.id }) { note ->
-            Column {
-                Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f).semantics(mergeDescendants = true) { }) {
-                        Text(note.title, style = Syncr.type.title, color = c.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text("${deletedCaption(note.deletedAtMs, now)} · ${note.notebook ?: "Inbox"}", style = Syncr.type.caption,
-                            color = c.muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    }
-                    IconAction(MenuGlyph.RESTORE, "Restore", c.ink, enabled, "Restore ${note.title}") { onRestore(note.id) }
-                    IconAction(MenuGlyph.TRASH, "Delete forever", c.attention, enabled, "Delete ${note.title} forever") { onPurge(note) }
-                }
-                Hairline()
-            }
-        }
-    }
-}
-
-@Composable
-private fun IconAction(glyph: MenuGlyph, label: String, tint: Color, enabled: Boolean, description: String, onClick: () -> Unit) {
-    val colour = if (enabled) tint else Syncr.colors.muted.copy(alpha = 0.5f)
-    Row(Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(8.dp))
-        .combinedClickable(enabled = enabled, role = Role.Button, onClick = onClick)
-        .semantics(mergeDescendants = true) { contentDescription = description }
-        .padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        MenuIcon(glyph, colour, size = 18.dp)
-        Text(label, style = Syncr.type.label, color = colour, modifier = Modifier.padding(start = 6.dp))
-    }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun NewNoteCell(enabled: Boolean, onNew: () -> Unit) {
-    val c = Syncr.colors
-    Column {
-        Box(Modifier.fillMaxWidth().aspectRatio(CARD_ASPECT).clip(RoundedCornerShape(8.dp)).hairlineBorder(c.dots)
-            .combinedClickable(enabled = enabled, role = Role.Button, onClick = onNew)
-            .semantics { contentDescription = "New note" }, contentAlignment = Alignment.Center) {
-            Text("+", style = Syncr.type.heading, color = if (enabled) c.muted else c.dots)
-        }
-        Text("New note", style = Syncr.type.title, color = if (enabled) c.ink else c.muted, modifier = Modifier.padding(top = 8.dp))
-    }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun NoteCard(note: NoteSummary, thumbnail: Thumbnail?, showNotebook: Boolean, now: Long, enabled: Boolean,
-    onOpen: () -> Unit, onMove: () -> Unit, onRename: () -> Unit, onArchive: () -> Unit, onDelete: () -> Unit) {
-    val c = Syncr.colors
-    var menu by remember { mutableStateOf(false) }
-    val date = relativeDate(note.modifiedAtMs, now)
-    val notebook = note.notebook ?: "Inbox"
-    val image = rememberThumbnail(thumbnail, c.dark)
-    Box {
-        Column(Modifier.combinedClickable(enabled = enabled, role = Role.Button, onLongClick = { menu = true }, onClick = onOpen)
-            .semantics(mergeDescendants = true) { contentDescription = "Note ${note.title}, edited $date, in $notebook${if (note.archived) ", archived" else ""}. Long-press for options" }) {
-            Box(Modifier.fillMaxWidth().aspectRatio(CARD_ASPECT).clip(RoundedCornerShape(8.dp)).background(c.paper).hairlineBorder(c.dots)) {
-                if (image != null) Image(image, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter)
-            }
-            Text(note.title, style = Syncr.type.title, color = c.ink, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 8.dp))
-            Text(if (showNotebook) "$date · $notebook" else date, style = Syncr.type.caption, color = c.muted,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
-        }
-        DropdownMenu(menu, { menu = false }, containerColor = c.chrome) {
-            val tint = if (enabled) c.ink else c.muted
-            DropdownMenuItem({ Text("Move to notebook…") }, enabled = enabled, onClick = { menu = false; onMove() },
-                leadingIcon = { MenuIcon(MenuGlyph.FOLDER, tint) })
-            DropdownMenuItem({ Text("Rename…") }, enabled = enabled, onClick = { menu = false; onRename() },
-                leadingIcon = { MenuIcon(MenuGlyph.PENCIL, tint) })
-            DropdownMenuItem({ Text(if (note.archived) "Unarchive" else "Archive") }, enabled = enabled,
-                onClick = { menu = false; onArchive() },
-                leadingIcon = { MenuIcon(if (note.archived) MenuGlyph.UNARCHIVE else MenuGlyph.ARCHIVE, tint) })
-            DropdownMenuItem({ Text("Delete", color = if (enabled) c.attention else c.muted) }, enabled = enabled,
-                onClick = { menu = false; onDelete() },
-                leadingIcon = { MenuIcon(MenuGlyph.TRASH, if (enabled) c.attention else c.muted) })
-        }
-    }
-}
-
-private const val CARD_ASPECT = 1.25f
-private const val THUMB_W = 400
-private const val THUMB_H = 320
-
-/** Renders the decoded top-left canvas ink into a small bitmap off the main thread (no FFI here). */
-@Composable
-private fun rememberThumbnail(thumbnail: Thumbnail?, dark: Boolean): ImageBitmap? {
-    val context = LocalContext.current
-    val ink by remember(context) { InkPreferencesStore.state(context) }.collectAsState()
-    return produceState<ImageBitmap?>(null, thumbnail, dark, ink) {
-        value = thumbnail?.takeIf { it.strokes.isNotEmpty() }?.let { t ->
-            withContext(Dispatchers.Default) { renderThumbnail(t, dark, ink).asImageBitmap() }
-        }
-    }.value
-}
-
-internal fun renderThumbnail(t: Thumbnail, dark: Boolean, ink: InkPreferences): Bitmap {
-    val bitmap = Bitmap.createBitmap(THUMB_W, THUMB_H, Bitmap.Config.ARGB_8888)
-    val canvas = android.graphics.Canvas(bitmap)
-    // Width-fit with a small margin, top-aligned: the top-left of the canvas.
-    val margin = THUMB_W * 0.04f
-    val scale = (THUMB_W - 2 * margin) / t.width
-    canvas.translate(margin, margin)
-    canvas.scale(scale, scale)
-    // CanvasStrokeRenderer expects the Canvas already transformed; its matrix is for screen-space rendering quality.
-    drawThumbnail(canvas, t, dark, scale, ink)
-    return bitmap
-}
+/** Minimum card width: two columns on a phone, more on wide or landscape screens. */
+internal val CARD_MIN_WIDTH = 136.dp

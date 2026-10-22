@@ -74,6 +74,9 @@ fun diagnostic(error: Throwable): String {
     // Binding amendment: safe payload is detail, not a hand-written message field.
     val detail = when (error) {
         is CoreException.InvalidInput -> error.detail
+        is CoreException.InvalidText -> error.detail
+        is CoreException.InvalidTextRange -> error.detail
+        is CoreException.DocumentTextExists -> error.detail
         is CoreException.UnsupportedVersion -> error.detail
         is CoreException.NotFound -> error.detail
         is CoreException.PermissionDenied -> error.detail

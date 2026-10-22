@@ -2,6 +2,7 @@ package dev.syncr.prototype.ui
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.core.content.edit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -55,14 +56,15 @@ object AppPreferencesStore {
 
     fun update(context: Context, change: (AppPreferences) -> AppPreferences) {
         val next = change(state(context).value)
-        val editor = prefs(context).edit()
-        write(next, object : PreferenceWriter {
-            override fun putString(key: String, value: String) { editor.putString(key, value) }
-            override fun putBoolean(key: String, value: Boolean) { editor.putBoolean(key, value) }
-            override fun putFloat(key: String, value: Float) { editor.putFloat(key, value) }
-            override fun remove(key: String) { editor.remove(key) }
-        })
-        editor.apply()
+        prefs(context).edit {
+            val editor = this
+            write(next, object : PreferenceWriter {
+                override fun putString(key: String, value: String) { editor.putString(key, value) }
+                override fun putBoolean(key: String, value: Boolean) { editor.putBoolean(key, value) }
+                override fun putFloat(key: String, value: Float) { editor.putFloat(key, value) }
+                override fun remove(key: String) { editor.remove(key) }
+            })
+        }
         synchronized(this) { flow!!.value = next }
     }
 
