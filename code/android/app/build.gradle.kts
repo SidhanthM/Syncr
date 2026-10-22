@@ -36,10 +36,14 @@ dependencies {
     implementation(platform("androidx.compose:compose-bom:2025.10.01"))
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    debugImplementation("androidx.compose.ui:ui-tooling")
     implementation("androidx.ink:ink-brush:1.0.0")
     implementation("androidx.ink:ink-strokes:1.0.0")
     implementation("androidx.ink:ink-rendering:1.0.0")
     implementation("androidx.ink:ink-authoring:1.0.0")
+    // Pen-motion prediction for the wet layer only (never stored). Pinned exactly; 1.0.1 is the latest stable.
+    implementation("androidx.input:input-motionprediction:1.0.1")
     implementation("net.java.dev.jna:jna:5.17.0@aar")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
@@ -53,6 +57,20 @@ tasks.withType<Test>().configureEach {
     if (providers.gradleProperty("syncrNativeHost").orNull == "true") {
         systemProperty("jna.library.path", rootProject.file("../core/generated/host").absolutePath)
     } else {
-        exclude("**/HostCoreIntegrationTest.class")
+        exclude("**/HostCoreIntegrationTest.class", "**/*HostTest.class")
     }
+}
+
+// The Mac-link probe: the phone side of the link as a plain JVM process (src/test/.../link/Probe.kt), for testing against the
+// real Mac app without a phone. Needs the host core library. Stdin reaches it, so the pairing code can be typed:
+//   ./gradlew -q --console=plain :app:linkProbe --args="127.0.0.1:5050 --code 1234"
+tasks.register<JavaExec>("linkProbe") {
+    group = "verification"
+    description = "Runs the phone's Mac-link client as a host JVM process against host:port (see README)."
+    val unitTests = tasks.named<Test>("testDebugUnitTest")
+    classpath = files(unitTests.map { it.classpath })
+    mainClass.set("dev.syncr.prototype.link.ProbeMainKt")
+    systemProperty("jna.library.path", rootProject.file("../core/generated/host").absolutePath)
+    workingDir = projectDir
+    standardInput = System.`in`
 }

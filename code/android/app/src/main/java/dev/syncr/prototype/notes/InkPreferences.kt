@@ -1,6 +1,7 @@
 package dev.syncr.prototype.notes
 
 import android.content.Context
+import androidx.core.content.edit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -17,6 +18,8 @@ data class InkPreferences(
     val pressure: Float = 0.5f,
     val smoothing: Float = 0.5f,
     val taper: Boolean = true,
+    /** Draw a short predicted tail ahead of the pen on the wet layer. Never stored, saved or exported. */
+    val predictPenMotion: Boolean = true,
 )
 
 /** Process-wide store over the shared "syncr-settings" preferences, observable by views and Compose. */
@@ -32,12 +35,13 @@ object InkPreferencesStore {
         val next = change(state(context).value).let {
             it.copy(pressure = it.pressure.coerceIn(0f, 1f), smoothing = it.smoothing.coerceIn(0f, 1f))
         }
-        context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
-            .putString("ink-pen-look", next.penLook.name)
-            .putFloat("ink-pressure", next.pressure)
-            .putFloat("ink-smoothing", next.smoothing)
-            .putBoolean("ink-taper", next.taper)
-            .apply()
+        context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit {
+            putString("ink-pen-look", next.penLook.name)
+            putFloat("ink-pressure", next.pressure)
+            putFloat("ink-smoothing", next.smoothing)
+            putBoolean("ink-taper", next.taper)
+            putBoolean("ink-predict", next.predictPenMotion)
+        }
         synchronized(this) { flow!!.value = next }
     }
 
@@ -49,6 +53,7 @@ object InkPreferencesStore {
             pressure = prefs.getFloat("ink-pressure", defaults.pressure),
             smoothing = prefs.getFloat("ink-smoothing", defaults.smoothing),
             taper = prefs.getBoolean("ink-taper", defaults.taper),
+            predictPenMotion = prefs.getBoolean("ink-predict", defaults.predictPenMotion),
         )
     }
 }

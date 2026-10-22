@@ -1,68 +1,216 @@
-# Syncr Android — offline Write + separate Bluetooth Pointer
+# Syncr Android
 
-## Current canvas amendment
+Offline handwriting notes for the phone (S Pen first), plus **Tablet mode**: Wi-Fi **Stream** writes into the Mac's note;
+Bluetooth **Pointer** is the fallback for other Mac apps or when Syncr is not running. Kotlin + Compose, AndroidX Ink 1.0.0 for
+rendering, and the Rust core (`../core`) for all storage, history and validation through generated
+UniFFI/JNA bindings (`../core/generated/kotlin`, `../core/generated/jniLibs`, arm64-v8a only).
 
-The approved canvas amendment is implemented against core `ce10fc7`: continuous 4800-wide canvas, first-sheet canvas-coordinate ink, fixed legacy-sheet origins, no page-format/add-page/auto-add/page-indicator UI, canvas thumbnails and recovery v2. See **[CANVAS-HANDOFF.md](CANVAS-HANDOFF.md)** for current behavior, exact changed paths, executed test/build results, artifact hashes and remaining device/Stream acceptance.
+App ID `dev.syncr.prototype`, minSdk 26, target/compile SDK 36, JVM 17.
 
-The sections below and the F1–F2 handoff/plan describe earlier milestones. Their page-layout descriptions, API shapes, test counts and artifact hashes are historical and superseded by the canvas handoff. Build commands remain applicable; the checked-in daemon criteria now select Java 25 even when the wrapper is launched with the documented JDK 21 path.
+## Commands
 
-Application ID/namespace remain **`dev.syncr.prototype`**; minSdk 26, compile/target SDK 36, JVM target 17. No device was installed, pairing changed, HID descriptor rewritten, Mac app added, or sync connection simulated.
-
-## Implemented paths
-
-- `app/build.gradle.kts`, root `build.gradle.kts`: existing AGP 8.13.0 / Kotlin 2.2.20, matching Compose compiler plugin, Compose BOM 2025.10.01, AndroidX Ink **1.0.0**, Android JNA **5.17.0 AAR**. Direct sourceSets point to backend-owned `../core/generated/kotlin` and `../core/generated/jniLibs`; arm64-v8a only. No copied/alternate/hand-edited bindings.
-- `app/src/main/java/dev/syncr/prototype/notes/CoreAdapter.kt`: shared blocking consumer interfaces and real generated adapter (`SyncrLibrary`, typed errors with safe `detail` diagnostics). `closeDurably()` calls fallible **`closeNote()` before generated `close()`**. Failure never releases the note handle as a close substitute.
-- `notes/NotesRepository.kt`: IO-dispatched, mutex-serialized core access, retained creation request and immutable commands/IDs, core SYNS encode/decode, core snapshot plus `changesSince` invalidation, sample caches, receipt-to-snapshot overlay handoff, sheets/title, and core-owned persistent ink undo/redo. No SQL, second document reducer, local revision invention, or production fake.
-- `notes/SheetGeometry.kt`, `notes/InkSheetView.kt`: uniform letterboxed 1600×1000 mapping; stylus/eraser only; stable pointer ID and oldest-first historical real samples; no prediction. Finger-only pan/pinch, palm navigation suppression during contact and until remaining palm lifts. Frozen per-stroke mapping. Cancel, lost pointer, cancelled-up flag, resize/background terminate unfinished ink without submission. Onscreen eraser fallback; one drag is one atomic delete command, never split.
-- Ink dry meshes are disposable worker-built caches from decoded core channels. Measured paths bridge wet/dry handoff, including pending completion and eraser handoffs by stable ID. Repeated x/y/time triplets are removed only from Ink's renderer input (Ink rejects them), never from stored measured samples. Three sizes/five named colours, pressure pen/highlighter, theme-aware Ink colour. No latency or pixel-parity claim.
-- `MainActivity.kt`: Compose library/create/open/title, ordered sheet controls/add, pen/highlighter/whole-stroke eraser, sizes/colours, explicit Ink undo/redo/Fit, light/dark theme, text save state, More/location/offline confirmation explanation. ViewModel retains drafts across configuration changes. Resume refreshes; pause/stop cancels active gesture but does not discard completed drafts or cancel durable writes.
-- `notes/RecoveryExport.kt`: explicit version-1 `.syncr-recovery.json` to a **user-chosen SAF document**, with note/author IDs, original commands/dependencies, base64 core sample bytes, creation request when pending, and safe core backup when available. Private staging stays outside the library root and is removed after use. No SQLite access. Destination write/flush/close failures do not authorize closure. Export is recovery, not a saved note or automatic import. Newer drafts revoke export authorization.
-- `PointerActivity.kt`: original Bluetooth activity renamed/moved only (class/context names); `HidController.kt` and `AbsoluteMouse.kt` unchanged. Open **Pointer mode** separately; entering from notes honors durable close and the unsaved guard. Original prototype instructions/limitations are retained in [POINTER.md](POINTER.md). No changes to pairing, descriptor or Pointer mapping.
-
-## Save, limits, and closure
-
-A rendered stroke is not a saved stroke. Pending work says **Saving**, typed failures retain visible proposals and show **Save failed**. Only a durable core receipt represented by a snapshot permits removal of its overlay. Unknown completion uses the same immutable operation ID/payload, with persisted lookup; blocked later drafts stay queued. Stroke staging captures the selected sheet's `creationOperationId`, never the current structure head. Ink undo/redo captures the matching target and `undoDependencies`/`redoDependencies` from one snapshot, without adding the target or unrelated notebook heads. These lists are core-derived, sorted/deduplicated and bounded to 1,024 affected heads. Refresh/retry/export never rebase retained commands. The first successful codec preparation (including export before first submit) retains the exact typed command/sample bytes for all later attempts; failed destination writes retain that preparation too. No frontend history stack or sheet-operation index is maintained. All native calls except ID creation run off the UI thread.
-
-Back, Library and Pointer transitions cancel active unfinished input and guard completed unsaved drafts: Retry; private recovery export followed by explicit Leave; or a second, explicit Discard confirmation. Export failure never permits leaving. Even confirmed discard does not release a handle if `closeNote()` fails. Already-durable operations cannot be rolled back by cancelling a UI coroutine. OS process termination may lose frontend-only unsaved drafts; this app does not promise otherwise.
-
-Frontend safety caps: 100,000 measured samples per gesture (cancel the entire stroke; require lift), 1,024 erased targets per gesture (cancel the entire gesture), 64 retained drafts / 500,000 queued preview samples. Core also enforces its own authoritative byte/metadata limits; errors never silently split an atomic action. Ink objects/sample arrays are transient caches only. A codec failure retains the raw draft; an export that cannot encode it fails honestly and does not unlock closure.
-
-## Build and executed verification
-
-From `code/android/` (the executed Gradle commands used `JAVA_HOME=/opt/homebrew/opt/openjdk@21`; use a compatible local JDK):
+From the repo root (the `syncr` script picks the device; set `ANDROID_SERIAL` when more than one
+phone, transport or emulator is connected):
 
 ```sh
-JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
-python3 scripts/verify-apk.py
+./syncr devices                              # list ADB devices
+./syncr emulator                             # start the Medium_Phone_API_37.0 AVD
+./syncr app_update                           # build, install and open
+ANDROID_SERIAL=emulator-5554 ./syncr app_update
+ANDROID_SERIAL=R5CW12345 ./syncr app_update
+./syncr logcat                               # SyncrHid + crashes
+./syncr pair PHONE_IP:PAIRING_PORT && ./syncr connect PHONE_IP:DEBUG_PORT   # wireless debugging
 ```
 
-The ordinary test suite uses fakes **only in test sources** and excludes the opt-in host test. It covers storage-full, delayed save/serialized close, lost creation and submit replies, identical retry IDs/payloads, receipt/snapshot handoff and lag, retained blocked drafts, atomic multi-mark erase and limits, stale history proposals, export authorization/revocation/close failure, failed durable close, event resync/cache reuse, codec failure, injected worker execution, affine conventions, uniform mapping, frozen measured channels, cancel/limit/time-invalid input, eraser sweep, and the existing HID report tests.
-
-Actual results and artifact hashes are recorded in `build/verification/dependency-*` (local build outputs; see [OFFLINE-HANDOFF.md](OFFLINE-HANDOFF.md) for exact paths). `testDebugUnitTest` passed **25 tests, 0 failures/errors/skips**: 17 repository, 5 geometry and 3 HID report tests. Dependency regressions cover matching history lists, absent targets, immutable stale retries/exports and selected-sheet provenance captured before refresh. Export-before-submit and failed export retain one encoded command across later attempts. `assembleDebug` and compilation of the Android instrumentation APK also passed. Instrumentation APK compilation is **not execution**. `scripts/verify-apk.py` checks uncompressed real AArch64 ELF libraries `libsyncr_core.so`, `libjnidispatch.so` (required Android JNA runtime), and `libink.so`, and exact equality of the packaged core with the current backend artifact. Re-run this after backend native replacement.
-
-### Real Rust host integration (additional, not Android execution)
+From `code/android/`:
 
 ```sh
-JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew :app:testDebugUnitTest -PsyncrNativeHost=true
-# Optional focused command (the full suite above was executed):
-JAVA_HOME=/opt/homebrew/opt/openjdk@21 ./gradlew :app:testDebugUnitTest -PsyncrNativeHost=true \
-  --tests '*HostCoreIntegrationTest.productionRepository*'
+export JAVA_HOME=/opt/homebrew/opt/openjdk@21
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
+./gradlew :app:testDebugUnitTest -PsyncrNativeHost=true   # adds HostCoreIntegrationTest and LoopbackHostTest (the Mac link, real core) against the real Rust host lib
+python3 scripts/verify-apk.py                            # APK packs the current core .so, JNA, Ink; uncompressed arm64
+./gradlew :app:lintDebug
+./gradlew :app:connectedDebugAndroidTest                 # device/emulator only; installs the app
 ```
 
-This opt-in test uses the **production Android adapter/repository**, generated bindings, JNA host jar and backend `generated/host` library, not a fake. The main flow has passed: create → two measured strokes through Rust codec → one atomic erase → undo → add sheet/rename without clearing redo → durable close/library release → reopen/identity/history → redo → explicit recovery payload with actual safe core backup → reopen proving the unsaved exported mark was never applied.
+Re-run `verify-apk.py` (after `assembleDebug`) whenever the core's `.so` is rebuilt.
 
-**Dependency reconciliation verified:** the full opt-in suite passed **28 tests, 0 failures/errors/skips**, including all **3 real-host tests**. The previously failing `olderSheetCanBeWrittenAfterStructureChangesUsingExposedHead` retains its original regression name but now uses exact exposed sheet creation provenance. It creates the original plus two new sheets, performs two reorders through the public core adapter while the repository is closed, renames before/after reordering, reopens repeatedly, writes on every sheet through the production repository, and reopens again to verify persistence and unchanged provenance. No frontend reorder feature was added.
+## How to measure writing latency
 
-`exactHistoryDependenciesRemainImmutableAcrossRetryExportAndLostReply` reopens a note containing unrelated marks and an atomic two-mark erase with a shared head. Undo → redo → undo uses only the exact affected current heads, deduplicated, with no unrelated heads or extra original-action dependency. Test-only delivery failures exercise same-command retry, recovery export with real core backup, snapshot refresh and committed-but-lost-reply lookup without a second submit. Every successful operation/lookup/backup uses Rust, not a fake reducer. Ordinary tests separately retain stale target/head proposals across changed snapshots without rebasing. Core validation is unchanged; this frontend consumes the coordinator-selected binding amendment rather than relaxing dependencies. Large-notebook performance remains unmeasured, but the all-notebook history dependency superset is removed.
+The pen path has `android.os.Trace` slices (no-ops unless a trace is recording, only for a debuggable
+build): `syncr.input.touch` (whole touch handling), `syncr.wet.start`, `syncr.wet.add` (Ink add plus
+the prediction call), `syncr.wet.finish`, `syncr.wet.handoff` (wet to dry in one frame) and
+`syncr.dry.draw` (all dry strokes in a frame). Use a debug build, install it yourself, then write
+on the canvas while recording (S23, USB or wireless adb):
 
-## Compiled but blocked device tests
+```sh
+adb shell perfetto -o /data/misc/perfetto-traces/syncr.pftrace -t 15s \
+  -a dev.syncr.prototype sched freq view gfx input binder_driver am wm
+adb pull /data/misc/perfetto-traces/syncr.pftrace && open https://ui.perfetto.dev   # drop the file in
+```
 
-`app/src/androidTest/.../notes/` contains:
+On the phone instead: Developer options, System Tracing, record a trace with the app selected.
 
-- `NativeNoteSmokeTest`: real JNA/Android Rust create/add/erase/undo/redo/closeNote/reopen and persistent undo target.
-- `StylusInputTest`: finger-only no ink; stylus ID distinct from pointer index; competing palm suppression; historical ordering; cancel, simulated lifecycle cancellation, and lost contact.
-- `RecoveryExportTest`: actual JSON/base64 recovery bytes/IDs/dependencies/backup and failing destination close propagation.
+What to look for in the Perfetto UI:
 
-`adb devices -l` was empty. No emulator was launched and no on-device install was authorized. **Not run**: those instrumented tests; S23 pressure/tilt/orientation and hardware eraser; real palm rejection; actual Canvas/Ink appearance and wet/dry visual handoff; portrait/landscape UI/accessibility; real SAF provider failure/cancel; app background/rotation/process kill after durable receipt; airplane-mode fresh install; real storage-full UI injection; Android JNI/JNA loading; physical filesystem durability; Pointer opening/button release/reconnect or Mac interpretation. Host execution and APK inspection do not establish these results.
+- `syncr.input.touch` on the main thread should stay well under 1 ms per event; `syncr.wet.add`
+  is most of it.
+- `syncr.dry.draw` should not appear while only the pen moves with ink; it appears at pen-down, pen-up,
+  finger pan/zoom, eraser, lasso and selection. If it shows during plain writing, a dry invalidate
+  regressed.
+- Around pen-up, `syncr.wet.handoff` followed by one frame that draws the stroke: no gap frame and no
+  second copy.
+- Frame timelines (`gfx`, `view`): long `Choreographer#doFrame` slices while writing mean the dry layer
+  is working when it shouldn't.
+- Prediction and smoothing feel can only be judged on the device; compare against Samsung Notes
+  side by side at Raw and Default smoothing.
 
-With owner approval and an arm64 device/emulator, `./gradlew :app:connectedDebugAndroidTest` builds/installs/runs instrumentation; **do not run it as a read-only check**. Manual checks should exercise write/erase/undo/reopen; failed save with guarded Back/Pointer; cancel/background mid-stroke; process death after receipt; chosen recovery archive; and existing Pointer release on up/cancel. No Mac/sync/pairing/lasso work or measured hardware-latency claim is included.
+## Map
+
+| Path | What |
+| --- | --- |
+| `MainActivity.kt` | Compose host, theme/appearance, system bar colours. |
+| `ui/` | Compose screens: library, note screen and chrome, settings, dialogs, `NotesViewModel`. |
+| `notes/NotesRepository.kt` | The only door to the core. Public API used by `ui/`. |
+| `notes/CoreSession.kt` | Published state, core handles, the one serialized IO worker. |
+| `notes/OpenNoteEditor.kt` | Stages strokes, Marks commands, metadata and history; snapshot refresh. |
+| `notes/DraftQueue.kt` | Submit/lookup/retry of retained commands; recovery export. |
+| `notes/LibraryOperations.kt` | Library tasks on closed notes, 30-day purge, card thumbnails. |
+| `notes/NotesState.kt` | `NotesState`, `PendingEdit`, `MarkEdit`, `LibraryTask`, `RecoveryData`. |
+| `notes/CoreAdapter.kt` | Blocking adapter interfaces over the generated bindings; error diagnostics. |
+| `notes/NoteCanvasView.kt` | The canvas View: routes input and draws. Public API used by `ui/`. |
+| `notes/CanvasScene.kt` | What to draw: snapshot + staged edits + local handoffs; hit-testing. |
+| `notes/CanvasViewport.kt` | Viewport state, pan/zoom/fit/fling; `PanZoomTracker`. |
+| `notes/PenCapture.kt` | Pen gesture capture, tool choice, palm rule. |
+| `notes/CanvasSelection.kt` | Lasso/long-press selection and move/resize. |
+| `notes/DryInkLayer.kt` / `WetInkBridge.kt` | Dry-ink cache and renderer / front-buffer wet ink. |
+| `notes/StylusHoverIcon.kt` | Brush-sized system hover pointer for the stylus. |
+| `notes/PageLayout.kt`, `SheetGeometry.kt`, `Selection.kt` | Pure canvas geometry, measured samples, affine math. |
+| `notes/InkBrushes.kt`, `InkPreferences.kt` | Brush styles and Ink families; local rendering prefs. |
+| `notes/Thumbnails.kt`, `RecoveryExport.kt`, `Notebooks.kt`, `FingerTaps.kt` | Cards, recovery JSON, notebook names/filters, tap classifier. |
+| `PointerActivity.kt`, `HidController.kt`, `AbsoluteMouse.kt`, `tablet/` | Pointer mode; see [POINTER.md](POINTER.md). |
+| `link/` | The Mac link, plain JVM (no Android imports): wire framing and control messages, session state machine, sync sender, send scheduler, pen ring and frame pump, reconnect. |
+| `link/android/` | The Android shell of the link: `LinkController` (lifecycle, Wi-Fi lock, notes bridge), `NsdFinder`, `PrefsPairingStore`. UI: `ui/MacLink.kt`. |
+
+## Mac link
+
+Phone to Mac over the local network, specified in `../../tasks/contracts/wifi-link-v0.md` (frozen; the wire and the shared vectors in
+`../shared/link-v0/vectors.json` are the authority). **Plain TCP, no encryption** (owner decision, recorded in the contract): the
+pairing token and the notes are readable by anyone who can capture the Wi-Fi traffic. Off by default. Settings, "Mac link", switches it on.
+
+- **Lifecycle.** Connected only while the link is on and an activity is started (the notes and the Tablet pad count together, so going
+  between them keeps the session). `NsdManager` finds `_syncr._tcp`; a typed `host:port` is the fallback. Pairing is the four digits the
+  Mac shows (five tries); the token and the Mac's ID are kept in the app-private `syncr-link` preferences. Forget deletes them. While
+  connected the app holds a `WIFI_MODE_FULL_LOW_LATENCY` Wi-Fi lock. After a drop it retries after 1, 2, 4, 8, then every 10 seconds.
+- **Notes.** After `welcome` the whole manifest goes out; a changed note is announced 1.5 s after its last save, or at once when it closes.
+  The Mac asks (`want`); the phone makes the copy with the core's `export_copy` on the notes worker (never the pen thread), hashes it
+  (SHA-256), sends it in 65,000-byte chunks, one transfer at a time, and deletes the temp file (`cache/link-out`). One retry per
+  connection on `file_error`.
+- **Live mirror.** While you write in a note, one preview frame per input batch goes out in Canvas space with the stroke's real ID (the ID
+  the stroke is then saved under), so the Mac's copy neither blinks nor doubles. Real samples only, never predicted points. Preview only:
+  the next synced copy is the durable result.
+- **Tablet Stream.** With no explicit pad-link preference, Tablet mode chooses **Stream · Wi-Fi** when Mac link is enabled and a pairing exists,
+  otherwise **Pointer · Bluetooth**. Tap the pad's corner caption (`⇄`) once to switch; that explicit choice persists, as does the panel's Link choice.
+  Stream is letterboxed 4800:3000 with one scale in either orientation and uses the pen last used in a phone note. It writes live frames and a
+  durable stroke-commit into the Mac's writable target. The top message says where ink is saved, or offers the one useful action: turn Mac link on,
+  open Mac link settings (directly on the pad), or **Use Bluetooth pointer** when paired but disconnected. This recovery action is session-only and
+  never changes the saved choice. While connected without a writable target it says `Waiting for a writable note on the Mac`; pad-on asks the Mac
+  to create a note if needed. Pause/leaving sends pad-off. A target/revision change during contact cancels the whole stroke; lift and start again.
+  Nothing is stored on the phone. Pointer's HID reports and mappings are unchanged.
+- **Where the pen touches the link** (and why it costs the local ink nothing). `NoteCanvasView` calls `InkMirror` (a `link.PenFeed` ring)
+  only after the wet ink has been given the sample: `begin` after `wet.start`, `sample` after `pen.addInkSample`, `flush` after
+  `wet.add`, `end` after `wet.finish`. The ring is a fixed array of preallocated slots written by the UI thread and published with one
+  volatile store plus an `unpark`; no lock, no allocation, no core, disk or socket call (stroke IDs come from a pool filled on the link
+  thread; `newId` is a core call). A full ring drops preview batches (the receiver sees an index gap and drops that preview cleanly) and
+  keeps room to end a stroke. Encoding, the core's `PreviewSendQueue`, the socket and files all run on the link thread. A dead or slow
+  Mac fills the ring and nothing else. A stroke only exists on the link when the link is up at pen-down.
+- **Latency.** Pen event time to socket write and ping round trip, as p50/p95/max under `SyncrLink` at stroke/session end, labelled with what
+  they exclude (digitiser, display scan-out, Mac decode/present). The same line includes `wifi-lock-held`, requested lock mode, Wi-Fi link speed,
+  frequency/band, RSSI and battery-saver state (a snapshot at report time, not per latency sample). Unreadable/redacted fields say `unavailable`.
+  `low-latency-effect=unobservable` is deliberate: the public API reports lock ownership, not whether firmware actually entered low-latency mode.
+  Existing ACCESS_WIFI_STATE suffices for these non-location radio metrics where Android exposes them; no new permissions are requested. SSID,
+  BSSID and scan/location fields are not read: those can require location permission. This gathers evidence for the next slow-network report,
+  not a claimed latency fix. The Mac reports phone-send to Mac-presented. Pen-to-write is approximate under preview merging/drops.
+- **Diagnostics.** Info-level `SyncrLink` lines name state changes, actual pad controls written, every target (IDs shortened to eight characters),
+  and each Stream stroke's begin, end/sample count or cancel, and commit queued. Rejected pen-downs include the reason even when the link is off.
+  Rejection reasons pass through a bounded ring to a worker; successful-stroke logging is on the link worker. No logcat call is on the pen path.
+  See [POINTER.md](POINTER.md) for exact working-stroke lines. Pairing tokens are never logged.
+
+**Permissions added:** `INTERNET` (TCP and NSD), `ACCESS_WIFI_STATE` (precaution for NSD; not known to be required), `WAKE_LOCK` (the
+Wi-Fi lock). All normal permissions: no runtime prompt. Not added: `CHANGE_WIFI_MULTICAST_STATE` (`NsdManager` does not need a
+`MulticastLock`). Newer Android releases are adding a runtime "local network" permission; this app targets 36 and does not request it.
+
+### Host probe
+
+The phone side of the link as a host JVM process, for testing against the real Mac app with no phone (`src/test/.../link/Probe.kt`).
+It copies the fixture library to a temp folder, pairs, sends the manifest, serves `want`ed notes with the real `export_copy`, plays one
+mirrored stroke and one Stream stroke at 240 Hz in real time, then waits for pings. Needs the host core (`code/core/generated/host`).
+
+```sh
+export JAVA_HOME=/opt/homebrew/opt/openjdk@21
+./gradlew -q --console=plain :app:linkProbe --args="127.0.0.1:PORT --code 1234"      # code omitted: asks on stdin
+#   other options: --library DIR  --store FILE (keep the pairing; a second run needs no code)  --timeout SECONDS  --no-mirror  --no-stream
+```
+
+It prints one line per result, all starting `PROBE`: `library`, `status phase=…`, `welcome mac=… epoch=…`, `sync want ids=…`,
+`sync have id=… seq=…`, `sync wanted=N delivered=N`, `mirror stroke=… note=… sheet=… samples=240 frames=N space=canvas`,
+`target note=… sheet=… writable=… rev=…`, `stream note=… sheet=… rev=… samples=240 frames=N commit=queued space=view-relative`,
+`latency pen-to-socket-write … | round-trip … | excludes …`, `log …`, and last `PROBE done ok` (exit 0) or `PROBE FAIL <step>: <why>`
+(exit 1). The same script runs against a Kotlin fake Mac in `LoopbackHostTest`.
+
+`--join` runs the joined test instead (`JoinTest.kt`, driven by `code/shared/link-v0/join-test.sh`, which starts the Mac app, passes `--mac-log`, `--mac-control` and `--mac-library`, and checks both logs): it prints `JOIN PASS/FAIL <step>` lines and exits non-zero on any failure.
+
+**Link off by default.** `LinkPolicy.ENABLED_BY_DEFAULT` is false; `LinkController` creates the client (sockets), the discovery object and the Wi-Fi lock only when the link is switched on in Settings and an activity is started (`LinkPolicy.shouldRun`), and holds the lock only while connected (`LinkPolicy.wantsWifiLock`). Tested on the host in `MacLinkTextTest`; the Android-side wiring itself is read, not run.
+
+**Lint.** `lintDebug` reports 26 errors, none in link or UI code: 23 are in `HidController.kt` (Bluetooth HID, last changed 12 Oct: 12 `NewApi` for API 28 calls against minSdk 26, 11 `MissingPermission`) and 3 are `NewApi` (API 33 `Cleaner`) in the generated core bindings, which are not edited by hand. Left as they are.
+
+## Rules
+
+**Threading.** Every core call (FFI, storage, codec, close) runs inside `CoreSession.work`/`background`:
+one IO dispatcher behind one mutex. Nothing touches the core on the UI thread. Staging edits only
+appends to state; delivery happens on the worker.
+
+**Text compatibility.** New core text blocks stay opaque on Android: not rendered or edited. Stroke commands and core `export_copy` preserve
+text blocks and their history; no note is rebuilt from the phone's stroke-only view. Undo/redo is disabled if its exact dependency set touches a
+text head (including a mixed text/ink batch), so the phone cannot accidentally edit hidden text. Phone recovery never stages text commands and
+fails explicitly if such a command is supplied, rather than omitting it. Existing core backups remain opaque complete note copies.
+
+**Durability.**
+- A drawn stroke is not saved. Status says *Saving* until a core receipt is represented in a
+  snapshot; only then does its overlay go.
+- Commands and IDs are allocated once and retried or exported unchanged; a lost reply is resolved by
+  `lookup`, never by a second submit. History captures target and dependencies from one snapshot.
+- One eraser, selection or recolour gesture is one atomic Marks command (max 1,024 strokes).
+- Leaving a note with unsaved work needs Retry, an exported recovery file, or a confirmed Discard.
+  `closeNote` must succeed before the handle is released; on failure nothing is dropped.
+- Library tasks (move/rename/archive/delete/restore/purge) run only with no note open, and are
+  retained until they complete. Recently deleted is purged after 30 days on library load.
+- Limits: 100,000 samples per stroke, 64 drafts / 500,000 queued samples. Hitting one cancels the
+  whole gesture; it is never truncated.
+
+**Input.**
+- Fingers never ink: they pan, pinch, tap (2 = undo, 3 = redo, double = fit, if enabled) and
+  long-press to select. The pen draws, erases or lassos.
+- Each stroke freezes the canvas mapping at pen-down. New ink always goes to the first sheet in
+  canvas units; legacy sheets keep their fixed origins.
+- Palm rule: a finger landing within `palmMs` (setting, default 300 ms) of pen-up is ignored until
+  it lifts. Pen contact abandons any finger gesture.
+- The eraser end, or the side button when "side button erases" is on, erases whole strokes.
+- Pause, cancel, lost contact or a second pen cancels the gesture without saving.
+- Wet ink is Ink's `InProgressStrokesView` (pen only, front buffer). A finished stroke stays on
+  the wet layer until Ink hands it over, then becomes dry ink in the same frame.
+
+## Unverified on hardware
+
+The instrumented tests (`app/src/androidTest`) compile but have not run on a device. Not yet
+checked on a real phone: S Pen pressure/tilt/orientation and the eraser end, palm rejection feel,
+wet/dry visual handoff and latency, the stylus hover icon (Android 14+; One UI may ignore it),
+rotation and Activity recreation, process death after a receipt, SAF recovery export with real
+providers, storage-full UI, JNA loading on device, and large-note performance. Pointer mode
+hardware checks are listed in [POINTER.md](POINTER.md).
+
+Before this change the owner paired the real phone over Wi-Fi and mirrored 16 strokes to the Mac. The owner's prior log showed round trips
+p50 25 ms, p95 about 100 ms, max 383 ms; those are historical observations, not measurements of this build. Stream on the real pad has **not**
+been run. Still needs owner checks: new caption/action layout and touch targets on screen, real S Pen historical/hover/cancel input, the Wi-Fi
+lock's API report, radio metric availability on One UI, foreground reconnect/rotation, and whether the extra queue work is invisible in Perfetto.
+Host tests and joined loopback do not establish hardware latency or Wi-Fi behaviour.

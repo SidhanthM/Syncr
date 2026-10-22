@@ -1,5 +1,6 @@
 package dev.syncr.prototype.notes
 
+import android.annotation.SuppressLint
 import androidx.ink.brush.BrushBehavior
 import androidx.ink.brush.BrushPaint
 import androidx.ink.brush.BrushTip
@@ -13,10 +14,35 @@ import androidx.ink.strokes.Stroke
 import androidx.ink.strokes.StrokeInput
 import dev.syncr.core.Brush
 import dev.syncr.core.BrushFamily
+import dev.syncr.core.BrushSize
+import dev.syncr.core.InkColour
 import dev.syncr.core.SampleChannels
+import dev.syncr.prototype.ui.theme.NotePalette
 import java.util.concurrent.ConcurrentHashMap
 import androidx.ink.brush.Brush as InkBrush
 import androidx.ink.brush.BrushFamily as InkFamily
+
+/** A brush's nominal width in canvas units. Highlighters are five times wider. */
+fun brushWidth(brush: Brush): Float {
+    val width = when (brush.size) {
+        BrushSize.SMALL -> 2f
+        BrushSize.MEDIUM -> 4f
+        BrushSize.LARGE -> 8f
+    }
+    return if (brush.family == BrushFamily.HIGHLIGHTER) width * 5f else width
+}
+
+/** A brush's ARGB colour under the theme. Highlighters are translucent. */
+fun inkColour(brush: Brush, dark: Boolean = false): Int {
+    val rgb = when (brush.colour) {
+        InkColour.INK -> NotePalette.ink(dark)
+        InkColour.RED -> NotePalette.red(dark)
+        InkColour.GREEN -> NotePalette.green(dark)
+        InkColour.BLUE -> NotePalette.blue(dark)
+        InkColour.ORANGE -> NotePalette.orange(dark)
+    }
+    return if (brush.family == BrushFamily.HIGHLIGHTER) (rgb and 0x00ffffff) or (NotePalette.highlighterAlpha shl 24) else rgb
+}
 
 /**
  * Pure description of how one stored [Brush] is drawn under the local [InkPreferences]. Sizes and
@@ -94,13 +120,22 @@ object InkStyles {
         return if (p <= 0.5f) p * 2f else 1f + (p - 0.5f) * 1.4f
     }
 
-    /** 0 → 6 ms (raw), 0.5 → 20 ms (default), 1 → 40 ms (very smooth, a touch of lag). */
+    /**
+     * Centre-line smoothing window. Every millisecond of window is lag the pen feels, and prediction
+     * now hides the rest, so the default is short: 0 → 1 ms (raw; Ink wants a positive window, and
+     * 1 ms is below one 180 Hz upsampling step), 0.5 → 8 ms (default), 1 → 24 ms (very smooth).
+     * Was 6 / 20 / 40 ms.
+     */
     fun smoothingWindowMs(smoothing: Float): Long {
         val s = smoothing.coerceIn(0f, 1f)
-        return Math.round(if (s <= 0.5f) 6f + s * 28f else 20f + (s - 0.5f) * 40f).toLong()
+        return Math.round(if (s <= 0.5f) 1f + s * 14f else 8f + (s - 0.5f) * 32f).toLong()
     }
 
-    fun pressureDampingSeconds(smoothing: Float): Float = 0.006f + 0.024f * smoothing.coerceIn(0f, 1f)
+    /** Width follows pressure with this lag: 4 ms (raw), 9 ms (default), 14 ms. Was 6 / 18 / 30 ms. */
+    fun pressureDampingSeconds(smoothing: Float): Float = 0.004f + 0.010f * smoothing.coerceIn(0f, 1f)
+
+    /** Speed thinning lag: enough to stop width flicker on jittery speed, short enough to follow. Was 30 ms. */
+    const val SPEED_DAMPING_SECONDS = 0.018f
 
     private const val UPSAMPLING_HZ = 180
     private const val SPEED_START_UNITS = 900f
@@ -148,7 +183,14 @@ object InkStyles {
     )
 }
 
-/** Builds and caches AndroidX Ink brush families for [StrokeStyle]s. Thread-safe. */
+/**
+ * Builds and caches AndroidX Ink brush families for [StrokeStyle]s. Thread-safe.
+ *
+ * Lint reports the custom-brush builders below as RestrictedApi. They are public
+ * `@ExperimentalInkCustomBrushApi` API in Ink 1.0.0 (only members such as `nativePointer` are
+ * `@RestrictTo`), so the check is a false positive; the opt-in is the real contract.
+ */
+@SuppressLint("RestrictedApi")
 object InkBrushes {
     private val families = ConcurrentHashMap<StrokeStyle, InkFamily>()
 
@@ -195,7 +237,7 @@ object InkBrushes {
                     style.pressureDampingSeconds, source(BrushBehavior.Source.NORMALIZED_PRESSURE, 0f, 1f))))
         }
         if (style.speedThinning < 1f) {
-            behaviors += target(1f, style.speedThinning, BrushBehavior.DampingNode(BrushBehavior.DampingSource.TIME_IN_SECONDS, 0.03f,
+            behaviors += target(1f, style.speedThinning, BrushBehavior.DampingNode(BrushBehavior.DampingSource.TIME_IN_SECONDS, InkStyles.SPEED_DAMPING_SECONDS,
                 source(BrushBehavior.Source.SPEED_IN_MULTIPLES_OF_BRUSH_SIZE_PER_SECOND, style.speedStartSizesPerSecond, style.speedEndSizesPerSecond)))
         }
         // Tapers are gated by the distance to the other end, so a tap stays a full round dot and a

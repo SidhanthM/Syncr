@@ -15,7 +15,10 @@ class InkStylesTest {
         assertEquals(brushWidth(pen()), s.nominalWidth(), 0.02f * brushWidth(pen())) // typical pressure draws the stored size
         assertTrue(s.taperStart < 0.5f && s.taperEnd < 0.5f)
         assertTrue(s.speedThinning in 0.75f..0.95f)
-        assertEquals(20L, s.smoothingWindowMs)
+        assertEquals(8L, s.smoothingWindowMs)
+        assertEquals(0.009f, s.pressureDampingSeconds, 1e-6f)
+        assertEquals(0.018f, InkStyles.SPEED_DAMPING_SECONDS, 0f)
+        assertTrue(InkPreferences().predictPenMotion)
         assertEquals(InkStyles.EPSILON, s.epsilon, 0f)
     }
 
@@ -29,13 +32,14 @@ class InkStylesTest {
     }
 
     @Test fun smoothingPreferenceMapsToWindowAndPressureDamping() {
-        assertEquals(6L, InkStyles.smoothingWindowMs(0f))
-        assertEquals(20L, InkStyles.smoothingWindowMs(0.5f))
-        assertEquals(40L, InkStyles.smoothingWindowMs(1f))
+        assertEquals(1L, InkStyles.smoothingWindowMs(0f)) // raw: Ink needs a positive window
+        assertEquals(8L, InkStyles.smoothingWindowMs(0.5f))
+        assertEquals(24L, InkStyles.smoothingWindowMs(1f))
         val windows = (0..10).map { InkStyles.smoothingWindowMs(it / 10f) }
         windows.zipWithNext().forEach { (a, b) -> assertTrue("$windows", b >= a) }
         assertTrue(InkStyles.pressureDampingSeconds(1f) > InkStyles.pressureDampingSeconds(0f))
-        assertEquals(40L, style(InkPreferences(smoothing = 1f)).smoothingWindowMs)
+        assertEquals(0.009f, InkStyles.pressureDampingSeconds(0.5f), 1e-6f)
+        assertEquals(24L, style(InkPreferences(smoothing = 1f)).smoothingWindowMs)
     }
 
     @Test fun taperSwitchTurnsBothEndsOff() {

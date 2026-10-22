@@ -1,19 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-feature android:name="android.hardware.bluetooth" android:required="true" />
+    <!-- Mac link (wifi-link-v0): plain TCP to the Mac and NSD discovery; the low-latency Wi-Fi lock needs WAKE_LOCK. All normal permissions, no prompt. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <application
-        android:label="Syncr"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:theme="@style/Theme.Syncr"
+        android:enableOnBackInvokedCallback="true"
+        tools:targetApi="33">
+        <!-- Tablet mode is a landscape pen pad by design; it is not meant to rotate with the phone. -->
         <activity
             android:name=".PointerActivity"
             android:exported="false"
-            android:label="Tablet mode"
+            android:label="@string/tablet_mode"
             android:screenOrientation="sensorLandscape"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode"
-            android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen" />
+            android:theme="@style/Theme.Syncr.Tablet"
+            tools:ignore="DiscouragedApi" />
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

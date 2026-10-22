@@ -28,7 +28,8 @@ fun buildThumbnail(snapshot: NoteSnapshot, samples: (String) -> SampleChannels?,
         val points = FloatArray(kept.size * 2)
         kept.forEachIndexed { i, index ->
             val (x, y) = transformedPoint(channels.x[index], channels.y[index], canvasTransform(sheets.getValue(stroke.sheetId), stroke.transform))
-            points[2 * i] = x; points[2 * i + 1] = y
+            points[2 * i] = x
+            points[2 * i + 1] = y
         }
         ThumbStroke(points, stroke.brush.copy(), FloatArray(kept.size) { channels.pressure[kept[it]] },
             IntArray(kept.size) { channels.elapsedMs[kept[it]].toInt() })
@@ -43,18 +44,28 @@ internal object ThumbnailCache {
 
     fun read(dir: File?, noteId: String, localSequence: ULong): Thumbnail? {
         if (dir == null) return null
-        return try { file(dir, noteId)?.takeIf { it.exists() }?.let { f ->
-            DataInputStream(f.inputStream().buffered()).use { input ->
-                if (input.readInt() != MAGIC || input.readLong().toULong() != localSequence) return@use null
-                val w = input.readFloat(); val h = input.readFloat()
-                Thumbnail(localSequence, w, h, List(input.readInt()) {
-                    val brush = Brush(BrushFamily.entries[input.readByte().toInt()], BrushSize.entries[input.readByte().toInt()],
-                        InkColour.entries[input.readByte().toInt()])
+        return try {
+            val file = file(dir, noteId)?.takeIf { it.exists() } ?: return null
+            DataInputStream(file.inputStream().buffered()).use { input ->
+                if (input.readInt() != MAGIC || input.readLong().toULong() != localSequence) return null
+                val width = input.readFloat()
+                val height = input.readFloat()
+                val strokes = List(input.readInt()) {
+                    val brush = Brush(
+                        BrushFamily.entries[input.readByte().toInt()],
+                        BrushSize.entries[input.readByte().toInt()],
+                        InkColour.entries[input.readByte().toInt()],
+                    )
                     val points = FloatArray(input.readInt()) { input.readFloat() }
-                    ThumbStroke(points, brush, FloatArray(points.size / 2) { input.readFloat() }, IntArray(points.size / 2) { input.readInt() })
-                })
+                    val pressure = FloatArray(points.size / 2) { input.readFloat() }
+                    val elapsed = IntArray(points.size / 2) { input.readInt() }
+                    ThumbStroke(points, brush, pressure, elapsed)
+                }
+                Thumbnail(localSequence, width, height, strokes)
             }
-        } } catch (_: Exception) { null }
+        } catch (_: Exception) {
+            null // A damaged cache entry is rebuilt from the note.
+        }
     }
 
     /** Drops the cached card for a permanently deleted note. */
@@ -77,15 +88,22 @@ internal object ThumbnailCache {
             dir.mkdirs()
             val temp = File(dir, "${target.name}.tmp")
             DataOutputStream(temp.outputStream().buffered()).use { out ->
-                out.writeInt(MAGIC); out.writeLong(thumbnail.localSequence.toLong())
-                out.writeFloat(thumbnail.width); out.writeFloat(thumbnail.viewHeight)
+                out.writeInt(MAGIC)
+                out.writeLong(thumbnail.localSequence.toLong())
+                out.writeFloat(thumbnail.width)
+                out.writeFloat(thumbnail.viewHeight)
                 out.writeInt(thumbnail.strokes.size)
                 thumbnail.strokes.forEach { s ->
-                    out.writeByte(s.brush.family.ordinal); out.writeByte(s.brush.size.ordinal); out.writeByte(s.brush.colour.ordinal)
-                    out.writeInt(s.points.size); s.points.forEach(out::writeFloat)
-                    s.pressure.forEach(out::writeFloat); s.elapsedMs.forEach(out::writeInt)
+                    out.writeByte(s.brush.family.ordinal)
+                    out.writeByte(s.brush.size.ordinal)
+                    out.writeByte(s.brush.colour.ordinal)
+                    out.writeInt(s.points.size)
+                    s.points.forEach(out::writeFloat)
+                    s.pressure.forEach(out::writeFloat)
+                    s.elapsedMs.forEach(out::writeInt)
                 }
             }
+            // Write-then-rename, so a crash never leaves a half-written card.
             if (!temp.renameTo(target)) temp.delete()
         } catch (_: Exception) { }
     }
