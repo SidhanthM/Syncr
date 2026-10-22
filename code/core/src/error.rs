@@ -1,5 +1,5 @@
-//! UniFFI preserves each contract error identity and its detail/retryable fields.
-//! Display (and generated exception message) remains a safe diagnostic.
+//! The contract error identities (13 original, 3 additive text errors). Every variant carries a fixed, safe `detail`: never a
+//! path, SQL text or note content, because hosts may log or show it.
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum CoreError {
     #[error("{detail}")]
@@ -28,108 +28,114 @@ pub enum CoreError {
     Closed { detail: String, retryable: bool },
     #[error("{detail}")]
     Internal { detail: String, retryable: bool },
+    #[error("{detail}")]
+    InvalidText { detail: String, retryable: bool },
+    #[error("{detail}")]
+    InvalidTextRange { detail: String, retryable: bool },
+    #[error("{detail}")]
+    DocumentTextExists { detail: String, retryable: bool },
 }
 pub type CoreResult<T> = Result<T, CoreError>;
 
+macro_rules! core_error {
+    ($variant:ident, $detail:expr, $retryable:expr) => {
+        CoreError::$variant {
+            detail: String::from($detail),
+            retryable: $retryable,
+        }
+    };
+}
+
+// Constructors. Only storage contention and I/O failures are retryable.
+
 pub(crate) fn invalid(detail: &str) -> CoreError {
-    CoreError::InvalidInput {
-        detail: detail.into(),
-        retryable: false,
-    }
+    core_error!(InvalidInput, detail, false)
+}
+pub(crate) fn invalid_text() -> CoreError {
+    core_error!(
+        InvalidText,
+        "Text must not contain NUL or carriage returns",
+        false
+    )
+}
+pub(crate) fn text_range() -> CoreError {
+    core_error!(
+        InvalidTextRange,
+        "Splice range must be in bounds on UTF-8 character boundaries",
+        false
+    )
+}
+pub(crate) fn document_exists() -> CoreError {
+    core_error!(
+        DocumentTextExists,
+        "A note may have only one live document text block",
+        false
+    )
 }
 pub(crate) fn limit(detail: &str) -> CoreError {
-    CoreError::ResourceLimit {
-        detail: detail.into(),
-        retryable: false,
-    }
+    core_error!(ResourceLimit, detail, false)
 }
 pub(crate) fn unsupported(detail: &str) -> CoreError {
-    CoreError::UnsupportedVersion {
-        detail: detail.into(),
-        retryable: false,
-    }
+    core_error!(UnsupportedVersion, detail, false)
+}
+pub(crate) fn missing_dependency(detail: &str) -> CoreError {
+    core_error!(MissingDependency, detail, false)
+}
+pub(crate) fn id_collision(detail: &str) -> CoreError {
+    core_error!(IdCollision, detail, false)
+}
+pub(crate) fn locked(detail: &str) -> CoreError {
+    core_error!(NoteLocked, detail, true)
+}
+pub(crate) fn storage_io(detail: &str, retryable: bool) -> CoreError {
+    core_error!(StorageIo, detail, retryable)
 }
 pub(crate) fn internal() -> CoreError {
-    CoreError::Internal {
-        detail: "Core state could not be read".into(),
-        retryable: false,
-    }
+    core_error!(Internal, "Core state could not be read", false)
 }
 pub(crate) fn missing() -> CoreError {
-    CoreError::NotFound {
-        detail: "Requested note or entity was not found".into(),
-        retryable: false,
-    }
+    core_error!(NotFound, "Requested note or entity was not found", false)
 }
 pub(crate) fn stale() -> CoreError {
-    CoreError::StaleBase {
-        detail: "The edit no longer matches the current state".into(),
-        retryable: false,
-    }
+    core_error!(
+        StaleBase,
+        "The edit no longer matches the current state",
+        false
+    )
 }
 pub(crate) fn dependency() -> CoreError {
-    CoreError::MissingDependency {
-        detail: "A required committed operation is missing from dependencies".into(),
-        retryable: false,
-    }
+    missing_dependency("A required committed operation is missing from dependencies")
 }
 pub(crate) fn collision() -> CoreError {
-    CoreError::IdCollision {
-        detail: "This ID already identifies different data".into(),
-        retryable: false,
-    }
+    id_collision("This ID already identifies different data")
 }
 pub(crate) fn closed() -> CoreError {
-    CoreError::Closed {
-        detail: "Note is closed".into(),
-        retryable: false,
-    }
+    core_error!(Closed, "Note is closed", false)
 }
+fn storage_full() -> CoreError {
+    core_error!(StorageFull, "Storage is full", true)
+}
+fn permission_denied() -> CoreError {
+    core_error!(PermissionDenied, "Storage permission denied", false)
+}
+
+/// Maps a SQLite failure to its contract identity, dropping SQLite's own message.
 pub(crate) fn storage(error: rusqlite::Error) -> CoreError {
-    use rusqlite::{Error, ErrorCode};
-    match error {
-        Error::SqliteFailure(e, _) if e.code == ErrorCode::DiskFull => CoreError::StorageFull {
-            detail: "Storage is full".into(),
-            retryable: true,
-        },
-        Error::SqliteFailure(e, _)
-            if e.code == ErrorCode::PermissionDenied || e.code == ErrorCode::ReadOnly =>
-        {
-            CoreError::PermissionDenied {
-                detail: "Storage permission denied".into(),
-                retryable: false,
-            }
-        }
-        Error::SqliteFailure(e, _)
-            if e.code == ErrorCode::DatabaseBusy || e.code == ErrorCode::DatabaseLocked =>
-        {
-            CoreError::NoteLocked {
-                detail: "Note storage is busy".into(),
-                retryable: true,
-            }
-        }
-        _ => CoreError::StorageIo {
-            detail: "Library storage operation failed".into(),
-            retryable: true,
-        },
+    use rusqlite::ErrorCode as Code;
+    match error.sqlite_error_code() {
+        Some(Code::DiskFull) => storage_full(),
+        Some(Code::PermissionDenied | Code::ReadOnly) => permission_denied(),
+        Some(Code::DatabaseBusy | Code::DatabaseLocked) => locked("Note storage is busy"),
+        _ => storage_io("Library storage operation failed", true),
     }
 }
+
+/// Maps a filesystem failure to its contract identity, dropping the OS message and path.
 pub(crate) fn io(error: std::io::Error) -> CoreError {
-    if error.kind() == std::io::ErrorKind::PermissionDenied {
-        CoreError::PermissionDenied {
-            detail: "Storage permission denied".into(),
-            retryable: false,
-        }
-    } else if error.kind() == std::io::ErrorKind::StorageFull {
-        CoreError::StorageFull {
-            detail: "Storage is full".into(),
-            retryable: true,
-        }
-    } else {
-        CoreError::StorageIo {
-            detail: "Library filesystem operation failed".into(),
-            retryable: true,
-        }
+    match error.kind() {
+        std::io::ErrorKind::PermissionDenied => permission_denied(),
+        std::io::ErrorKind::StorageFull => storage_full(),
+        _ => storage_io("Library filesystem operation failed", true),
     }
 }
 

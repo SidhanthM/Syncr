@@ -1,10 +1,20 @@
+//! SYNS v1 sample blobs: the immutable, exact pen samples of one stroke.
+//!
+//! Layout (little-endian): `SYNS`, u16 version 1, u16 channel mask, u32 count, then each
+//! present channel as `count` 4-byte values in order x, y, pressure (f32), elapsed_ms
+//! (u32), tilt, orientation (f32). The four core channels are always present.
 use crate::{
     CoreResult, SampleChannels,
     error::{invalid, limit, unsupported},
 };
 
 pub const MAX_SAMPLE_BYTES: usize = 16 * 1024 * 1024;
+const MAGIC: &[u8; 4] = b"SYNS";
+const VERSION: u16 = 1;
 const HEADER: usize = 12;
+const CORE_CHANNELS: u16 = 0x0f;
+const TILT: u16 = 0x10;
+const ORIENTATION: u16 = 0x20;
 
 fn encoded_length(count: usize, tilt: bool, orientation: bool) -> CoreResult<usize> {
     if count == 0 {
@@ -21,6 +31,7 @@ fn encoded_length(count: usize, tilt: bool, orientation: bool) -> CoreResult<usi
     Ok(length)
 }
 
+/// Checks channel lengths and value ranges; returns the encoded length.
 pub(crate) fn validate(channels: &SampleChannels) -> CoreResult<usize> {
     let n = channels.x.len();
     let length = encoded_length(n, channels.tilt.is_some(), channels.orientation.is_some())?;
@@ -63,16 +74,16 @@ pub(crate) fn validate(channels: &SampleChannels) -> CoreResult<usize> {
 #[uniffi::export]
 pub fn encode_samples(channels: SampleChannels) -> CoreResult<Vec<u8>> {
     let length = validate(&channels)?;
-    let mask = 0x0f_u16
-        | if channels.tilt.is_some() { 0x10 } else { 0 }
-        | if channels.orientation.is_some() {
-            0x20
-        } else {
-            0
-        };
+    let mut mask = CORE_CHANNELS;
+    if channels.tilt.is_some() {
+        mask |= TILT;
+    }
+    if channels.orientation.is_some() {
+        mask |= ORIENTATION;
+    }
     let mut blob = Vec::with_capacity(length);
-    blob.extend_from_slice(b"SYNS");
-    blob.extend_from_slice(&1_u16.to_le_bytes());
+    blob.extend_from_slice(MAGIC);
+    blob.extend_from_slice(&VERSION.to_le_bytes());
     blob.extend_from_slice(&mask.to_le_bytes());
     blob.extend_from_slice(&(channels.x.len() as u32).to_le_bytes());
     for values in [&channels.x, &channels.y, &channels.pressure] {
@@ -103,20 +114,20 @@ pub(crate) fn decode(blob: &[u8]) -> CoreResult<SampleChannels> {
     if blob.len() > MAX_SAMPLE_BYTES {
         return Err(limit("Sample blob exceeds 16 MiB"));
     }
-    if blob.len() < HEADER || &blob[..4] != b"SYNS" {
+    if blob.len() < HEADER || &blob[..4] != MAGIC {
         return Err(invalid("Invalid sample header"));
     }
     let version = u16::from_le_bytes([blob[4], blob[5]]);
-    if version != 1 {
+    if version != VERSION {
         return Err(unsupported("Unsupported sample encoding version"));
     }
     let mask = u16::from_le_bytes([blob[6], blob[7]]);
-    if mask & 0x0f != 0x0f || mask & !0x3f != 0 {
+    if mask & CORE_CHANNELS != CORE_CHANNELS || mask & !(CORE_CHANNELS | TILT | ORIENTATION) != 0 {
         return Err(invalid("Invalid sample channel mask"));
     }
     let n = u32::from_le_bytes([blob[8], blob[9], blob[10], blob[11]]) as usize;
-    let tilt = mask & 0x10 != 0;
-    let orientation = mask & 0x20 != 0;
+    let tilt = mask & TILT != 0;
+    let orientation = mask & ORIENTATION != 0;
     let length = encoded_length(n, tilt, orientation)?;
     // Check count, multiplication and exact length before allocating channel arrays.
     if length != blob.len() {

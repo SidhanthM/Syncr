@@ -1,10 +1,9 @@
 //! Public snapshot dependency regressions. No caller-side history or sheet index.
+mod common;
+use common::{base, brush, path};
 use std::{path::Path, sync::Arc};
 use syncr_core::*;
 
-fn path(p: &Path) -> String {
-    p.to_str().unwrap().into()
-}
 fn setup() -> (
     tempfile::TempDir,
     Arc<SyncrLibrary>,
@@ -23,11 +22,6 @@ fn setup() -> (
     lib.create_note(request.clone()).unwrap();
     let note = lib.open_note(request.note_id.clone()).unwrap();
     (root, lib, request, note)
-}
-fn base(id: &str) -> Base {
-    Base::Operation {
-        operation_id: id.into(),
-    }
 }
 fn command(body: CommandBody, dependencies: Vec<Id>) -> Command {
     Command {
@@ -49,11 +43,7 @@ fn add(mark_id: Id, sheet: &SheetView) -> MarkMutation {
             orientation: None,
         })
         .unwrap(),
-        brush: Brush {
-            family: BrushFamily::Pen,
-            size: BrushSize::Medium,
-            colour: InkColour::Ink,
-        },
+        brush: brush(),
     }
 }
 fn history(snapshot: &NoteSnapshot, redo: bool) -> Command {

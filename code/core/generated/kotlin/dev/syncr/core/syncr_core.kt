@@ -679,6 +679,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_syncr_core_checksum_func_new_id(
     ): Int
+    external fun uniffi_syncr_core_checksum_func_encode_stroke_commit(
+    ): Int
     external fun uniffi_syncr_core_checksum_func_open_library(
     ): Int
     external fun uniffi_syncr_core_checksum_func_default_stroke_style(
@@ -687,9 +689,27 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_syncr_core_checksum_func_tessellate_stroke(
     ): Int
+    external fun uniffi_syncr_core_checksum_func_decode_preview_frame(
+    ): Int
+    external fun uniffi_syncr_core_checksum_func_encode_preview_frame(
+    ): Int
+    external fun uniffi_syncr_core_checksum_func_frame_kind(
+    ): Int
+    external fun uniffi_syncr_core_checksum_func_preview_limits(
+    ): Int
     external fun uniffi_syncr_core_checksum_func_decode_samples(
     ): Int
     external fun uniffi_syncr_core_checksum_func_encode_samples(
+    ): Int
+    external fun uniffi_syncr_core_checksum_method_strokereassembler_accept(
+    ): Int
+    external fun uniffi_syncr_core_checksum_method_strokereassembler_in_progress(
+    ): Int
+    external fun uniffi_syncr_core_checksum_method_strokereassembler_reset(
+    ): Int
+    external fun uniffi_syncr_core_checksum_method_note_agent_author_id(
+    ): Int
+    external fun uniffi_syncr_core_checksum_method_note_agent_snapshot(
     ): Int
     external fun uniffi_syncr_core_checksum_method_note_changes_since(
     ): Int
@@ -704,6 +724,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_syncr_core_checksum_method_note_snapshot(
     ): Int
     external fun uniffi_syncr_core_checksum_method_note_submit(
+    ): Int
+    external fun uniffi_syncr_core_checksum_method_note_submit_agent(
     ): Int
     external fun uniffi_syncr_core_checksum_method_syncrlibrary_author_id(
     ): Int
@@ -733,6 +755,38 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_syncr_core_checksum_method_syncrlibrary_restore_note(
     ): Int
+    external fun uniffi_syncr_core_checksum_method_previewreceiver_accept(
+    ): Int
+    external fun uniffi_syncr_core_checksum_method_previewreceiver_commit(
+    ): Int
+    external fun uniffi_syncr_core_checksum_method_previewreceiver_epoch(
+    ): Int
+    external fun uniffi_syncr_core_checksum_method_previewreceiver_live_count(
+    ): Int
+    external fun uniffi_syncr_core_checksum_method_previewreceiver_reset(
+    ): Int
+    external fun uniffi_syncr_core_checksum_method_previewreceiver_tick(
+    ): Int
+    external fun uniffi_syncr_core_checksum_method_previewsendqueue_clear_preview(
+    ): Int
+    external fun uniffi_syncr_core_checksum_method_previewsendqueue_dropped_preview_frames(
+    ): Int
+    external fun uniffi_syncr_core_checksum_method_previewsendqueue_pop(
+    ): Int
+    external fun uniffi_syncr_core_checksum_method_previewsendqueue_push_commit(
+    ): Int
+    external fun uniffi_syncr_core_checksum_method_previewsendqueue_push_preview(
+    ): Int
+    external fun uniffi_syncr_core_checksum_method_previewsendqueue_queued_durable_bytes(
+    ): Int
+    external fun uniffi_syncr_core_checksum_method_previewsendqueue_queued_preview_bytes(
+    ): Int
+    external fun uniffi_syncr_core_checksum_constructor_strokereassembler_new(
+    ): Int
+    external fun uniffi_syncr_core_checksum_constructor_previewreceiver_new(
+    ): Int
+    external fun uniffi_syncr_core_checksum_constructor_previewsendqueue_new(
+    ): Int
     external fun ffi_syncr_core_uniffi_contract_version(
     ): Int
 
@@ -753,10 +807,26 @@ internal object UniffiLib {
     }
 
     internal fun ensureInitialized() = Unit
+    external fun uniffi_syncr_core_fn_clone_strokereassembler(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_syncr_core_fn_free_strokereassembler(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_syncr_core_fn_constructor_strokereassembler_new(uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_syncr_core_fn_method_strokereassembler_accept(`ptr`: Long,`frame`: RustBuffer.ByValue,`nowMs`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_method_strokereassembler_in_progress(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_syncr_core_fn_method_strokereassembler_reset(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
     external fun uniffi_syncr_core_fn_clone_note(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
     external fun uniffi_syncr_core_fn_free_note(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_syncr_core_fn_method_note_agent_author_id(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_method_note_agent_snapshot(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_method_note_changes_since(`ptr`: Long,`cursor`: RustBuffer.ByValue,`limit`: Int,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_method_note_close_note(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -770,6 +840,8 @@ internal object UniffiLib {
     external fun uniffi_syncr_core_fn_method_note_snapshot(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_method_note_submit(`ptr`: Long,`command`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_method_note_submit_agent(`ptr`: Long,`command`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_clone_syncrlibrary(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
@@ -803,9 +875,49 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_syncr_core_fn_method_syncrlibrary_restore_note(`ptr`: Long,`noteId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_syncr_core_fn_clone_previewreceiver(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_syncr_core_fn_free_previewreceiver(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_syncr_core_fn_constructor_previewreceiver_new(`epoch`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_syncr_core_fn_method_previewreceiver_accept(`ptr`: Long,`frame`: RustBuffer.ByValue,`nowMs`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_method_previewreceiver_commit(`ptr`: Long,`strokeId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_method_previewreceiver_epoch(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    external fun uniffi_syncr_core_fn_method_previewreceiver_live_count(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    external fun uniffi_syncr_core_fn_method_previewreceiver_reset(`ptr`: Long,`epoch`: Int,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_method_previewreceiver_tick(`ptr`: Long,`nowMs`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_clone_previewsendqueue(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_syncr_core_fn_free_previewsendqueue(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_syncr_core_fn_constructor_previewsendqueue_new(uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_syncr_core_fn_method_previewsendqueue_clear_preview(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_syncr_core_fn_method_previewsendqueue_dropped_preview_frames(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_syncr_core_fn_method_previewsendqueue_pop(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_method_previewsendqueue_push_commit(`ptr`: Long,`commit`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_syncr_core_fn_method_previewsendqueue_push_preview(`ptr`: Long,`frame`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_syncr_core_fn_method_previewsendqueue_queued_durable_bytes(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_syncr_core_fn_method_previewsendqueue_queued_preview_bytes(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
     external fun uniffi_syncr_core_fn_func_canvas_size(uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_func_new_id(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_func_encode_stroke_commit(`commit`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_func_open_library(`rootPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
@@ -814,6 +926,14 @@ internal object UniffiLib {
     external fun uniffi_syncr_core_fn_func_mesh_renderer_version(uniffi_out_err: UniffiRustCallStatus, 
     ): Int
     external fun uniffi_syncr_core_fn_func_tessellate_stroke(`samples`: RustBuffer.ByValue,`style`: RustBuffer.ByValue,`transform`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_func_decode_preview_frame(`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_func_encode_preview_frame(`frame`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_func_frame_kind(`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_func_preview_limits(uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_func_decode_samples(`blob`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -944,6 +1064,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_syncr_core_checksum_func_new_id() and 0xFFFF) != 18470) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_syncr_core_checksum_func_encode_stroke_commit() and 0xFFFF) != 44624) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_syncr_core_checksum_func_open_library() and 0xFFFF) != 18191) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -956,10 +1079,37 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_syncr_core_checksum_func_tessellate_stroke() and 0xFFFF) != 44957) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_syncr_core_checksum_func_decode_preview_frame() and 0xFFFF) != 7876) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_func_encode_preview_frame() and 0xFFFF) != 8361) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_func_frame_kind() and 0xFFFF) != 14813) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_func_preview_limits() and 0xFFFF) != 56040) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_syncr_core_checksum_func_decode_samples() and 0xFFFF) != 33737) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_syncr_core_checksum_func_encode_samples() and 0xFFFF) != 13934) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_method_strokereassembler_accept() and 0xFFFF) != 49493) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_method_strokereassembler_in_progress() and 0xFFFF) != 47845) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_method_strokereassembler_reset() and 0xFFFF) != 39683) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_method_note_agent_author_id() and 0xFFFF) != 46781) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_method_note_agent_snapshot() and 0xFFFF) != 54471) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_syncr_core_checksum_method_note_changes_since() and 0xFFFF) != 55591) {
@@ -981,6 +1131,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_syncr_core_checksum_method_note_submit() and 0xFFFF) != 50436) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_method_note_submit_agent() and 0xFFFF) != 25563) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_syncr_core_checksum_method_syncrlibrary_author_id() and 0xFFFF) != 11347) {
@@ -1023,6 +1176,54 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_syncr_core_checksum_method_syncrlibrary_restore_note() and 0xFFFF) != 46031) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_method_previewreceiver_accept() and 0xFFFF) != 31506) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_method_previewreceiver_commit() and 0xFFFF) != 49527) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_method_previewreceiver_epoch() and 0xFFFF) != 50534) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_method_previewreceiver_live_count() and 0xFFFF) != 16083) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_method_previewreceiver_reset() and 0xFFFF) != 49) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_method_previewreceiver_tick() and 0xFFFF) != 50238) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_method_previewsendqueue_clear_preview() and 0xFFFF) != 38371) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_method_previewsendqueue_dropped_preview_frames() and 0xFFFF) != 6500) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_method_previewsendqueue_pop() and 0xFFFF) != 21165) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_method_previewsendqueue_push_commit() and 0xFFFF) != 24142) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_method_previewsendqueue_push_preview() and 0xFFFF) != 21549) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_method_previewsendqueue_queued_durable_bytes() and 0xFFFF) != 12919) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_method_previewsendqueue_queued_preview_bytes() and 0xFFFF) != 4878) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_constructor_strokereassembler_new() and 0xFFFF) != 56924) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_constructor_previewreceiver_new() and 0xFFFF) != 30445) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_constructor_previewsendqueue_new() and 0xFFFF) != 36121) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -1180,6 +1381,33 @@ private class JavaLangRefCleanable(
     val cleanable: java.lang.ref.Cleaner.Cleanable
 ) : UniffiCleaner.Cleanable {
     override fun clean() = cleanable.clean()
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterUByte: FfiConverter<UByte, Byte> {
+    override fun lift(value: Byte): UByte {
+        return value.toUByte()
+    }
+
+    fun lift(value: Int): UByte {
+        return value.toUByte()
+    }
+
+    override fun read(buf: ByteBuffer): UByte {
+        return lift(buf.get())
+    }
+
+    override fun lower(value: UByte): Byte {
+        return value.toByte()
+    }
+
+    override fun allocationSize(value: UByte) = 1UL
+
+    override fun write(value: UByte, buf: ByteBuffer) {
+        buf.put(value.toByte())
+    }
 }
 
 /**
@@ -1494,6 +1722,13 @@ public object FfiConverterByteArray: FfiConverterRustBuffer<ByteArray> {
 
 public interface NoteInterface {
     
+    /**
+     * Stable companion undo owner, distinct from this installation's user author.
+     */
+    fun `agentAuthorId`(): kotlin.String
+    
+    fun `agentSnapshot`(): NoteSnapshot
+    
     fun `changesSince`(`cursor`: EventCursor, `limit`: kotlin.UInt): ChangePage
     
     fun `closeNote`()
@@ -1507,6 +1742,11 @@ public interface NoteInterface {
     fun `snapshot`(): NoteSnapshot
     
     fun `submit`(`command`: Command): Receipt
+    
+    /**
+     * The only agent text write is insertion of an existing drawing's embed line.
+     */
+    fun `submitAgent`(`command`: Command): Receipt
     
     companion object
 }
@@ -1613,6 +1853,36 @@ open class Note: Disposable, AutoCloseable, NoteInterface
     }
 
     
+    /**
+     * Stable companion undo owner, distinct from this installation's user author.
+     */override fun `agentAuthorId`(): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_method_note_agent_author_id(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    @Throws(CoreException::class)override fun `agentSnapshot`(): NoteSnapshot {
+            return FfiConverterTypeNoteSnapshot.lift(
+    callWithHandle {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.uniffi_syncr_core_fn_method_note_agent_snapshot(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
     @Throws(CoreException::class)override fun `changesSince`(`cursor`: EventCursor, `limit`: kotlin.UInt): ChangePage {
             return FfiConverterTypeChangePage.lift(
     callWithHandle {
@@ -1716,6 +1986,24 @@ open class Note: Disposable, AutoCloseable, NoteInterface
     
 
     
+    /**
+     * The only agent text write is insertion of an existing drawing's embed line.
+     */
+    @Throws(CoreException::class)override fun `submitAgent`(`command`: Command): Receipt {
+            return FfiConverterTypeReceipt.lift(
+    callWithHandle {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.uniffi_syncr_core_fn_method_note_submit_agent(
+        it,
+        
+        FfiConverterTypeCommand.lower(`command`),_status)
+}
+    }
+    )
+    }
+    
+
+    
 
     
 
@@ -1749,6 +2037,1103 @@ public object FfiConverterTypeNote: FfiConverter<Note, Long> {
     override fun allocationSize(value: Note) = 8UL
 
     override fun write(value: Note, buf: ByteBuffer) {
+        buf.putLong(lower(value))
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a handle
+// to the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque handle to the underlying Rust struct.
+//     Method calls need to read this handle from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its handle should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the handle, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the handle, but is interrupted
+//      before it can pass the handle over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read handle value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * Turns received preview frames into renderer events. No I/O; the caller supplies `now_ms`
+ * (any monotonic clock of the receiver, used only for expiry).
+ */
+public interface PreviewReceiverInterface {
+    
+    /**
+     * Decodes one frame and applies it. A frame that fails to decode returns the typed error
+     * and changes nothing. Frames of an older epoch are ignored (no events); a newer epoch
+     * drops every live preview (`Reset`) and is adopted.
+     */
+    fun `accept`(`frame`: kotlin.ByteArray, `nowMs`: kotlin.ULong): List<PreviewEvent>
+    
+    /**
+     * The durable stroke exists: drop its preview (if any) and ignore its late frames.
+     */
+    fun `commit`(`strokeId`: kotlin.String): List<PreviewEvent>
+    
+    fun `epoch`(): kotlin.UInt
+    
+    fun `liveCount`(): kotlin.UInt
+    
+    /**
+     * Disconnect or new session: drops every preview, forgets terminal IDs and adopts `epoch`.
+     */
+    fun `reset`(`epoch`: kotlin.UInt): List<PreviewEvent>
+    
+    /**
+     * Expires live previews with no frame for 5 s, and ended previews 10 s after End.
+     */
+    fun `tick`(`nowMs`: kotlin.ULong): List<PreviewEvent>
+    
+    companion object
+}
+
+/**
+ * Turns received preview frames into renderer events. No I/O; the caller supplies `now_ms`
+ * (any monotonic clock of the receiver, used only for expiry).
+ */
+open class PreviewReceiver: Disposable, AutoCloseable, PreviewReceiverInterface
+{
+
+    @Suppress("UNUSED_PARAMETER")
+    /**
+     * @suppress
+     */
+    constructor(withHandle: UniffiWithHandle, handle: Long) {
+        this.handle = handle
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(handle))
+    }
+
+    /**
+     * @suppress
+     *
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noHandle: NoHandle) {
+        this.handle = 0
+        this.cleanable = null
+    }
+    constructor(`epoch`: kotlin.UInt) :
+        this(UniffiWithHandle, 
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_constructor_previewreceiver_new(
+    
+        
+        FfiConverterUInt.lower(`epoch`),_status)
+}
+    )
+
+    protected val handle: Long
+    protected val cleanable: UniffiCleaner.Cleanable?
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithHandle(block: (handle: Long) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the handle being freed concurrently.
+        try {
+            return block(this.uniffiCloneHandle())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val handle: Long) : Runnable {
+        override fun run() {
+            if (handle == 0.toLong()) {
+                // Fake object created with `NoHandle`, don't try to free.
+                return;
+            }
+            uniffiRustCall { status ->
+                UniffiLib.uniffi_syncr_core_fn_free_previewreceiver(handle, status)
+            }
+        }
+    }
+
+    /**
+     * @suppress
+     */
+    fun uniffiCloneHandle(): Long {
+        if (handle == 0.toLong()) {
+            throw InternalException("uniffiCloneHandle() called on NoHandle object");
+        }
+        return uniffiRustCall() { status ->
+            UniffiLib.uniffi_syncr_core_fn_clone_previewreceiver(handle, status)
+        }
+    }
+
+    
+    /**
+     * Decodes one frame and applies it. A frame that fails to decode returns the typed error
+     * and changes nothing. Frames of an older epoch are ignored (no events); a newer epoch
+     * drops every live preview (`Reset`) and is adopted.
+     */
+    @Throws(CoreException::class)override fun `accept`(`frame`: kotlin.ByteArray, `nowMs`: kotlin.ULong): List<PreviewEvent> {
+            return FfiConverterSequenceTypePreviewEvent.lift(
+    callWithHandle {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.uniffi_syncr_core_fn_method_previewreceiver_accept(
+        it,
+        
+        FfiConverterByteArray.lower(`frame`),
+        FfiConverterULong.lower(`nowMs`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * The durable stroke exists: drop its preview (if any) and ignore its late frames.
+     */
+    @Throws(CoreException::class)override fun `commit`(`strokeId`: kotlin.String): List<PreviewEvent> {
+            return FfiConverterSequenceTypePreviewEvent.lift(
+    callWithHandle {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.uniffi_syncr_core_fn_method_previewreceiver_commit(
+        it,
+        
+        FfiConverterString.lower(`strokeId`),_status)
+}
+    }
+    )
+    }
+    
+
+    override fun `epoch`(): kotlin.UInt {
+            return FfiConverterUInt.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_method_previewreceiver_epoch(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `liveCount`(): kotlin.UInt {
+            return FfiConverterUInt.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_method_previewreceiver_live_count(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Disconnect or new session: drops every preview, forgets terminal IDs and adopts `epoch`.
+     */override fun `reset`(`epoch`: kotlin.UInt): List<PreviewEvent> {
+            return FfiConverterSequenceTypePreviewEvent.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_method_previewreceiver_reset(
+        it,
+        
+        FfiConverterUInt.lower(`epoch`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Expires live previews with no frame for 5 s, and ended previews 10 s after End.
+     */override fun `tick`(`nowMs`: kotlin.ULong): List<PreviewEvent> {
+            return FfiConverterSequenceTypePreviewEvent.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_method_previewreceiver_tick(
+        it,
+        
+        FfiConverterULong.lower(`nowMs`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+
+
+    
+    
+    /**
+     * @suppress
+     */
+    companion object
+    
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePreviewReceiver: FfiConverter<PreviewReceiver, Long> {
+    override fun lower(value: PreviewReceiver): Long {
+        return value.uniffiCloneHandle()
+    }
+
+    override fun lift(value: Long): PreviewReceiver {
+        return PreviewReceiver(UniffiWithHandle, value)
+    }
+
+    override fun read(buf: ByteBuffer): PreviewReceiver {
+        return lift(buf.getLong())
+    }
+
+    override fun allocationSize(value: PreviewReceiver) = 8UL
+
+    override fun write(value: PreviewReceiver, buf: ByteBuffer) {
+        buf.putLong(lower(value))
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a handle
+// to the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque handle to the underlying Rust struct.
+//     Method calls need to read this handle from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its handle should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the handle, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the handle, but is interrupted
+//      before it can pass the handle over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read handle value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * The pen thread pushes, the socket owner pops. Pushing takes a short lock, never touches disk
+ * or the network, and never waits for the consumer. At most 256 KiB of preview is queued.
+ */
+public interface PreviewSendQueueInterface {
+    
+    /**
+     * Discards queued preview (disconnect). Durable frames stay queued.
+     */
+    fun `clearPreview`()
+    
+    /**
+     * Preview frames discarded under pressure since creation (merged frames are not drops).
+     */
+    fun `droppedPreviewFrames`(): kotlin.ULong
+    
+    /**
+     * Next encoded frame to send: preview first (it is perishable), then durable chunks.
+     */
+    fun `pop`(): kotlin.ByteArray?
+    
+    /**
+     * Queues every chunk frame of a durable stroke, in order. Never dropped or merged. If the
+     * durable backlog would exceed its bound, nothing is queued and the error is retryable.
+     */
+    fun `pushCommit`(`commit`: StrokeCommit)
+    
+    /**
+     * Validates the frame (same rules as encoding) and queues it. A queued Hover replaces any
+     * older queued Hover. Over budget, older preview data is merged and then dropped.
+     */
+    fun `pushPreview`(`frame`: PreviewFrame)
+    
+    fun `queuedDurableBytes`(): kotlin.ULong
+    
+    fun `queuedPreviewBytes`(): kotlin.ULong
+    
+    companion object
+}
+
+/**
+ * The pen thread pushes, the socket owner pops. Pushing takes a short lock, never touches disk
+ * or the network, and never waits for the consumer. At most 256 KiB of preview is queued.
+ */
+open class PreviewSendQueue: Disposable, AutoCloseable, PreviewSendQueueInterface
+{
+
+    @Suppress("UNUSED_PARAMETER")
+    /**
+     * @suppress
+     */
+    constructor(withHandle: UniffiWithHandle, handle: Long) {
+        this.handle = handle
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(handle))
+    }
+
+    /**
+     * @suppress
+     *
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noHandle: NoHandle) {
+        this.handle = 0
+        this.cleanable = null
+    }
+    constructor() :
+        this(UniffiWithHandle, 
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_constructor_previewsendqueue_new(
+    
+        _status)
+}
+    )
+
+    protected val handle: Long
+    protected val cleanable: UniffiCleaner.Cleanable?
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithHandle(block: (handle: Long) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the handle being freed concurrently.
+        try {
+            return block(this.uniffiCloneHandle())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val handle: Long) : Runnable {
+        override fun run() {
+            if (handle == 0.toLong()) {
+                // Fake object created with `NoHandle`, don't try to free.
+                return;
+            }
+            uniffiRustCall { status ->
+                UniffiLib.uniffi_syncr_core_fn_free_previewsendqueue(handle, status)
+            }
+        }
+    }
+
+    /**
+     * @suppress
+     */
+    fun uniffiCloneHandle(): Long {
+        if (handle == 0.toLong()) {
+            throw InternalException("uniffiCloneHandle() called on NoHandle object");
+        }
+        return uniffiRustCall() { status ->
+            UniffiLib.uniffi_syncr_core_fn_clone_previewsendqueue(handle, status)
+        }
+    }
+
+    
+    /**
+     * Discards queued preview (disconnect). Durable frames stay queued.
+     */override fun `clearPreview`()
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_method_previewsendqueue_clear_preview(
+        it,
+        _status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Preview frames discarded under pressure since creation (merged frames are not drops).
+     */override fun `droppedPreviewFrames`(): kotlin.ULong {
+            return FfiConverterULong.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_method_previewsendqueue_dropped_preview_frames(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Next encoded frame to send: preview first (it is perishable), then durable chunks.
+     */override fun `pop`(): kotlin.ByteArray? {
+            return FfiConverterOptionalByteArray.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_method_previewsendqueue_pop(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Queues every chunk frame of a durable stroke, in order. Never dropped or merged. If the
+     * durable backlog would exceed its bound, nothing is queued and the error is retryable.
+     */
+    @Throws(CoreException::class)override fun `pushCommit`(`commit`: StrokeCommit)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.uniffi_syncr_core_fn_method_previewsendqueue_push_commit(
+        it,
+        
+        FfiConverterTypeStrokeCommit.lower(`commit`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Validates the frame (same rules as encoding) and queues it. A queued Hover replaces any
+     * older queued Hover. Over budget, older preview data is merged and then dropped.
+     */
+    @Throws(CoreException::class)override fun `pushPreview`(`frame`: PreviewFrame)
+        = 
+    callWithHandle {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.uniffi_syncr_core_fn_method_previewsendqueue_push_preview(
+        it,
+        
+        FfiConverterTypePreviewFrame.lower(`frame`),_status)
+}
+    }
+    
+    
+
+    override fun `queuedDurableBytes`(): kotlin.ULong {
+            return FfiConverterULong.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_method_previewsendqueue_queued_durable_bytes(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    override fun `queuedPreviewBytes`(): kotlin.ULong {
+            return FfiConverterULong.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_method_previewsendqueue_queued_preview_bytes(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+
+
+    
+    
+    /**
+     * @suppress
+     */
+    companion object
+    
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePreviewSendQueue: FfiConverter<PreviewSendQueue, Long> {
+    override fun lower(value: PreviewSendQueue): Long {
+        return value.uniffiCloneHandle()
+    }
+
+    override fun lift(value: Long): PreviewSendQueue {
+        return PreviewSendQueue(UniffiWithHandle, value)
+    }
+
+    override fun read(buf: ByteBuffer): PreviewSendQueue {
+        return lift(buf.getLong())
+    }
+
+    override fun allocationSize(value: PreviewSendQueue) = 8UL
+
+    override fun write(value: PreviewSendQueue, buf: ByteBuffer) {
+        buf.putLong(lower(value))
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a handle
+// to the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque handle to the underlying Rust struct.
+//     Method calls need to read this handle from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its handle should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the handle, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the handle, but is interrupted
+//      before it can pass the handle over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read handle value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+/**
+ * Reassembles chunk frames into whole strokes. Yields a stroke only when every chunk has
+ * arrived and the CRC matches; never a partial one. One transfer at a time, at most 20 MiB.
+ */
+public interface StrokeReassemblerInterface {
+    
+    /**
+     * `Ok(Some(stroke))` when this chunk completed a verified stroke, `Ok(None)` while more
+     * are needed. A chunk of another stroke while one is in progress gives a retryable
+     * `ResourceLimit`. A failed integrity check discards the transfer (`InvalidInput`).
+     */
+    fun `accept`(`frame`: kotlin.ByteArray, `nowMs`: kotlin.ULong): StrokeCommit?
+    
+    fun `inProgress`(): kotlin.Boolean
+    
+    /**
+     * Abandons any transfer in progress (disconnect).
+     */
+    fun `reset`()
+    
+    companion object
+}
+
+/**
+ * Reassembles chunk frames into whole strokes. Yields a stroke only when every chunk has
+ * arrived and the CRC matches; never a partial one. One transfer at a time, at most 20 MiB.
+ */
+open class StrokeReassembler: Disposable, AutoCloseable, StrokeReassemblerInterface
+{
+
+    @Suppress("UNUSED_PARAMETER")
+    /**
+     * @suppress
+     */
+    constructor(withHandle: UniffiWithHandle, handle: Long) {
+        this.handle = handle
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(handle))
+    }
+
+    /**
+     * @suppress
+     *
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noHandle: NoHandle) {
+        this.handle = 0
+        this.cleanable = null
+    }
+    constructor() :
+        this(UniffiWithHandle, 
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_constructor_strokereassembler_new(
+    
+        _status)
+}
+    )
+
+    protected val handle: Long
+    protected val cleanable: UniffiCleaner.Cleanable?
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    /**
+     * Whether the current object has been destroyed and its reference is gone in the Rust side.
+     */
+    val uniffiIsDestroyed: Boolean get() = wasDestroyed.get()
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithHandle(block: (handle: Long) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the handle being freed concurrently.
+        try {
+            return block(this.uniffiCloneHandle())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val handle: Long) : Runnable {
+        override fun run() {
+            if (handle == 0.toLong()) {
+                // Fake object created with `NoHandle`, don't try to free.
+                return;
+            }
+            uniffiRustCall { status ->
+                UniffiLib.uniffi_syncr_core_fn_free_strokereassembler(handle, status)
+            }
+        }
+    }
+
+    /**
+     * @suppress
+     */
+    fun uniffiCloneHandle(): Long {
+        if (handle == 0.toLong()) {
+            throw InternalException("uniffiCloneHandle() called on NoHandle object");
+        }
+        return uniffiRustCall() { status ->
+            UniffiLib.uniffi_syncr_core_fn_clone_strokereassembler(handle, status)
+        }
+    }
+
+    
+    /**
+     * `Ok(Some(stroke))` when this chunk completed a verified stroke, `Ok(None)` while more
+     * are needed. A chunk of another stroke while one is in progress gives a retryable
+     * `ResourceLimit`. A failed integrity check discards the transfer (`InvalidInput`).
+     */
+    @Throws(CoreException::class)override fun `accept`(`frame`: kotlin.ByteArray, `nowMs`: kotlin.ULong): StrokeCommit? {
+            return FfiConverterOptionalTypeStrokeCommit.lift(
+    callWithHandle {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.uniffi_syncr_core_fn_method_strokereassembler_accept(
+        it,
+        
+        FfiConverterByteArray.lower(`frame`),
+        FfiConverterULong.lower(`nowMs`),_status)
+}
+    }
+    )
+    }
+    
+
+    override fun `inProgress`(): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_method_strokereassembler_in_progress(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Abandons any transfer in progress (disconnect).
+     */override fun `reset`()
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_method_strokereassembler_reset(
+        it,
+        _status)
+}
+    }
+    
+    
+
+    
+
+    
+
+
+    
+    
+    /**
+     * @suppress
+     */
+    companion object
+    
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeStrokeReassembler: FfiConverter<StrokeReassembler, Long> {
+    override fun lower(value: StrokeReassembler): Long {
+        return value.uniffiCloneHandle()
+    }
+
+    override fun lift(value: Long): StrokeReassembler {
+        return StrokeReassembler(UniffiWithHandle, value)
+    }
+
+    override fun read(buf: ByteBuffer): StrokeReassembler {
+        return lift(buf.getLong())
+    }
+
+    override fun allocationSize(value: StrokeReassembler) = 8UL
+
+    override fun write(value: StrokeReassembler, buf: ByteBuffer) {
         buf.putLong(lower(value))
     }
 }
@@ -2540,6 +3925,274 @@ public object FfiConverterTypeCommand: FfiConverterRustBuffer<Command> {
 
 
 
+data class CompanionDrawingStep (
+    var `caption`: kotlin.String
+    , 
+    var `primitives`: List<DrawingPrimitive>
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCompanionDrawingStep: FfiConverterRustBuffer<CompanionDrawingStep> {
+    override fun read(buf: ByteBuffer): CompanionDrawingStep {
+        return CompanionDrawingStep(
+            FfiConverterString.read(buf),
+            FfiConverterSequenceTypeDrawingPrimitive.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: CompanionDrawingStep) = (
+            FfiConverterString.allocationSize(value.`caption`) +
+            FfiConverterSequenceTypeDrawingPrimitive.allocationSize(value.`primitives`)
+    )
+
+    override fun write(value: CompanionDrawingStep, buf: ByteBuffer) {
+            FfiConverterString.write(value.`caption`, buf)
+            FfiConverterSequenceTypeDrawingPrimitive.write(value.`primitives`, buf)
+    }
+}
+
+
+
+data class CompanionItemView (
+    var `id`: kotlin.String
+    , 
+    var `authorId`: kotlin.String
+    , 
+    var `head`: EntityHead
+    , 
+    var `tombstone`: kotlin.Boolean
+    , 
+    var `body`: CompanionBody
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCompanionItemView: FfiConverterRustBuffer<CompanionItemView> {
+    override fun read(buf: ByteBuffer): CompanionItemView {
+        return CompanionItemView(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterTypeEntityHead.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterTypeCompanionBody.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: CompanionItemView) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`authorId`) +
+            FfiConverterTypeEntityHead.allocationSize(value.`head`) +
+            FfiConverterBoolean.allocationSize(value.`tombstone`) +
+            FfiConverterTypeCompanionBody.allocationSize(value.`body`)
+    )
+
+    override fun write(value: CompanionItemView, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`authorId`, buf)
+            FfiConverterTypeEntityHead.write(value.`head`, buf)
+            FfiConverterBoolean.write(value.`tombstone`, buf)
+            FfiConverterTypeCompanionBody.write(value.`body`, buf)
+    }
+}
+
+
+
+data class CompanionMutation (
+    var `id`: kotlin.String
+    , 
+    var `base`: Base
+    , 
+    var `tombstone`: kotlin.Boolean
+    , 
+    var `body`: CompanionBody
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCompanionMutation: FfiConverterRustBuffer<CompanionMutation> {
+    override fun read(buf: ByteBuffer): CompanionMutation {
+        return CompanionMutation(
+            FfiConverterString.read(buf),
+            FfiConverterTypeBase.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterTypeCompanionBody.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: CompanionMutation) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterTypeBase.allocationSize(value.`base`) +
+            FfiConverterBoolean.allocationSize(value.`tombstone`) +
+            FfiConverterTypeCompanionBody.allocationSize(value.`body`)
+    )
+
+    override fun write(value: CompanionMutation, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterTypeBase.write(value.`base`, buf)
+            FfiConverterBoolean.write(value.`tombstone`, buf)
+            FfiConverterTypeCompanionBody.write(value.`body`, buf)
+    }
+}
+
+
+
+data class CompanionSettings (
+    var `tell`: kotlin.String
+    , 
+    var `mode`: CompanionMode
+    , 
+    var `web`: kotlin.Boolean
+    , 
+    var `activeReader`: kotlin.String
+    , 
+    var `colour`: InkColour
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCompanionSettings: FfiConverterRustBuffer<CompanionSettings> {
+    override fun read(buf: ByteBuffer): CompanionSettings {
+        return CompanionSettings(
+            FfiConverterString.read(buf),
+            FfiConverterTypeCompanionMode.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterTypeInkColour.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: CompanionSettings) = (
+            FfiConverterString.allocationSize(value.`tell`) +
+            FfiConverterTypeCompanionMode.allocationSize(value.`mode`) +
+            FfiConverterBoolean.allocationSize(value.`web`) +
+            FfiConverterString.allocationSize(value.`activeReader`) +
+            FfiConverterTypeInkColour.allocationSize(value.`colour`)
+    )
+
+    override fun write(value: CompanionSettings, buf: ByteBuffer) {
+            FfiConverterString.write(value.`tell`, buf)
+            FfiConverterTypeCompanionMode.write(value.`mode`, buf)
+            FfiConverterBoolean.write(value.`web`, buf)
+            FfiConverterString.write(value.`activeReader`, buf)
+            FfiConverterTypeInkColour.write(value.`colour`, buf)
+    }
+}
+
+
+
+data class CompanionSettingsView (
+    var `head`: EntityHead
+    , 
+    var `settings`: CompanionSettings
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCompanionSettingsView: FfiConverterRustBuffer<CompanionSettingsView> {
+    override fun read(buf: ByteBuffer): CompanionSettingsView {
+        return CompanionSettingsView(
+            FfiConverterTypeEntityHead.read(buf),
+            FfiConverterTypeCompanionSettings.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: CompanionSettingsView) = (
+            FfiConverterTypeEntityHead.allocationSize(value.`head`) +
+            FfiConverterTypeCompanionSettings.allocationSize(value.`settings`)
+    )
+
+    override fun write(value: CompanionSettingsView, buf: ByteBuffer) {
+            FfiConverterTypeEntityHead.write(value.`head`, buf)
+            FfiConverterTypeCompanionSettings.write(value.`settings`, buf)
+    }
+}
+
+
+
+data class CompanionSource (
+    var `title`: kotlin.String
+    , 
+    var `url`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCompanionSource: FfiConverterRustBuffer<CompanionSource> {
+    override fun read(buf: ByteBuffer): CompanionSource {
+        return CompanionSource(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: CompanionSource) = (
+            FfiConverterString.allocationSize(value.`title`) +
+            FfiConverterString.allocationSize(value.`url`)
+    )
+
+    override fun write(value: CompanionSource, buf: ByteBuffer) {
+            FfiConverterString.write(value.`title`, buf)
+            FfiConverterString.write(value.`url`, buf)
+    }
+}
+
+
+
 data class CreateNoteRequest (
     var `operationId`: kotlin.String
     , 
@@ -2650,6 +4303,44 @@ public object FfiConverterTypeDeletedNoteSummary: FfiConverterRustBuffer<Deleted
             FfiConverterOptionalString.write(value.`notebook`, buf)
             FfiConverterLong.write(value.`deletedAtMs`, buf)
             FfiConverterLong.write(value.`createdAtMs`, buf)
+    }
+}
+
+
+
+data class DrawingPoint (
+    var `x`: kotlin.Double
+    , 
+    var `y`: kotlin.Double
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeDrawingPoint: FfiConverterRustBuffer<DrawingPoint> {
+    override fun read(buf: ByteBuffer): DrawingPoint {
+        return DrawingPoint(
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: DrawingPoint) = (
+            FfiConverterDouble.allocationSize(value.`x`) +
+            FfiConverterDouble.allocationSize(value.`y`)
+    )
+
+    override fun write(value: DrawingPoint, buf: ByteBuffer) {
+            FfiConverterDouble.write(value.`x`, buf)
+            FfiConverterDouble.write(value.`y`, buf)
     }
 }
 
@@ -2800,6 +4491,12 @@ data class NoteSnapshot (
      * Metadata, like `notebook`; changed by SetArchived. Trailing with a default.
      */
     var `archived`: kotlin.Boolean = false 
+    , 
+    var `textBlocks`: List<TextBlockView> = listOf() 
+    , 
+    var `companionItems`: List<CompanionItemView> = listOf() 
+    , 
+    var `companionSettings`: CompanionSettingsView? = null 
     
 ){
     
@@ -2830,6 +4527,9 @@ public object FfiConverterTypeNoteSnapshot: FfiConverterRustBuffer<NoteSnapshot>
             FfiConverterSequenceString.read(buf),
             FfiConverterSequenceString.read(buf),
             FfiConverterBoolean.read(buf),
+            FfiConverterSequenceTypeTextBlockView.read(buf),
+            FfiConverterSequenceTypeCompanionItemView.read(buf),
+            FfiConverterOptionalTypeCompanionSettingsView.read(buf),
         )
     }
 
@@ -2847,7 +4547,10 @@ public object FfiConverterTypeNoteSnapshot: FfiConverterRustBuffer<NoteSnapshot>
             FfiConverterOptionalString.allocationSize(value.`redoTarget`) +
             FfiConverterSequenceString.allocationSize(value.`undoDependencies`) +
             FfiConverterSequenceString.allocationSize(value.`redoDependencies`) +
-            FfiConverterBoolean.allocationSize(value.`archived`)
+            FfiConverterBoolean.allocationSize(value.`archived`) +
+            FfiConverterSequenceTypeTextBlockView.allocationSize(value.`textBlocks`) +
+            FfiConverterSequenceTypeCompanionItemView.allocationSize(value.`companionItems`) +
+            FfiConverterOptionalTypeCompanionSettingsView.allocationSize(value.`companionSettings`)
     )
 
     override fun write(value: NoteSnapshot, buf: ByteBuffer) {
@@ -2865,6 +4568,9 @@ public object FfiConverterTypeNoteSnapshot: FfiConverterRustBuffer<NoteSnapshot>
             FfiConverterSequenceString.write(value.`undoDependencies`, buf)
             FfiConverterSequenceString.write(value.`redoDependencies`, buf)
             FfiConverterBoolean.write(value.`archived`, buf)
+            FfiConverterSequenceTypeTextBlockView.write(value.`textBlocks`, buf)
+            FfiConverterSequenceTypeCompanionItemView.write(value.`companionItems`, buf)
+            FfiConverterOptionalTypeCompanionSettingsView.write(value.`companionSettings`, buf)
     }
 }
 
@@ -2976,6 +4682,157 @@ public object FfiConverterTypeNotebookSummary: FfiConverterRustBuffer<NotebookSu
     override fun write(value: NotebookSummary, buf: ByteBuffer) {
             FfiConverterString.write(value.`name`, buf)
             FfiConverterULong.write(value.`noteCount`, buf)
+    }
+}
+
+
+
+/**
+ * `stroke_id` is `None` exactly for `Hover`. `sequence` increases within a stroke (Hover keeps its
+ * own counter); gaps are allowed because the sender queue merges frames, and sample indexes, not
+ * sequence numbers, detect lost samples.
+ */
+data class PreviewFrame (
+    var `epoch`: kotlin.UInt
+    , 
+    var `noteId`: kotlin.String
+    , 
+    var `sheetId`: kotlin.String
+    , 
+    var `strokeId`: kotlin.String?
+    , 
+    var `sequence`: kotlin.UInt
+    , 
+    var `sentMs`: kotlin.ULong
+    , 
+    var `body`: PreviewBody
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePreviewFrame: FfiConverterRustBuffer<PreviewFrame> {
+    override fun read(buf: ByteBuffer): PreviewFrame {
+        return PreviewFrame(
+            FfiConverterUInt.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterTypePreviewBody.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PreviewFrame) = (
+            FfiConverterUInt.allocationSize(value.`epoch`) +
+            FfiConverterString.allocationSize(value.`noteId`) +
+            FfiConverterString.allocationSize(value.`sheetId`) +
+            FfiConverterOptionalString.allocationSize(value.`strokeId`) +
+            FfiConverterUInt.allocationSize(value.`sequence`) +
+            FfiConverterULong.allocationSize(value.`sentMs`) +
+            FfiConverterTypePreviewBody.allocationSize(value.`body`)
+    )
+
+    override fun write(value: PreviewFrame, buf: ByteBuffer) {
+            FfiConverterUInt.write(value.`epoch`, buf)
+            FfiConverterString.write(value.`noteId`, buf)
+            FfiConverterString.write(value.`sheetId`, buf)
+            FfiConverterOptionalString.write(value.`strokeId`, buf)
+            FfiConverterUInt.write(value.`sequence`, buf)
+            FfiConverterULong.write(value.`sentMs`, buf)
+            FfiConverterTypePreviewBody.write(value.`body`, buf)
+    }
+}
+
+
+
+data class PreviewLimits (
+    var `protocolVersion`: kotlin.UByte
+    , 
+    var `maxFrameBytes`: kotlin.UInt
+    , 
+    var `maxQueuedPreviewBytes`: kotlin.UInt
+    , 
+    var `liveIdleExpiryMs`: kotlin.UInt
+    , 
+    var `endedHoldMs`: kotlin.UInt
+    , 
+    var `maxLivePreviews`: kotlin.UInt
+    , 
+    var `maxTerminalIds`: kotlin.UInt
+    , 
+    var `maxPreviewSamples`: kotlin.UInt
+    , 
+    var `chunkDataBytes`: kotlin.UInt
+    , 
+    var `maxStrokeSampleBytes`: kotlin.UInt
+    , 
+    var `maxReassemblyBytes`: kotlin.UInt
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePreviewLimits: FfiConverterRustBuffer<PreviewLimits> {
+    override fun read(buf: ByteBuffer): PreviewLimits {
+        return PreviewLimits(
+            FfiConverterUByte.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PreviewLimits) = (
+            FfiConverterUByte.allocationSize(value.`protocolVersion`) +
+            FfiConverterUInt.allocationSize(value.`maxFrameBytes`) +
+            FfiConverterUInt.allocationSize(value.`maxQueuedPreviewBytes`) +
+            FfiConverterUInt.allocationSize(value.`liveIdleExpiryMs`) +
+            FfiConverterUInt.allocationSize(value.`endedHoldMs`) +
+            FfiConverterUInt.allocationSize(value.`maxLivePreviews`) +
+            FfiConverterUInt.allocationSize(value.`maxTerminalIds`) +
+            FfiConverterUInt.allocationSize(value.`maxPreviewSamples`) +
+            FfiConverterUInt.allocationSize(value.`chunkDataBytes`) +
+            FfiConverterUInt.allocationSize(value.`maxStrokeSampleBytes`) +
+            FfiConverterUInt.allocationSize(value.`maxReassemblyBytes`)
+    )
+
+    override fun write(value: PreviewLimits, buf: ByteBuffer) {
+            FfiConverterUByte.write(value.`protocolVersion`, buf)
+            FfiConverterUInt.write(value.`maxFrameBytes`, buf)
+            FfiConverterUInt.write(value.`maxQueuedPreviewBytes`, buf)
+            FfiConverterUInt.write(value.`liveIdleExpiryMs`, buf)
+            FfiConverterUInt.write(value.`endedHoldMs`, buf)
+            FfiConverterUInt.write(value.`maxLivePreviews`, buf)
+            FfiConverterUInt.write(value.`maxTerminalIds`, buf)
+            FfiConverterUInt.write(value.`maxPreviewSamples`, buf)
+            FfiConverterUInt.write(value.`chunkDataBytes`, buf)
+            FfiConverterUInt.write(value.`maxStrokeSampleBytes`, buf)
+            FfiConverterUInt.write(value.`maxReassemblyBytes`, buf)
     }
 }
 
@@ -3136,6 +4993,67 @@ public object FfiConverterTypeSheetView: FfiConverterRustBuffer<SheetView> {
             FfiConverterString.write(value.`creationOperationId`, buf)
             FfiConverterFloat.write(value.`originX`, buf)
             FfiConverterFloat.write(value.`originY`, buf)
+    }
+}
+
+
+
+/**
+ * One complete stroke. `samples` is a SYNS blob exactly as `encode_samples` makes it.
+ */
+data class StrokeCommit (
+    var `noteId`: kotlin.String
+    , 
+    var `sheetId`: kotlin.String
+    , 
+    var `strokeId`: kotlin.String
+    , 
+    var `brush`: Brush
+    , 
+    var `space`: CoordinateSpace
+    , 
+    var `samples`: kotlin.ByteArray
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeStrokeCommit: FfiConverterRustBuffer<StrokeCommit> {
+    override fun read(buf: ByteBuffer): StrokeCommit {
+        return StrokeCommit(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterTypeBrush.read(buf),
+            FfiConverterTypeCoordinateSpace.read(buf),
+            FfiConverterByteArray.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: StrokeCommit) = (
+            FfiConverterString.allocationSize(value.`noteId`) +
+            FfiConverterString.allocationSize(value.`sheetId`) +
+            FfiConverterString.allocationSize(value.`strokeId`) +
+            FfiConverterTypeBrush.allocationSize(value.`brush`) +
+            FfiConverterTypeCoordinateSpace.allocationSize(value.`space`) +
+            FfiConverterByteArray.allocationSize(value.`samples`)
+    )
+
+    override fun write(value: StrokeCommit, buf: ByteBuffer) {
+            FfiConverterString.write(value.`noteId`, buf)
+            FfiConverterString.write(value.`sheetId`, buf)
+            FfiConverterString.write(value.`strokeId`, buf)
+            FfiConverterTypeBrush.write(value.`brush`, buf)
+            FfiConverterTypeCoordinateSpace.write(value.`space`, buf)
+            FfiConverterByteArray.write(value.`samples`, buf)
     }
 }
 
@@ -3400,6 +5318,243 @@ public object FfiConverterTypeStrokeView: FfiConverterRustBuffer<StrokeView> {
             FfiConverterBoolean.write(value.`tombstone`, buf)
     }
 }
+
+
+
+data class TextBlockView (
+    var `id`: kotlin.String
+    , 
+    var `sheetId`: kotlin.String
+    , 
+    var `authorId`: kotlin.String
+    , 
+    var `head`: EntityHead
+    , 
+    var `role`: TextRole
+    , 
+    var `originX`: kotlin.Float
+    , 
+    var `originY`: kotlin.Float
+    , 
+    var `transform`: Affine
+    , 
+    var `width`: kotlin.Float
+    , 
+    var `text`: kotlin.String
+    , 
+    var `style`: TextStyle
+    , 
+    var `tombstone`: kotlin.Boolean
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeTextBlockView: FfiConverterRustBuffer<TextBlockView> {
+    override fun read(buf: ByteBuffer): TextBlockView {
+        return TextBlockView(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterTypeEntityHead.read(buf),
+            FfiConverterTypeTextRole.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterTypeAffine.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterTypeTextStyle.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: TextBlockView) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`sheetId`) +
+            FfiConverterString.allocationSize(value.`authorId`) +
+            FfiConverterTypeEntityHead.allocationSize(value.`head`) +
+            FfiConverterTypeTextRole.allocationSize(value.`role`) +
+            FfiConverterFloat.allocationSize(value.`originX`) +
+            FfiConverterFloat.allocationSize(value.`originY`) +
+            FfiConverterTypeAffine.allocationSize(value.`transform`) +
+            FfiConverterFloat.allocationSize(value.`width`) +
+            FfiConverterString.allocationSize(value.`text`) +
+            FfiConverterTypeTextStyle.allocationSize(value.`style`) +
+            FfiConverterBoolean.allocationSize(value.`tombstone`)
+    )
+
+    override fun write(value: TextBlockView, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`sheetId`, buf)
+            FfiConverterString.write(value.`authorId`, buf)
+            FfiConverterTypeEntityHead.write(value.`head`, buf)
+            FfiConverterTypeTextRole.write(value.`role`, buf)
+            FfiConverterFloat.write(value.`originX`, buf)
+            FfiConverterFloat.write(value.`originY`, buf)
+            FfiConverterTypeAffine.write(value.`transform`, buf)
+            FfiConverterFloat.write(value.`width`, buf)
+            FfiConverterString.write(value.`text`, buf)
+            FfiConverterTypeTextStyle.write(value.`style`, buf)
+            FfiConverterBoolean.write(value.`tombstone`, buf)
+    }
+}
+
+
+
+data class TextStyle (
+    var `size`: BrushSize
+    , 
+    var `colour`: InkColour
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeTextStyle: FfiConverterRustBuffer<TextStyle> {
+    override fun read(buf: ByteBuffer): TextStyle {
+        return TextStyle(
+            FfiConverterTypeBrushSize.read(buf),
+            FfiConverterTypeInkColour.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: TextStyle) = (
+            FfiConverterTypeBrushSize.allocationSize(value.`size`) +
+            FfiConverterTypeInkColour.allocationSize(value.`colour`)
+    )
+
+    override fun write(value: TextStyle, buf: ByteBuffer) {
+            FfiConverterTypeBrushSize.write(value.`size`, buf)
+            FfiConverterTypeInkColour.write(value.`colour`, buf)
+    }
+}
+
+
+
+sealed class AnchorTarget {
+    
+    data class Text(
+        val `blockId`: kotlin.String, 
+        val `start`: kotlin.UInt, 
+        val `end`: kotlin.UInt, 
+        val `detached`: kotlin.Boolean) : AnchorTarget()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class Canvas(
+        val `sheetId`: kotlin.String, 
+        val `x`: kotlin.Double, 
+        val `y`: kotlin.Double, 
+        val `width`: kotlin.Double, 
+        val `height`: kotlin.Double) : AnchorTarget()
+        
+    {
+        
+
+        companion object
+    }
+    
+
+    
+
+    
+    
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAnchorTarget : FfiConverterRustBuffer<AnchorTarget>{
+    override fun read(buf: ByteBuffer): AnchorTarget {
+        return when(buf.getInt()) {
+            1 -> AnchorTarget.Text(
+                FfiConverterString.read(buf),
+                FfiConverterUInt.read(buf),
+                FfiConverterUInt.read(buf),
+                FfiConverterBoolean.read(buf),
+                )
+            2 -> AnchorTarget.Canvas(
+                FfiConverterString.read(buf),
+                FfiConverterDouble.read(buf),
+                FfiConverterDouble.read(buf),
+                FfiConverterDouble.read(buf),
+                FfiConverterDouble.read(buf),
+                )
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: AnchorTarget): ULong = when(value) {
+        is AnchorTarget.Text -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`blockId`)
+                + FfiConverterUInt.allocationSize(value.`start`)
+                + FfiConverterUInt.allocationSize(value.`end`)
+                + FfiConverterBoolean.allocationSize(value.`detached`)
+            )
+        }
+        is AnchorTarget.Canvas -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`sheetId`)
+                + FfiConverterDouble.allocationSize(value.`x`)
+                + FfiConverterDouble.allocationSize(value.`y`)
+                + FfiConverterDouble.allocationSize(value.`width`)
+                + FfiConverterDouble.allocationSize(value.`height`)
+            )
+        }
+    }
+
+    override fun write(value: AnchorTarget, buf: ByteBuffer) {
+        when(value) {
+            is AnchorTarget.Text -> {
+                buf.putInt(1)
+                FfiConverterString.write(value.`blockId`, buf)
+                FfiConverterUInt.write(value.`start`, buf)
+                FfiConverterUInt.write(value.`end`, buf)
+                FfiConverterBoolean.write(value.`detached`, buf)
+                Unit
+            }
+            is AnchorTarget.Canvas -> {
+                buf.putInt(2)
+                FfiConverterString.write(value.`sheetId`, buf)
+                FfiConverterDouble.write(value.`x`, buf)
+                FfiConverterDouble.write(value.`y`, buf)
+                FfiConverterDouble.write(value.`width`, buf)
+                FfiConverterDouble.write(value.`height`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
 
 
 
@@ -3772,6 +5927,25 @@ sealed class CommandBody {
         companion object
     }
     
+    data class CompanionMarks(
+        val `mutations`: List<dev.syncr.core.CompanionMutation>) : CommandBody()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class SetCompanionSettings(
+        val `settings`: dev.syncr.core.CompanionSettings, 
+        val `base`: dev.syncr.core.Base) : CommandBody()
+        
+    {
+        
+
+        companion object
+    }
+    
 
     
 
@@ -3816,6 +5990,13 @@ public object FfiConverterTypeCommandBody : FfiConverterRustBuffer<CommandBody>{
                 )
             8 -> CommandBody.Redo(
                 FfiConverterString.read(buf),
+                )
+            9 -> CommandBody.CompanionMarks(
+                FfiConverterSequenceTypeCompanionMutation.read(buf),
+                )
+            10 -> CommandBody.SetCompanionSettings(
+                FfiConverterTypeCompanionSettings.read(buf),
+                FfiConverterTypeBase.read(buf),
                 )
             else -> throw RuntimeException("invalid enum value, something is very wrong!!")
         }
@@ -3883,6 +6064,21 @@ public object FfiConverterTypeCommandBody : FfiConverterRustBuffer<CommandBody>{
                 + FfiConverterString.allocationSize(value.`targetOperationId`)
             )
         }
+        is CommandBody.CompanionMarks -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterSequenceTypeCompanionMutation.allocationSize(value.`mutations`)
+            )
+        }
+        is CommandBody.SetCompanionSettings -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeCompanionSettings.allocationSize(value.`settings`)
+                + FfiConverterTypeBase.allocationSize(value.`base`)
+            )
+        }
     }
 
     override fun write(value: CommandBody, buf: ByteBuffer) {
@@ -3932,7 +6128,274 @@ public object FfiConverterTypeCommandBody : FfiConverterRustBuffer<CommandBody>{
                 FfiConverterString.write(value.`targetOperationId`, buf)
                 Unit
             }
+            is CommandBody.CompanionMarks -> {
+                buf.putInt(9)
+                FfiConverterSequenceTypeCompanionMutation.write(value.`mutations`, buf)
+                Unit
+            }
+            is CommandBody.SetCompanionSettings -> {
+                buf.putInt(10)
+                FfiConverterTypeCompanionSettings.write(value.`settings`, buf)
+                FfiConverterTypeBase.write(value.`base`, buf)
+                Unit
+            }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
+sealed class CompanionBody {
+    
+    data class Anchor(
+        val `target`: dev.syncr.core.AnchorTarget) : CompanionBody()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class MarginNote(
+        val `anchorId`: kotlin.String, 
+        val `kind`: dev.syncr.core.MarginKind, 
+        val `text`: kotlin.String, 
+        val `reader`: kotlin.String, 
+        val `state`: dev.syncr.core.MarginState, 
+        val `sources`: List<dev.syncr.core.CompanionSource>) : CompanionBody()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class ThreadMessage(
+        val `marginId`: kotlin.String, 
+        val `order`: kotlin.UInt, 
+        val `who`: dev.syncr.core.MessageWho, 
+        val `text`: kotlin.String, 
+        val `sources`: List<dev.syncr.core.CompanionSource>) : CompanionBody()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class Drawing(
+        val `anchorId`: kotlin.String, 
+        val `title`: kotlin.String, 
+        val `width`: kotlin.Double, 
+        val `height`: kotlin.Double, 
+        val `steps`: List<dev.syncr.core.CompanionDrawingStep>) : CompanionBody()
+        
+    {
+        
+
+        companion object
+    }
+    
+
+    
+
+    
+    
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCompanionBody : FfiConverterRustBuffer<CompanionBody>{
+    override fun read(buf: ByteBuffer): CompanionBody {
+        return when(buf.getInt()) {
+            1 -> CompanionBody.Anchor(
+                FfiConverterTypeAnchorTarget.read(buf),
+                )
+            2 -> CompanionBody.MarginNote(
+                FfiConverterString.read(buf),
+                FfiConverterTypeMarginKind.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterTypeMarginState.read(buf),
+                FfiConverterSequenceTypeCompanionSource.read(buf),
+                )
+            3 -> CompanionBody.ThreadMessage(
+                FfiConverterString.read(buf),
+                FfiConverterUInt.read(buf),
+                FfiConverterTypeMessageWho.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterSequenceTypeCompanionSource.read(buf),
+                )
+            4 -> CompanionBody.Drawing(
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterDouble.read(buf),
+                FfiConverterDouble.read(buf),
+                FfiConverterSequenceTypeCompanionDrawingStep.read(buf),
+                )
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: CompanionBody): ULong = when(value) {
+        is CompanionBody.Anchor -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeAnchorTarget.allocationSize(value.`target`)
+            )
+        }
+        is CompanionBody.MarginNote -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`anchorId`)
+                + FfiConverterTypeMarginKind.allocationSize(value.`kind`)
+                + FfiConverterString.allocationSize(value.`text`)
+                + FfiConverterString.allocationSize(value.`reader`)
+                + FfiConverterTypeMarginState.allocationSize(value.`state`)
+                + FfiConverterSequenceTypeCompanionSource.allocationSize(value.`sources`)
+            )
+        }
+        is CompanionBody.ThreadMessage -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`marginId`)
+                + FfiConverterUInt.allocationSize(value.`order`)
+                + FfiConverterTypeMessageWho.allocationSize(value.`who`)
+                + FfiConverterString.allocationSize(value.`text`)
+                + FfiConverterSequenceTypeCompanionSource.allocationSize(value.`sources`)
+            )
+        }
+        is CompanionBody.Drawing -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`anchorId`)
+                + FfiConverterString.allocationSize(value.`title`)
+                + FfiConverterDouble.allocationSize(value.`width`)
+                + FfiConverterDouble.allocationSize(value.`height`)
+                + FfiConverterSequenceTypeCompanionDrawingStep.allocationSize(value.`steps`)
+            )
+        }
+    }
+
+    override fun write(value: CompanionBody, buf: ByteBuffer) {
+        when(value) {
+            is CompanionBody.Anchor -> {
+                buf.putInt(1)
+                FfiConverterTypeAnchorTarget.write(value.`target`, buf)
+                Unit
+            }
+            is CompanionBody.MarginNote -> {
+                buf.putInt(2)
+                FfiConverterString.write(value.`anchorId`, buf)
+                FfiConverterTypeMarginKind.write(value.`kind`, buf)
+                FfiConverterString.write(value.`text`, buf)
+                FfiConverterString.write(value.`reader`, buf)
+                FfiConverterTypeMarginState.write(value.`state`, buf)
+                FfiConverterSequenceTypeCompanionSource.write(value.`sources`, buf)
+                Unit
+            }
+            is CompanionBody.ThreadMessage -> {
+                buf.putInt(3)
+                FfiConverterString.write(value.`marginId`, buf)
+                FfiConverterUInt.write(value.`order`, buf)
+                FfiConverterTypeMessageWho.write(value.`who`, buf)
+                FfiConverterString.write(value.`text`, buf)
+                FfiConverterSequenceTypeCompanionSource.write(value.`sources`, buf)
+                Unit
+            }
+            is CompanionBody.Drawing -> {
+                buf.putInt(4)
+                FfiConverterString.write(value.`anchorId`, buf)
+                FfiConverterString.write(value.`title`, buf)
+                FfiConverterDouble.write(value.`width`, buf)
+                FfiConverterDouble.write(value.`height`, buf)
+                FfiConverterSequenceTypeCompanionDrawingStep.write(value.`steps`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
+
+enum class CompanionMode {
+    
+    OFF,
+    WHEN_ASKED,
+    THINKS_WITH_YOU;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCompanionMode: FfiConverterRustBuffer<CompanionMode> {
+    override fun read(buf: ByteBuffer) = try {
+        CompanionMode.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: CompanionMode) = 4UL
+
+    override fun write(value: CompanionMode, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+/**
+ * Coordinates of a stroke's samples: note canvas units, or units of the Mac's 4800 x 3000
+ * window (view-relative, before the viewport is applied).
+ */
+
+enum class CoordinateSpace {
+    
+    CANVAS,
+    VIEW_RELATIVE;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCoordinateSpace: FfiConverterRustBuffer<CoordinateSpace> {
+    override fun read(buf: ByteBuffer) = try {
+        CoordinateSpace.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: CoordinateSpace) = 4UL
+
+    override fun write(value: CoordinateSpace, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
     }
 }
 
@@ -4074,6 +6537,36 @@ sealed class CoreException: kotlin.Exception() {
             get() = "detail=${ `detail` }, retryable=${ `retryable` }"
     }
     
+    class InvalidText(
+        
+        val `detail`: kotlin.String, 
+        
+        val `retryable`: kotlin.Boolean
+        ) : CoreException() {
+        override val message
+            get() = "detail=${ `detail` }, retryable=${ `retryable` }"
+    }
+    
+    class InvalidTextRange(
+        
+        val `detail`: kotlin.String, 
+        
+        val `retryable`: kotlin.Boolean
+        ) : CoreException() {
+        override val message
+            get() = "detail=${ `detail` }, retryable=${ `retryable` }"
+    }
+    
+    class DocumentTextExists(
+        
+        val `detail`: kotlin.String, 
+        
+        val `retryable`: kotlin.Boolean
+        ) : CoreException() {
+        override val message
+            get() = "detail=${ `detail` }, retryable=${ `retryable` }"
+    }
+    
 
     
 
@@ -4142,6 +6635,18 @@ public object FfiConverterTypeCoreError : FfiConverterRustBuffer<CoreException> 
                 FfiConverterBoolean.read(buf),
                 )
             13 -> CoreException.Internal(
+                FfiConverterString.read(buf),
+                FfiConverterBoolean.read(buf),
+                )
+            14 -> CoreException.InvalidText(
+                FfiConverterString.read(buf),
+                FfiConverterBoolean.read(buf),
+                )
+            15 -> CoreException.InvalidTextRange(
+                FfiConverterString.read(buf),
+                FfiConverterBoolean.read(buf),
+                )
+            16 -> CoreException.DocumentTextExists(
                 FfiConverterString.read(buf),
                 FfiConverterBoolean.read(buf),
                 )
@@ -4224,6 +6729,24 @@ public object FfiConverterTypeCoreError : FfiConverterRustBuffer<CoreException> 
                 + FfiConverterBoolean.allocationSize(value.`retryable`)
             )
             is CoreException.Internal -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.`detail`)
+                + FfiConverterBoolean.allocationSize(value.`retryable`)
+            )
+            is CoreException.InvalidText -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.`detail`)
+                + FfiConverterBoolean.allocationSize(value.`retryable`)
+            )
+            is CoreException.InvalidTextRange -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.`detail`)
+                + FfiConverterBoolean.allocationSize(value.`retryable`)
+            )
+            is CoreException.DocumentTextExists -> (
                 // Add the size for the Int that specifies the variant plus the size needed for all fields
                 4UL
                 + FfiConverterString.allocationSize(value.`detail`)
@@ -4312,10 +6835,341 @@ public object FfiConverterTypeCoreError : FfiConverterRustBuffer<CoreException> 
                 FfiConverterBoolean.write(value.`retryable`, buf)
                 Unit
             }
+            is CoreException.InvalidText -> {
+                buf.putInt(14)
+                FfiConverterString.write(value.`detail`, buf)
+                FfiConverterBoolean.write(value.`retryable`, buf)
+                Unit
+            }
+            is CoreException.InvalidTextRange -> {
+                buf.putInt(15)
+                FfiConverterString.write(value.`detail`, buf)
+                FfiConverterBoolean.write(value.`retryable`, buf)
+                Unit
+            }
+            is CoreException.DocumentTextExists -> {
+                buf.putInt(16)
+                FfiConverterString.write(value.`detail`, buf)
+                FfiConverterBoolean.write(value.`retryable`, buf)
+                Unit
+            }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
     }
 
 }
+
+
+
+sealed class DrawingPrimitive {
+    
+    data class Line(
+        val `from`: dev.syncr.core.DrawingPoint, 
+        val `to`: dev.syncr.core.DrawingPoint) : DrawingPrimitive()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class Polyline(
+        val `points`: List<dev.syncr.core.DrawingPoint>) : DrawingPrimitive()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class Arrow(
+        val `from`: dev.syncr.core.DrawingPoint, 
+        val `to`: dev.syncr.core.DrawingPoint) : DrawingPrimitive()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class Rectangle(
+        val `x`: kotlin.Double, 
+        val `y`: kotlin.Double, 
+        val `width`: kotlin.Double, 
+        val `height`: kotlin.Double) : DrawingPrimitive()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class Ellipse(
+        val `x`: kotlin.Double, 
+        val `y`: kotlin.Double, 
+        val `width`: kotlin.Double, 
+        val `height`: kotlin.Double) : DrawingPrimitive()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class Dot(
+        val `x`: kotlin.Double, 
+        val `y`: kotlin.Double, 
+        val `size`: kotlin.Double) : DrawingPrimitive()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class ShadedRegion(
+        val `points`: List<dev.syncr.core.DrawingPoint>) : DrawingPrimitive()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class Label(
+        val `x`: kotlin.Double, 
+        val `y`: kotlin.Double, 
+        val `text`: kotlin.String, 
+        val `size`: kotlin.Double) : DrawingPrimitive()
+        
+    {
+        
+
+        companion object
+    }
+    
+
+    
+
+    
+    
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeDrawingPrimitive : FfiConverterRustBuffer<DrawingPrimitive>{
+    override fun read(buf: ByteBuffer): DrawingPrimitive {
+        return when(buf.getInt()) {
+            1 -> DrawingPrimitive.Line(
+                FfiConverterTypeDrawingPoint.read(buf),
+                FfiConverterTypeDrawingPoint.read(buf),
+                )
+            2 -> DrawingPrimitive.Polyline(
+                FfiConverterSequenceTypeDrawingPoint.read(buf),
+                )
+            3 -> DrawingPrimitive.Arrow(
+                FfiConverterTypeDrawingPoint.read(buf),
+                FfiConverterTypeDrawingPoint.read(buf),
+                )
+            4 -> DrawingPrimitive.Rectangle(
+                FfiConverterDouble.read(buf),
+                FfiConverterDouble.read(buf),
+                FfiConverterDouble.read(buf),
+                FfiConverterDouble.read(buf),
+                )
+            5 -> DrawingPrimitive.Ellipse(
+                FfiConverterDouble.read(buf),
+                FfiConverterDouble.read(buf),
+                FfiConverterDouble.read(buf),
+                FfiConverterDouble.read(buf),
+                )
+            6 -> DrawingPrimitive.Dot(
+                FfiConverterDouble.read(buf),
+                FfiConverterDouble.read(buf),
+                FfiConverterDouble.read(buf),
+                )
+            7 -> DrawingPrimitive.ShadedRegion(
+                FfiConverterSequenceTypeDrawingPoint.read(buf),
+                )
+            8 -> DrawingPrimitive.Label(
+                FfiConverterDouble.read(buf),
+                FfiConverterDouble.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterDouble.read(buf),
+                )
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: DrawingPrimitive): ULong = when(value) {
+        is DrawingPrimitive.Line -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeDrawingPoint.allocationSize(value.`from`)
+                + FfiConverterTypeDrawingPoint.allocationSize(value.`to`)
+            )
+        }
+        is DrawingPrimitive.Polyline -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterSequenceTypeDrawingPoint.allocationSize(value.`points`)
+            )
+        }
+        is DrawingPrimitive.Arrow -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeDrawingPoint.allocationSize(value.`from`)
+                + FfiConverterTypeDrawingPoint.allocationSize(value.`to`)
+            )
+        }
+        is DrawingPrimitive.Rectangle -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterDouble.allocationSize(value.`x`)
+                + FfiConverterDouble.allocationSize(value.`y`)
+                + FfiConverterDouble.allocationSize(value.`width`)
+                + FfiConverterDouble.allocationSize(value.`height`)
+            )
+        }
+        is DrawingPrimitive.Ellipse -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterDouble.allocationSize(value.`x`)
+                + FfiConverterDouble.allocationSize(value.`y`)
+                + FfiConverterDouble.allocationSize(value.`width`)
+                + FfiConverterDouble.allocationSize(value.`height`)
+            )
+        }
+        is DrawingPrimitive.Dot -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterDouble.allocationSize(value.`x`)
+                + FfiConverterDouble.allocationSize(value.`y`)
+                + FfiConverterDouble.allocationSize(value.`size`)
+            )
+        }
+        is DrawingPrimitive.ShadedRegion -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterSequenceTypeDrawingPoint.allocationSize(value.`points`)
+            )
+        }
+        is DrawingPrimitive.Label -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterDouble.allocationSize(value.`x`)
+                + FfiConverterDouble.allocationSize(value.`y`)
+                + FfiConverterString.allocationSize(value.`text`)
+                + FfiConverterDouble.allocationSize(value.`size`)
+            )
+        }
+    }
+
+    override fun write(value: DrawingPrimitive, buf: ByteBuffer) {
+        when(value) {
+            is DrawingPrimitive.Line -> {
+                buf.putInt(1)
+                FfiConverterTypeDrawingPoint.write(value.`from`, buf)
+                FfiConverterTypeDrawingPoint.write(value.`to`, buf)
+                Unit
+            }
+            is DrawingPrimitive.Polyline -> {
+                buf.putInt(2)
+                FfiConverterSequenceTypeDrawingPoint.write(value.`points`, buf)
+                Unit
+            }
+            is DrawingPrimitive.Arrow -> {
+                buf.putInt(3)
+                FfiConverterTypeDrawingPoint.write(value.`from`, buf)
+                FfiConverterTypeDrawingPoint.write(value.`to`, buf)
+                Unit
+            }
+            is DrawingPrimitive.Rectangle -> {
+                buf.putInt(4)
+                FfiConverterDouble.write(value.`x`, buf)
+                FfiConverterDouble.write(value.`y`, buf)
+                FfiConverterDouble.write(value.`width`, buf)
+                FfiConverterDouble.write(value.`height`, buf)
+                Unit
+            }
+            is DrawingPrimitive.Ellipse -> {
+                buf.putInt(5)
+                FfiConverterDouble.write(value.`x`, buf)
+                FfiConverterDouble.write(value.`y`, buf)
+                FfiConverterDouble.write(value.`width`, buf)
+                FfiConverterDouble.write(value.`height`, buf)
+                Unit
+            }
+            is DrawingPrimitive.Dot -> {
+                buf.putInt(6)
+                FfiConverterDouble.write(value.`x`, buf)
+                FfiConverterDouble.write(value.`y`, buf)
+                FfiConverterDouble.write(value.`size`, buf)
+                Unit
+            }
+            is DrawingPrimitive.ShadedRegion -> {
+                buf.putInt(7)
+                FfiConverterSequenceTypeDrawingPoint.write(value.`points`, buf)
+                Unit
+            }
+            is DrawingPrimitive.Label -> {
+                buf.putInt(8)
+                FfiConverterDouble.write(value.`x`, buf)
+                FfiConverterDouble.write(value.`y`, buf)
+                FfiConverterString.write(value.`text`, buf)
+                FfiConverterDouble.write(value.`size`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
+
+enum class FrameKind {
+    
+    PREVIEW,
+    STROKE_CHUNK;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFrameKind: FfiConverterRustBuffer<FrameKind> {
+    override fun read(buf: ByteBuffer) = try {
+        FrameKind.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: FrameKind) = 4UL
+
+    override fun write(value: FrameKind, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
 
 
 
@@ -4348,6 +7202,76 @@ public object FfiConverterTypeInkColour: FfiConverterRustBuffer<InkColour> {
     override fun allocationSize(value: InkColour) = 4UL
 
     override fun write(value: InkColour, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+
+enum class MarginKind {
+    
+    QUESTION,
+    EXPLANATION,
+    FLAG;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMarginKind: FfiConverterRustBuffer<MarginKind> {
+    override fun read(buf: ByteBuffer) = try {
+        MarginKind.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: MarginKind) = 4UL
+
+    override fun write(value: MarginKind, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+
+enum class MarginState {
+    
+    OPEN,
+    PINNED,
+    DISMISSED;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMarginState: FfiConverterRustBuffer<MarginState> {
+    override fun read(buf: ByteBuffer) = try {
+        MarginState.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: MarginState) = 4UL
+
+    override fun write(value: MarginState, buf: ByteBuffer) {
         buf.putInt(value.ordinal + 1)
     }
 }
@@ -4412,6 +7336,88 @@ sealed class MarkMutation {
         companion object
     }
     
+    data class AddText(
+        val `markId`: kotlin.String, 
+        val `sheetId`: kotlin.String, 
+        val `role`: dev.syncr.core.TextRole, 
+        val `originX`: kotlin.Float, 
+        val `originY`: kotlin.Float, 
+        val `width`: kotlin.Float, 
+        val `text`: kotlin.String, 
+        val `style`: dev.syncr.core.TextStyle) : MarkMutation()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class SpliceText(
+        val `markId`: kotlin.String, 
+        val `base`: dev.syncr.core.Base, 
+        val `offset`: kotlin.UInt, 
+        val `delete`: kotlin.UInt, 
+        val `insert`: kotlin.String) : MarkMutation()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class SetTextWidth(
+        val `markId`: kotlin.String, 
+        val `base`: dev.syncr.core.Base, 
+        val `width`: kotlin.Float) : MarkMutation()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class DeleteText(
+        val `markId`: kotlin.String, 
+        val `base`: dev.syncr.core.Base) : MarkMutation()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class RestoreText(
+        val `markId`: kotlin.String, 
+        val `base`: dev.syncr.core.Base) : MarkMutation()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class TransformText(
+        val `markId`: kotlin.String, 
+        val `base`: dev.syncr.core.Base, 
+        val `transform`: dev.syncr.core.Affine) : MarkMutation()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class RestyleText(
+        val `markId`: kotlin.String, 
+        val `base`: dev.syncr.core.Base, 
+        val `style`: dev.syncr.core.TextStyle) : MarkMutation()
+        
+    {
+        
+
+        companion object
+    }
+    
 
     
 
@@ -4451,6 +7457,46 @@ public object FfiConverterTypeMarkMutation : FfiConverterRustBuffer<MarkMutation
                 FfiConverterString.read(buf),
                 FfiConverterTypeBase.read(buf),
                 FfiConverterTypeBrush.read(buf),
+                )
+            6 -> MarkMutation.AddText(
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterTypeTextRole.read(buf),
+                FfiConverterFloat.read(buf),
+                FfiConverterFloat.read(buf),
+                FfiConverterFloat.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterTypeTextStyle.read(buf),
+                )
+            7 -> MarkMutation.SpliceText(
+                FfiConverterString.read(buf),
+                FfiConverterTypeBase.read(buf),
+                FfiConverterUInt.read(buf),
+                FfiConverterUInt.read(buf),
+                FfiConverterString.read(buf),
+                )
+            8 -> MarkMutation.SetTextWidth(
+                FfiConverterString.read(buf),
+                FfiConverterTypeBase.read(buf),
+                FfiConverterFloat.read(buf),
+                )
+            9 -> MarkMutation.DeleteText(
+                FfiConverterString.read(buf),
+                FfiConverterTypeBase.read(buf),
+                )
+            10 -> MarkMutation.RestoreText(
+                FfiConverterString.read(buf),
+                FfiConverterTypeBase.read(buf),
+                )
+            11 -> MarkMutation.TransformText(
+                FfiConverterString.read(buf),
+                FfiConverterTypeBase.read(buf),
+                FfiConverterTypeAffine.read(buf),
+                )
+            12 -> MarkMutation.RestyleText(
+                FfiConverterString.read(buf),
+                FfiConverterTypeBase.read(buf),
+                FfiConverterTypeTextStyle.read(buf),
                 )
             else -> throw RuntimeException("invalid enum value, something is very wrong!!")
         }
@@ -4501,6 +7547,74 @@ public object FfiConverterTypeMarkMutation : FfiConverterRustBuffer<MarkMutation
                 + FfiConverterTypeBrush.allocationSize(value.`brush`)
             )
         }
+        is MarkMutation.AddText -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`markId`)
+                + FfiConverterString.allocationSize(value.`sheetId`)
+                + FfiConverterTypeTextRole.allocationSize(value.`role`)
+                + FfiConverterFloat.allocationSize(value.`originX`)
+                + FfiConverterFloat.allocationSize(value.`originY`)
+                + FfiConverterFloat.allocationSize(value.`width`)
+                + FfiConverterString.allocationSize(value.`text`)
+                + FfiConverterTypeTextStyle.allocationSize(value.`style`)
+            )
+        }
+        is MarkMutation.SpliceText -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`markId`)
+                + FfiConverterTypeBase.allocationSize(value.`base`)
+                + FfiConverterUInt.allocationSize(value.`offset`)
+                + FfiConverterUInt.allocationSize(value.`delete`)
+                + FfiConverterString.allocationSize(value.`insert`)
+            )
+        }
+        is MarkMutation.SetTextWidth -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`markId`)
+                + FfiConverterTypeBase.allocationSize(value.`base`)
+                + FfiConverterFloat.allocationSize(value.`width`)
+            )
+        }
+        is MarkMutation.DeleteText -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`markId`)
+                + FfiConverterTypeBase.allocationSize(value.`base`)
+            )
+        }
+        is MarkMutation.RestoreText -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`markId`)
+                + FfiConverterTypeBase.allocationSize(value.`base`)
+            )
+        }
+        is MarkMutation.TransformText -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`markId`)
+                + FfiConverterTypeBase.allocationSize(value.`base`)
+                + FfiConverterTypeAffine.allocationSize(value.`transform`)
+            )
+        }
+        is MarkMutation.RestyleText -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`markId`)
+                + FfiConverterTypeBase.allocationSize(value.`base`)
+                + FfiConverterTypeTextStyle.allocationSize(value.`style`)
+            )
+        }
     }
 
     override fun write(value: MarkMutation, buf: ByteBuffer) {
@@ -4539,7 +7653,95 @@ public object FfiConverterTypeMarkMutation : FfiConverterRustBuffer<MarkMutation
                 FfiConverterTypeBrush.write(value.`brush`, buf)
                 Unit
             }
+            is MarkMutation.AddText -> {
+                buf.putInt(6)
+                FfiConverterString.write(value.`markId`, buf)
+                FfiConverterString.write(value.`sheetId`, buf)
+                FfiConverterTypeTextRole.write(value.`role`, buf)
+                FfiConverterFloat.write(value.`originX`, buf)
+                FfiConverterFloat.write(value.`originY`, buf)
+                FfiConverterFloat.write(value.`width`, buf)
+                FfiConverterString.write(value.`text`, buf)
+                FfiConverterTypeTextStyle.write(value.`style`, buf)
+                Unit
+            }
+            is MarkMutation.SpliceText -> {
+                buf.putInt(7)
+                FfiConverterString.write(value.`markId`, buf)
+                FfiConverterTypeBase.write(value.`base`, buf)
+                FfiConverterUInt.write(value.`offset`, buf)
+                FfiConverterUInt.write(value.`delete`, buf)
+                FfiConverterString.write(value.`insert`, buf)
+                Unit
+            }
+            is MarkMutation.SetTextWidth -> {
+                buf.putInt(8)
+                FfiConverterString.write(value.`markId`, buf)
+                FfiConverterTypeBase.write(value.`base`, buf)
+                FfiConverterFloat.write(value.`width`, buf)
+                Unit
+            }
+            is MarkMutation.DeleteText -> {
+                buf.putInt(9)
+                FfiConverterString.write(value.`markId`, buf)
+                FfiConverterTypeBase.write(value.`base`, buf)
+                Unit
+            }
+            is MarkMutation.RestoreText -> {
+                buf.putInt(10)
+                FfiConverterString.write(value.`markId`, buf)
+                FfiConverterTypeBase.write(value.`base`, buf)
+                Unit
+            }
+            is MarkMutation.TransformText -> {
+                buf.putInt(11)
+                FfiConverterString.write(value.`markId`, buf)
+                FfiConverterTypeBase.write(value.`base`, buf)
+                FfiConverterTypeAffine.write(value.`transform`, buf)
+                Unit
+            }
+            is MarkMutation.RestyleText -> {
+                buf.putInt(12)
+                FfiConverterString.write(value.`markId`, buf)
+                FfiConverterTypeBase.write(value.`base`, buf)
+                FfiConverterTypeTextStyle.write(value.`style`, buf)
+                Unit
+            }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
+
+enum class MessageWho {
+    
+    YOU,
+    COMPANION;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMessageWho: FfiConverterRustBuffer<MessageWho> {
+    override fun read(buf: ByteBuffer) = try {
+        MessageWho.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: MessageWho) = 4UL
+
+    override fun write(value: MessageWho, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
     }
 }
 
@@ -4620,6 +7822,486 @@ public object FfiConverterTypeOperationLookup : FfiConverterRustBuffer<Operation
 
 
 
+sealed class PreviewBody {
+    
+    data class Begin(
+        val `brush`: dev.syncr.core.Brush, 
+        val `viewportRevision`: kotlin.UInt, 
+        val `space`: dev.syncr.core.CoordinateSpace) : PreviewBody()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
+     * `first_index` is the index of the first sample of `channels` within the stroke.
+     */
+    data class Samples(
+        val `firstIndex`: kotlin.UInt, 
+        val `channels`: dev.syncr.core.SampleChannels) : PreviewBody()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class End(
+        val `totalSamples`: kotlin.UInt) : PreviewBody()
+        
+    {
+        
+
+        companion object
+    }
+    
+    object Cancel : PreviewBody()
+    
+    
+    data class Hover(
+        val `x`: kotlin.Float, 
+        val `y`: kotlin.Float) : PreviewBody()
+        
+    {
+        
+
+        companion object
+    }
+    
+
+    
+
+    
+    
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePreviewBody : FfiConverterRustBuffer<PreviewBody>{
+    override fun read(buf: ByteBuffer): PreviewBody {
+        return when(buf.getInt()) {
+            1 -> PreviewBody.Begin(
+                FfiConverterTypeBrush.read(buf),
+                FfiConverterUInt.read(buf),
+                FfiConverterTypeCoordinateSpace.read(buf),
+                )
+            2 -> PreviewBody.Samples(
+                FfiConverterUInt.read(buf),
+                FfiConverterTypeSampleChannels.read(buf),
+                )
+            3 -> PreviewBody.End(
+                FfiConverterUInt.read(buf),
+                )
+            4 -> PreviewBody.Cancel
+            5 -> PreviewBody.Hover(
+                FfiConverterFloat.read(buf),
+                FfiConverterFloat.read(buf),
+                )
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: PreviewBody): ULong = when(value) {
+        is PreviewBody.Begin -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypeBrush.allocationSize(value.`brush`)
+                + FfiConverterUInt.allocationSize(value.`viewportRevision`)
+                + FfiConverterTypeCoordinateSpace.allocationSize(value.`space`)
+            )
+        }
+        is PreviewBody.Samples -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterUInt.allocationSize(value.`firstIndex`)
+                + FfiConverterTypeSampleChannels.allocationSize(value.`channels`)
+            )
+        }
+        is PreviewBody.End -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterUInt.allocationSize(value.`totalSamples`)
+            )
+        }
+        is PreviewBody.Cancel -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is PreviewBody.Hover -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterFloat.allocationSize(value.`x`)
+                + FfiConverterFloat.allocationSize(value.`y`)
+            )
+        }
+    }
+
+    override fun write(value: PreviewBody, buf: ByteBuffer) {
+        when(value) {
+            is PreviewBody.Begin -> {
+                buf.putInt(1)
+                FfiConverterTypeBrush.write(value.`brush`, buf)
+                FfiConverterUInt.write(value.`viewportRevision`, buf)
+                FfiConverterTypeCoordinateSpace.write(value.`space`, buf)
+                Unit
+            }
+            is PreviewBody.Samples -> {
+                buf.putInt(2)
+                FfiConverterUInt.write(value.`firstIndex`, buf)
+                FfiConverterTypeSampleChannels.write(value.`channels`, buf)
+                Unit
+            }
+            is PreviewBody.End -> {
+                buf.putInt(3)
+                FfiConverterUInt.write(value.`totalSamples`, buf)
+                Unit
+            }
+            is PreviewBody.Cancel -> {
+                buf.putInt(4)
+                Unit
+            }
+            is PreviewBody.Hover -> {
+                buf.putInt(5)
+                FfiConverterFloat.write(value.`x`, buf)
+                FfiConverterFloat.write(value.`y`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
+
+enum class PreviewDropReason {
+    
+    /**
+     * The sender cancelled the stroke.
+     */
+    CANCELLED,
+    /**
+     * Samples, End or Cancel arrived for a stroke whose Begin was never seen.
+     */
+    MISSING_BEGIN,
+    /**
+     * Sample indexes skipped, or End's total did not match what arrived.
+     */
+    GAP,
+    /**
+     * No frame for 5 s while live, or 10 s since End without a commit.
+     */
+    EXPIRED,
+    /**
+     * The session ended or a newer epoch started.
+     */
+    RESET,
+    /**
+     * The durable stroke arrived; draw that instead.
+     */
+    COMMITTED,
+    /**
+     * Inconsistent frames within one stroke (changed note or sheet, samples after End,
+     * channel set or time going backwards).
+     */
+    INVALID_DATA,
+    /**
+     * Too many live previews or too many samples in one preview.
+     */
+    LIMIT_EXCEEDED;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePreviewDropReason: FfiConverterRustBuffer<PreviewDropReason> {
+    override fun read(buf: ByteBuffer) = try {
+        PreviewDropReason.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: PreviewDropReason) = 4UL
+
+    override fun write(value: PreviewDropReason, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+sealed class PreviewEvent {
+    
+    data class StrokeStarted(
+        val `strokeId`: kotlin.String, 
+        val `noteId`: kotlin.String, 
+        val `sheetId`: kotlin.String, 
+        val `brush`: dev.syncr.core.Brush, 
+        val `viewportRevision`: kotlin.UInt, 
+        val `space`: dev.syncr.core.CoordinateSpace) : PreviewEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
+     * `sent_ms` is the sender's monotonic time of the frame (earliest merged frame).
+     */
+    data class SamplesAppended(
+        val `strokeId`: kotlin.String, 
+        val `firstIndex`: kotlin.UInt, 
+        val `channels`: dev.syncr.core.SampleChannels, 
+        val `sentMs`: kotlin.ULong) : PreviewEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class StrokeEnded(
+        val `strokeId`: kotlin.String, 
+        val `totalSamples`: kotlin.UInt) : PreviewEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
+     * Remove this stroke's preview and never invent its geometry. Emitted once per stroke.
+     */
+    data class Dropped(
+        val `strokeId`: kotlin.String, 
+        val `reason`: dev.syncr.core.PreviewDropReason) : PreviewEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class HoverMoved(
+        val `noteId`: kotlin.String, 
+        val `sheetId`: kotlin.String, 
+        val `x`: kotlin.Float, 
+        val `y`: kotlin.Float, 
+        val `sentMs`: kotlin.ULong) : PreviewEvent()
+        
+    {
+        
+
+        companion object
+    }
+    
+
+    
+
+    
+    
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePreviewEvent : FfiConverterRustBuffer<PreviewEvent>{
+    override fun read(buf: ByteBuffer): PreviewEvent {
+        return when(buf.getInt()) {
+            1 -> PreviewEvent.StrokeStarted(
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterTypeBrush.read(buf),
+                FfiConverterUInt.read(buf),
+                FfiConverterTypeCoordinateSpace.read(buf),
+                )
+            2 -> PreviewEvent.SamplesAppended(
+                FfiConverterString.read(buf),
+                FfiConverterUInt.read(buf),
+                FfiConverterTypeSampleChannels.read(buf),
+                FfiConverterULong.read(buf),
+                )
+            3 -> PreviewEvent.StrokeEnded(
+                FfiConverterString.read(buf),
+                FfiConverterUInt.read(buf),
+                )
+            4 -> PreviewEvent.Dropped(
+                FfiConverterString.read(buf),
+                FfiConverterTypePreviewDropReason.read(buf),
+                )
+            5 -> PreviewEvent.HoverMoved(
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterFloat.read(buf),
+                FfiConverterFloat.read(buf),
+                FfiConverterULong.read(buf),
+                )
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: PreviewEvent): ULong = when(value) {
+        is PreviewEvent.StrokeStarted -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`strokeId`)
+                + FfiConverterString.allocationSize(value.`noteId`)
+                + FfiConverterString.allocationSize(value.`sheetId`)
+                + FfiConverterTypeBrush.allocationSize(value.`brush`)
+                + FfiConverterUInt.allocationSize(value.`viewportRevision`)
+                + FfiConverterTypeCoordinateSpace.allocationSize(value.`space`)
+            )
+        }
+        is PreviewEvent.SamplesAppended -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`strokeId`)
+                + FfiConverterUInt.allocationSize(value.`firstIndex`)
+                + FfiConverterTypeSampleChannels.allocationSize(value.`channels`)
+                + FfiConverterULong.allocationSize(value.`sentMs`)
+            )
+        }
+        is PreviewEvent.StrokeEnded -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`strokeId`)
+                + FfiConverterUInt.allocationSize(value.`totalSamples`)
+            )
+        }
+        is PreviewEvent.Dropped -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`strokeId`)
+                + FfiConverterTypePreviewDropReason.allocationSize(value.`reason`)
+            )
+        }
+        is PreviewEvent.HoverMoved -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`noteId`)
+                + FfiConverterString.allocationSize(value.`sheetId`)
+                + FfiConverterFloat.allocationSize(value.`x`)
+                + FfiConverterFloat.allocationSize(value.`y`)
+                + FfiConverterULong.allocationSize(value.`sentMs`)
+            )
+        }
+    }
+
+    override fun write(value: PreviewEvent, buf: ByteBuffer) {
+        when(value) {
+            is PreviewEvent.StrokeStarted -> {
+                buf.putInt(1)
+                FfiConverterString.write(value.`strokeId`, buf)
+                FfiConverterString.write(value.`noteId`, buf)
+                FfiConverterString.write(value.`sheetId`, buf)
+                FfiConverterTypeBrush.write(value.`brush`, buf)
+                FfiConverterUInt.write(value.`viewportRevision`, buf)
+                FfiConverterTypeCoordinateSpace.write(value.`space`, buf)
+                Unit
+            }
+            is PreviewEvent.SamplesAppended -> {
+                buf.putInt(2)
+                FfiConverterString.write(value.`strokeId`, buf)
+                FfiConverterUInt.write(value.`firstIndex`, buf)
+                FfiConverterTypeSampleChannels.write(value.`channels`, buf)
+                FfiConverterULong.write(value.`sentMs`, buf)
+                Unit
+            }
+            is PreviewEvent.StrokeEnded -> {
+                buf.putInt(3)
+                FfiConverterString.write(value.`strokeId`, buf)
+                FfiConverterUInt.write(value.`totalSamples`, buf)
+                Unit
+            }
+            is PreviewEvent.Dropped -> {
+                buf.putInt(4)
+                FfiConverterString.write(value.`strokeId`, buf)
+                FfiConverterTypePreviewDropReason.write(value.`reason`, buf)
+                Unit
+            }
+            is PreviewEvent.HoverMoved -> {
+                buf.putInt(5)
+                FfiConverterString.write(value.`noteId`, buf)
+                FfiConverterString.write(value.`sheetId`, buf)
+                FfiConverterFloat.write(value.`x`, buf)
+                FfiConverterFloat.write(value.`y`, buf)
+                FfiConverterULong.write(value.`sentMs`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
+
+enum class TextRole {
+    
+    DOCUMENT,
+    FREE;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeTextRole: FfiConverterRustBuffer<TextRole> {
+    override fun read(buf: ByteBuffer) = try {
+        TextRole.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: TextRole) = 4UL
+
+    override fun write(value: TextRole, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
 
 /**
  * @suppress
@@ -4678,6 +8360,102 @@ public object FfiConverterOptionalString: FfiConverterRustBuffer<kotlin.String?>
         } else {
             buf.put(1)
             FfiConverterString.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalByteArray: FfiConverterRustBuffer<kotlin.ByteArray?> {
+    override fun read(buf: ByteBuffer): kotlin.ByteArray? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterByteArray.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.ByteArray?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterByteArray.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.ByteArray?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterByteArray.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeCompanionSettingsView: FfiConverterRustBuffer<CompanionSettingsView?> {
+    override fun read(buf: ByteBuffer): CompanionSettingsView? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeCompanionSettingsView.read(buf)
+    }
+
+    override fun allocationSize(value: CompanionSettingsView?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeCompanionSettingsView.allocationSize(value)
+        }
+    }
+
+    override fun write(value: CompanionSettingsView?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeCompanionSettingsView.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeStrokeCommit: FfiConverterRustBuffer<StrokeCommit?> {
+    override fun read(buf: ByteBuffer): StrokeCommit? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeStrokeCommit.read(buf)
+    }
+
+    override fun allocationSize(value: StrokeCommit?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeStrokeCommit.allocationSize(value)
+        }
+    }
+
+    override fun write(value: StrokeCommit?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeStrokeCommit.write(value, buf)
         }
     }
 }
@@ -4804,6 +8582,34 @@ public object FfiConverterSequenceString: FfiConverterRustBuffer<List<kotlin.Str
 /**
  * @suppress
  */
+public object FfiConverterSequenceByteArray: FfiConverterRustBuffer<List<kotlin.ByteArray>> {
+    override fun read(buf: ByteBuffer): List<kotlin.ByteArray> {
+        val len = buf.getInt()
+        return List<kotlin.ByteArray>(len) {
+            FfiConverterByteArray.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<kotlin.ByteArray>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterByteArray.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<kotlin.ByteArray>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterByteArray.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeChangeEvent: FfiConverterRustBuffer<List<ChangeEvent>> {
     override fun read(buf: ByteBuffer): List<ChangeEvent> {
         val len = buf.getInt()
@@ -4832,6 +8638,118 @@ public object FfiConverterSequenceTypeChangeEvent: FfiConverterRustBuffer<List<C
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeCompanionDrawingStep: FfiConverterRustBuffer<List<CompanionDrawingStep>> {
+    override fun read(buf: ByteBuffer): List<CompanionDrawingStep> {
+        val len = buf.getInt()
+        return List<CompanionDrawingStep>(len) {
+            FfiConverterTypeCompanionDrawingStep.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<CompanionDrawingStep>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeCompanionDrawingStep.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<CompanionDrawingStep>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeCompanionDrawingStep.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeCompanionItemView: FfiConverterRustBuffer<List<CompanionItemView>> {
+    override fun read(buf: ByteBuffer): List<CompanionItemView> {
+        val len = buf.getInt()
+        return List<CompanionItemView>(len) {
+            FfiConverterTypeCompanionItemView.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<CompanionItemView>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeCompanionItemView.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<CompanionItemView>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeCompanionItemView.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeCompanionMutation: FfiConverterRustBuffer<List<CompanionMutation>> {
+    override fun read(buf: ByteBuffer): List<CompanionMutation> {
+        val len = buf.getInt()
+        return List<CompanionMutation>(len) {
+            FfiConverterTypeCompanionMutation.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<CompanionMutation>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeCompanionMutation.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<CompanionMutation>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeCompanionMutation.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeCompanionSource: FfiConverterRustBuffer<List<CompanionSource>> {
+    override fun read(buf: ByteBuffer): List<CompanionSource> {
+        val len = buf.getInt()
+        return List<CompanionSource>(len) {
+            FfiConverterTypeCompanionSource.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<CompanionSource>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeCompanionSource.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<CompanionSource>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeCompanionSource.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeDeletedNoteSummary: FfiConverterRustBuffer<List<DeletedNoteSummary>> {
     override fun read(buf: ByteBuffer): List<DeletedNoteSummary> {
         val len = buf.getInt()
@@ -4850,6 +8768,34 @@ public object FfiConverterSequenceTypeDeletedNoteSummary: FfiConverterRustBuffer
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeDeletedNoteSummary.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeDrawingPoint: FfiConverterRustBuffer<List<DrawingPoint>> {
+    override fun read(buf: ByteBuffer): List<DrawingPoint> {
+        val len = buf.getInt()
+        return List<DrawingPoint>(len) {
+            FfiConverterTypeDrawingPoint.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<DrawingPoint>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeDrawingPoint.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<DrawingPoint>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeDrawingPoint.write(it, buf)
         }
     }
 }
@@ -4972,6 +8918,62 @@ public object FfiConverterSequenceTypeStrokeView: FfiConverterRustBuffer<List<St
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeTextBlockView: FfiConverterRustBuffer<List<TextBlockView>> {
+    override fun read(buf: ByteBuffer): List<TextBlockView> {
+        val len = buf.getInt()
+        return List<TextBlockView>(len) {
+            FfiConverterTypeTextBlockView.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<TextBlockView>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeTextBlockView.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<TextBlockView>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeTextBlockView.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeDrawingPrimitive: FfiConverterRustBuffer<List<DrawingPrimitive>> {
+    override fun read(buf: ByteBuffer): List<DrawingPrimitive> {
+        val len = buf.getInt()
+        return List<DrawingPrimitive>(len) {
+            FfiConverterTypeDrawingPrimitive.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<DrawingPrimitive>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeDrawingPrimitive.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<DrawingPrimitive>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeDrawingPrimitive.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeMarkMutation: FfiConverterRustBuffer<List<MarkMutation>> {
     override fun read(buf: ByteBuffer): List<MarkMutation> {
         val len = buf.getInt()
@@ -4990,6 +8992,34 @@ public object FfiConverterSequenceTypeMarkMutation: FfiConverterRustBuffer<List<
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeMarkMutation.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypePreviewEvent: FfiConverterRustBuffer<List<PreviewEvent>> {
+    override fun read(buf: ByteBuffer): List<PreviewEvent> {
+        val len = buf.getInt()
+        return List<PreviewEvent>(len) {
+            FfiConverterTypePreviewEvent.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<PreviewEvent>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypePreviewEvent.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<PreviewEvent>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypePreviewEvent.write(it, buf)
         }
     }
 }
@@ -5012,6 +9042,22 @@ public object FfiConverterSequenceTypeMarkMutation: FfiConverterRustBuffer<List<
     UniffiLib.uniffi_syncr_core_fn_func_new_id(
     
         _status)
+}
+    )
+    }
+    
+
+        /**
+         * Splits a stroke into chunk frames, in order. Fails with `InvalidInput` for bad IDs or a
+         * sample blob that `decode_samples` would reject, and `ResourceLimit` above 16 MiB of samples.
+         */
+    @Throws(CoreException::class) fun `encodeStrokeCommit`(`commit`: StrokeCommit): List<kotlin.ByteArray> {
+            return FfiConverterSequenceByteArray.lift(
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.uniffi_syncr_core_fn_func_encode_stroke_commit(
+    
+        
+        FfiConverterTypeStrokeCommit.lower(`commit`),_status)
 }
     )
     }
@@ -5066,6 +9112,55 @@ public object FfiConverterSequenceTypeMarkMutation: FfiConverterRustBuffer<List<
         FfiConverterByteArray.lower(`samples`),
         FfiConverterTypeStrokeStyle.lower(`style`),
         FfiConverterTypeAffine.lower(`transform`),_status)
+}
+    )
+    }
+    
+
+    @Throws(CoreException::class) fun `decodePreviewFrame`(`bytes`: kotlin.ByteArray): PreviewFrame {
+            return FfiConverterTypePreviewFrame.lift(
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.uniffi_syncr_core_fn_func_decode_preview_frame(
+    
+        
+        FfiConverterByteArray.lower(`bytes`),_status)
+}
+    )
+    }
+    
+
+    @Throws(CoreException::class) fun `encodePreviewFrame`(`frame`: PreviewFrame): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.uniffi_syncr_core_fn_func_encode_preview_frame(
+    
+        
+        FfiConverterTypePreviewFrame.lower(`frame`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Tells the socket owner which decoder a received frame belongs to, from its first byte.
+         */
+    @Throws(CoreException::class) fun `frameKind`(`bytes`: kotlin.ByteArray): FrameKind {
+            return FfiConverterTypeFrameKind.lift(
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.uniffi_syncr_core_fn_func_frame_kind(
+    
+        
+        FfiConverterByteArray.lower(`bytes`),_status)
+}
+    )
+    }
+    
+ fun `previewLimits`(): PreviewLimits {
+            return FfiConverterTypePreviewLimits.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_func_preview_limits(
+    
+        _status)
 }
     )
     }

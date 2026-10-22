@@ -1,5 +1,7 @@
 //! The frozen offline-api.md boundary. IDs are canonical uppercase ULID strings.
 
+use crate::{CompanionItemView, CompanionMutation, CompanionSettings, CompanionSettingsView};
+
 pub type Id = String;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, uniffi::Enum)]
@@ -90,6 +92,31 @@ pub struct StrokeView {
     pub brush: Brush,
     pub tombstone: bool,
 }
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, uniffi::Enum)]
+pub enum TextRole {
+    Document,
+    Free,
+}
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, uniffi::Record)]
+pub struct TextStyle {
+    pub size: BrushSize,
+    pub colour: InkColour,
+}
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, uniffi::Record)]
+pub struct TextBlockView {
+    pub id: Id,
+    pub sheet_id: Id,
+    pub author_id: Id,
+    pub head: EntityHead,
+    pub role: TextRole,
+    pub origin_x: f32,
+    pub origin_y: f32,
+    pub transform: Affine,
+    pub width: f32,
+    pub text: String,
+    pub style: TextStyle,
+    pub tombstone: bool,
+}
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, uniffi::Record)]
 pub struct NoteSummary {
     pub id: Id,
@@ -134,6 +161,15 @@ pub struct NoteSnapshot {
     /// Metadata, like `notebook`; changed by SetArchived. Trailing with a default.
     #[uniffi(default = false)]
     pub archived: bool,
+    #[serde(default)]
+    #[uniffi(default = [])]
+    pub text_blocks: Vec<TextBlockView>,
+    #[serde(default)]
+    #[uniffi(default = [])]
+    pub companion_items: Vec<CompanionItemView>,
+    #[serde(default)]
+    #[uniffi(default = None)]
+    pub companion_settings: Option<CompanionSettingsView>,
 }
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, uniffi::Record)]
 pub struct SampleChannels {
@@ -182,6 +218,46 @@ pub enum MarkMutation {
         base: Base,
         brush: Brush,
     },
+    AddText {
+        mark_id: Id,
+        sheet_id: Id,
+        role: TextRole,
+        origin_x: f32,
+        origin_y: f32,
+        width: f32,
+        text: String,
+        style: TextStyle,
+    },
+    SpliceText {
+        mark_id: Id,
+        base: Base,
+        offset: u32,
+        delete: u32,
+        insert: String,
+    },
+    SetTextWidth {
+        mark_id: Id,
+        base: Base,
+        width: f32,
+    },
+    DeleteText {
+        mark_id: Id,
+        base: Base,
+    },
+    RestoreText {
+        mark_id: Id,
+        base: Base,
+    },
+    TransformText {
+        mark_id: Id,
+        base: Base,
+        transform: Affine,
+    },
+    RestyleText {
+        mark_id: Id,
+        base: Base,
+        style: TextStyle,
+    },
 }
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, uniffi::Enum)]
 pub enum CommandBody {
@@ -215,6 +291,13 @@ pub enum CommandBody {
     },
     Redo {
         target_operation_id: Id,
+    },
+    CompanionMarks {
+        mutations: Vec<CompanionMutation>,
+    },
+    SetCompanionSettings {
+        settings: CompanionSettings,
+        base: Base,
     },
 }
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, uniffi::Record)]

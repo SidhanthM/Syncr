@@ -1,6 +1,7 @@
 //! In-memory candidate projection; it is installed only by the same transaction as the log.
 use crate::{
-    error::{collision, dependency, missing, stale},
+    error::{collision, dependency, invalid, missing, stale},
+    text::{TextEdit, TextEffect},
     *,
 };
 use serde::{Deserialize, Serialize};
@@ -38,6 +39,14 @@ pub(crate) struct Action {
     pub operation: Id,
     pub before: Vec<StrokeView>,
     pub after: Vec<StrokeView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub text_before: Vec<TextEdit>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub text_after: Vec<TextEdit>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub companion_before: Vec<CompanionItemView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub companion_after: Vec<CompanionItemView>,
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub(crate) struct History {
@@ -69,9 +78,27 @@ pub(crate) struct State {
     pub structure_head: EntityHead,
     pub sheets: Vec<Sheet>,
     pub strokes: Vec<StrokeView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub text_blocks: Vec<TextBlockView>,
+    // Candidate-only effects; persisted separately in the commit transaction.
+    #[serde(skip)]
+    pub text_effects: Vec<TextEffect>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub companion_items: Vec<CompanionItemView>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub companion_settings: Option<CompanionSettingsView>,
     pub sequence: u64,
     pub histories: BTreeMap<Id, History>,
 }
+pub(crate) const IDENTITY: Affine = Affine {
+    a: 1.0,
+    b: 0.0,
+    c: 0.0,
+    d: 1.0,
+    tx: 0.0,
+    ty: 0.0,
+};
+
 pub(crate) fn head(operation: &str) -> EntityHead {
     EntityHead {
         operation_id: operation.into(),
@@ -96,6 +123,10 @@ impl State {
                 origin_y: 0.0,
             }],
             strokes: vec![],
+            text_blocks: vec![],
+            text_effects: vec![],
+            companion_items: vec![],
+            companion_settings: None,
             sequence: 1,
             histories: BTreeMap::new(),
         }
@@ -128,6 +159,9 @@ impl State {
             undo_dependencies: self.action_dependencies(undo),
             redo_dependencies: self.action_dependencies(redo),
             archived: self.archived,
+            text_blocks: self.text_blocks.clone(),
+            companion_items: self.companion_items.clone(),
+            companion_settings: self.companion_settings.clone(),
         }
     }
     fn action_dependencies(&self, action: Option<&Action>) -> Vec<Id> {
@@ -137,11 +171,29 @@ impl State {
         // Both inverse directions affect the same <=1024 marks, including tombstones.
         // Read current heads, not the original action heads or History.expected:
         // submission still checks expected heads transactionally in apply().
-        let affected: HashSet<&Id> = action.after.iter().map(|s| &s.id).collect();
+        let affected: HashSet<&Id> = action
+            .after
+            .iter()
+            .map(|s| &s.id)
+            .chain(action.text_after.iter().map(|e| &e.mark_id))
+            .chain(action.companion_after.iter().map(|e| &e.id))
+            .collect();
         self.strokes
             .iter()
             .filter(|s| affected.contains(&s.id))
             .map(|s| s.head.operation_id.clone())
+            .chain(
+                self.text_blocks
+                    .iter()
+                    .filter(|b| affected.contains(&b.id))
+                    .map(|b| b.head.operation_id.clone()),
+            )
+            .chain(
+                self.companion_items
+                    .iter()
+                    .filter(|v| affected.contains(&v.id))
+                    .map(|v| v.head.operation_id.clone()),
+            )
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect()
@@ -183,95 +235,30 @@ impl State {
     /// Applies a command exactly as it was admitted when committed, including AddSheet and
     /// ReorderSheets from logs written before the canvas amendment. Used only by replay.
     pub fn apply_logged(&mut self, c: &Command, author: &str) -> CoreResult<ChangeKind> {
+        self.text_effects.clear();
         let deps: HashSet<&str> = c.dependencies.iter().map(String::as_str).collect();
+        let op = &c.operation_id;
         match &c.body {
-            CommandBody::Marks { mutations } => {
-                let mut before = Vec::with_capacity(mutations.len());
-                let mut after = Vec::with_capacity(mutations.len());
-                for m in mutations {
-                    match m {
-                        MarkMutation::AddStroke {
-                            mark_id,
-                            sheet_id,
-                            brush,
-                            ..
-                        } => {
-                            if self.strokes.iter().any(|s| s.id == *mark_id) {
-                                return Err(collision());
-                            }
-                            let sheet = self
-                                .sheets
-                                .iter()
-                                .find(|s| s.id == *sheet_id)
-                                .ok_or_else(missing)?;
-                            require(&deps, &sheet.creation)?;
-                            let stroke = StrokeView {
-                                id: mark_id.clone(),
-                                sheet_id: sheet_id.clone(),
-                                author_id: author.into(),
-                                head: head(&c.operation_id),
-                                transform: Affine {
-                                    a: 1.0,
-                                    b: 0.0,
-                                    c: 0.0,
-                                    d: 1.0,
-                                    tx: 0.0,
-                                    ty: 0.0,
-                                },
-                                brush: brush.clone(),
-                                tombstone: false,
-                            };
-                            let mut inverse = stroke.clone();
-                            inverse.tombstone = true;
-                            before.push(inverse);
-                            after.push(stroke.clone());
-                            self.strokes.push(stroke);
-                        }
-                        _ => {
-                            let (id, base) = match m {
-                                MarkMutation::DeleteStroke { mark_id, base }
-                                | MarkMutation::RestoreStroke { mark_id, base }
-                                | MarkMutation::TransformStroke { mark_id, base, .. }
-                                | MarkMutation::RestyleStroke { mark_id, base, .. } => {
-                                    (mark_id, base)
-                                }
-                                _ => unreachable!(),
-                            };
-                            let stroke = self
-                                .strokes
-                                .iter_mut()
-                                .find(|s| s.id == *id)
-                                .ok_or_else(missing)?;
-                            check_base(base, &stroke.head, &deps)?;
-                            before.push(stroke.clone());
-                            match m {
-                                MarkMutation::DeleteStroke { .. } => stroke.tombstone = true,
-                                MarkMutation::RestoreStroke { .. } => stroke.tombstone = false,
-                                MarkMutation::TransformStroke { transform, .. } => {
-                                    stroke.transform = transform.clone()
-                                }
-                                MarkMutation::RestyleStroke { brush, .. } => {
-                                    stroke.brush = brush.clone()
-                                }
-                                _ => unreachable!(),
-                            }
-                            stroke.head = head(&c.operation_id);
-                            after.push(stroke.clone());
-                        }
-                    }
-                }
-                let history = self.histories.entry(author.into()).or_default();
-                for s in &after {
-                    history
-                        .expected
-                        .insert(s.id.clone(), c.operation_id.clone());
-                }
-                history.undo.push(Action {
-                    operation: c.operation_id.clone(),
-                    before,
-                    after,
+            CommandBody::CompanionMarks { mutations } => {
+                self.apply_companion(mutations, op, author, &deps)?;
+                Ok(ChangeKind::MarksChanged)
+            }
+            CommandBody::SetCompanionSettings { settings, base } => {
+                let initial = head(&self.creation);
+                let current = self
+                    .companion_settings
+                    .as_ref()
+                    .map(|v| &v.head)
+                    .unwrap_or(&initial);
+                check_base(base, current, &deps)?;
+                self.companion_settings = Some(CompanionSettingsView {
+                    head: head(op),
+                    settings: settings.clone(),
                 });
-                history.redo.clear();
+                Ok(ChangeKind::MetadataChanged)
+            }
+            CommandBody::Marks { mutations } => {
+                self.apply_marks(mutations, op, author, &deps)?;
                 Ok(ChangeKind::MarksChanged)
             }
             CommandBody::AddSheet { sheet_id, base } => {
@@ -282,11 +269,11 @@ impl State {
                 // Origins are placed after replay; a canvas note never reaches this.
                 self.sheets.push(Sheet {
                     id: sheet_id.clone(),
-                    creation: c.operation_id.clone(),
+                    creation: op.clone(),
                     origin_x: 0.0,
                     origin_y: 0.0,
                 });
-                self.structure_head = head(&c.operation_id);
+                self.structure_head = head(op);
                 Ok(ChangeKind::StructureChanged)
             }
             CommandBody::ReorderSheets { sheet_ids, base } => {
@@ -296,11 +283,9 @@ impl State {
                         .iter()
                         .any(|id| !self.sheets.iter().any(|s| s.id == *id))
                 {
-                    return Err(crate::error::invalid(
-                        "Sheet order must be an exact permutation",
-                    ));
+                    return Err(invalid("Sheet order must be an exact permutation"));
                 }
-                let old = self.sheets.clone();
+                let old = std::mem::take(&mut self.sheets);
                 self.sheets = sheet_ids
                     .iter()
                     .map(|id| {
@@ -310,90 +295,282 @@ impl State {
                             .clone()
                     })
                     .collect();
-                self.structure_head = head(&c.operation_id);
+                self.structure_head = head(op);
                 Ok(ChangeKind::StructureChanged)
             }
             CommandBody::RenameNote { title, base } => {
-                check_base(base, &self.metadata_head, &deps)?;
-                self.title = title.clone();
-                self.metadata_head = head(&c.operation_id);
-                Ok(ChangeKind::MetadataChanged)
+                self.set_metadata(base, op, &deps, |s| s.title = title.clone())
             }
             CommandBody::SetNotebook { notebook, base } => {
-                check_base(base, &self.metadata_head, &deps)?;
-                self.notebook = notebook.clone();
-                self.metadata_head = head(&c.operation_id);
-                Ok(ChangeKind::MetadataChanged)
+                self.set_metadata(base, op, &deps, |s| s.notebook = notebook.clone())
             }
             CommandBody::SetArchived { archived, base } => {
-                check_base(base, &self.metadata_head, &deps)?;
-                self.archived = *archived;
-                self.metadata_head = head(&c.operation_id);
-                Ok(ChangeKind::MetadataChanged)
+                self.set_metadata(base, op, &deps, |s| s.archived = *archived)
             }
             CommandBody::Undo {
                 target_operation_id,
-            }
-            | CommandBody::Redo {
+            } => self.apply_history(target_operation_id, false, op, author, &deps),
+            CommandBody::Redo {
                 target_operation_id,
-            } => {
-                let redo = matches!(c.body, CommandBody::Redo { .. });
-                let history = self.histories.get_mut(author).ok_or_else(stale)?;
-                let stack = if redo {
-                    &mut history.redo
-                } else {
-                    &mut history.undo
-                };
-                let action = stack.last().ok_or_else(stale)?;
-                if action.operation != *target_operation_id {
-                    return Err(stale());
-                }
-                let desired = if redo { &action.after } else { &action.before };
-                // Check the entire inverse batch before installing any of it.
-                for s in desired {
-                    let current = self
-                        .strokes
-                        .iter()
-                        .find(|v| v.id == s.id)
-                        .ok_or_else(stale)?;
-                    if history.expected.get(&s.id) != Some(&current.head.operation_id) {
-                        return Err(stale());
-                    }
-                    require(&deps, &current.head.operation_id)?;
-                }
-                for s in desired {
-                    let current = self
-                        .strokes
-                        .iter_mut()
-                        .find(|v| v.id == s.id)
-                        .ok_or_else(stale)?;
-                    *current = s.clone();
-                    current.head = head(&c.operation_id);
-                    history
-                        .expected
-                        .insert(s.id.clone(), c.operation_id.clone());
-                }
-                let action = stack.pop().ok_or_else(stale)?;
-                if redo {
-                    history.undo.push(action);
-                } else {
-                    history.redo.push(action);
-                }
-                Ok(ChangeKind::HistoryChanged)
-            }
+            } => self.apply_history(target_operation_id, true, op, author, &deps),
         }
+    }
+
+    /// Applies one gesture as a unit and pushes it onto the author's undo stack. The
+    /// caller discards the whole state on error, so a failing mutation leaves nothing.
+    fn apply_marks(
+        &mut self,
+        mutations: &[MarkMutation],
+        op: &Id,
+        author: &str,
+        deps: &HashSet<&str>,
+    ) -> CoreResult<()> {
+        let mut before = Vec::with_capacity(mutations.len());
+        let mut after = Vec::with_capacity(mutations.len());
+        let mut text_before = Vec::new();
+        let mut text_after = Vec::new();
+        for m in mutations {
+            let (old, new) = match m {
+                MarkMutation::AddStroke {
+                    mark_id,
+                    sheet_id,
+                    brush,
+                    ..
+                } => self.add_stroke(mark_id, sheet_id, brush, op, author, deps)?,
+                MarkMutation::DeleteStroke { mark_id, base } => {
+                    self.edit_stroke(mark_id, base, op, deps, |s| s.tombstone = true)?
+                }
+                MarkMutation::RestoreStroke { mark_id, base } => {
+                    self.edit_stroke(mark_id, base, op, deps, |s| s.tombstone = false)?
+                }
+                MarkMutation::TransformStroke {
+                    mark_id,
+                    base,
+                    transform,
+                } => {
+                    self.edit_stroke(mark_id, base, op, deps, |s| s.transform = transform.clone())?
+                }
+                MarkMutation::RestyleStroke {
+                    mark_id,
+                    base,
+                    brush,
+                } => self.edit_stroke(mark_id, base, op, deps, |s| s.brush = brush.clone())?,
+                _ => {
+                    let (old, new) = self.apply_text_mutation(m, op, author, deps)?;
+                    text_before.push(old);
+                    text_after.push(new);
+                    continue;
+                }
+            };
+            before.push(old);
+            after.push(new);
+        }
+        self.check_document_text()?;
+        let history = self.histories.entry(author.into()).or_default();
+        for edit in &text_after {
+            history.expected.insert(edit.mark_id.clone(), op.clone());
+        }
+        for s in &after {
+            history.expected.insert(s.id.clone(), op.clone());
+        }
+        history.undo.push(Action {
+            operation: op.clone(),
+            before,
+            after,
+            text_before,
+            text_after,
+            companion_before: vec![],
+            companion_after: vec![],
+        });
+        history.redo.clear();
+        Ok(())
+    }
+
+    /// Adds a stroke; returns (inverse, added). The inverse of an add is its tombstone.
+    fn add_stroke(
+        &mut self,
+        mark_id: &Id,
+        sheet_id: &Id,
+        brush: &Brush,
+        op: &Id,
+        author: &str,
+        deps: &HashSet<&str>,
+    ) -> CoreResult<(StrokeView, StrokeView)> {
+        if self.strokes.iter().any(|s| s.id == *mark_id)
+            || self.text_blocks.iter().any(|b| b.id == *mark_id)
+            || self.companion_items.iter().any(|v| v.id == *mark_id)
+        {
+            return Err(collision());
+        }
+        let sheet = self
+            .sheets
+            .iter()
+            .find(|s| s.id == *sheet_id)
+            .ok_or_else(missing)?;
+        require(deps, &sheet.creation)?;
+        let stroke = StrokeView {
+            id: mark_id.clone(),
+            sheet_id: sheet_id.clone(),
+            author_id: author.into(),
+            head: head(op),
+            transform: IDENTITY,
+            brush: brush.clone(),
+            tombstone: false,
+        };
+        let inverse = StrokeView {
+            tombstone: true,
+            ..stroke.clone()
+        };
+        self.strokes.push(stroke.clone());
+        Ok((inverse, stroke))
+    }
+
+    /// Edits an existing stroke whose head matches `base`; returns (before, after).
+    fn edit_stroke(
+        &mut self,
+        mark_id: &Id,
+        base: &Base,
+        op: &Id,
+        deps: &HashSet<&str>,
+        edit: impl FnOnce(&mut StrokeView),
+    ) -> CoreResult<(StrokeView, StrokeView)> {
+        let stroke = self
+            .strokes
+            .iter_mut()
+            .find(|s| s.id == *mark_id)
+            .ok_or_else(missing)?;
+        check_base(base, &stroke.head, deps)?;
+        let before = stroke.clone();
+        edit(stroke);
+        stroke.head = head(op);
+        Ok((before, stroke.clone()))
+    }
+
+    /// Title, notebook and archive share the metadata head.
+    fn set_metadata(
+        &mut self,
+        base: &Base,
+        op: &Id,
+        deps: &HashSet<&str>,
+        set: impl FnOnce(&mut Self),
+    ) -> CoreResult<ChangeKind> {
+        check_base(base, &self.metadata_head, deps)?;
+        set(self);
+        self.metadata_head = head(op);
+        Ok(ChangeKind::MetadataChanged)
+    }
+
+    /// Undo or redo the author's top action. Every affected stroke must still carry the
+    /// head this history last gave it; the whole inverse is checked before any of it is
+    /// installed.
+    fn apply_history(
+        &mut self,
+        target: &Id,
+        redo: bool,
+        op: &Id,
+        author: &str,
+        deps: &HashSet<&str>,
+    ) -> CoreResult<ChangeKind> {
+        let action = self
+            .histories
+            .get(author)
+            .and_then(|h| if redo { h.redo.last() } else { h.undo.last() })
+            .ok_or_else(stale)?;
+        let companion_desired = if redo {
+            action.companion_after.clone()
+        } else {
+            action.companion_before.clone()
+        };
+        self.check_companion_history(&companion_desired, author, deps)?;
+        let history = self.histories.get_mut(author).ok_or_else(stale)?;
+        let stack = if redo {
+            &mut history.redo
+        } else {
+            &mut history.undo
+        };
+        let action = stack.last().ok_or_else(stale)?;
+        if action.operation != *target {
+            return Err(stale());
+        }
+        let desired = if redo { &action.after } else { &action.before };
+        for s in desired {
+            let current = self
+                .strokes
+                .iter()
+                .find(|v| v.id == s.id)
+                .ok_or_else(stale)?;
+            if history.expected.get(&s.id) != Some(&current.head.operation_id) {
+                return Err(stale());
+            }
+            require(deps, &current.head.operation_id)?;
+        }
+        let text_desired = if redo {
+            &action.text_after
+        } else {
+            &action.text_before
+        };
+        for edit in text_desired {
+            let current = self
+                .text_blocks
+                .iter()
+                .find(|b| b.id == edit.mark_id)
+                .ok_or_else(stale)?;
+            if history.expected.get(&edit.mark_id) != Some(&current.head.operation_id) {
+                return Err(stale());
+            }
+            require(deps, &current.head.operation_id)?;
+        }
+        let text_desired = text_desired.clone();
+        for s in desired {
+            let current = self
+                .strokes
+                .iter_mut()
+                .find(|v| v.id == s.id)
+                .ok_or_else(stale)?;
+            *current = s.clone();
+            current.head = head(op);
+            history.expected.insert(s.id.clone(), op.clone());
+        }
+        let action = stack.pop().ok_or_else(stale)?;
+        if redo {
+            history.undo.push(action);
+        } else {
+            history.redo.push(action);
+        }
+        for edit in &text_desired {
+            history.expected.insert(edit.mark_id.clone(), op.clone());
+        }
+        for value in companion_desired {
+            let current = self
+                .companion_items
+                .iter_mut()
+                .find(|v| v.id == value.id)
+                .ok_or_else(stale)?;
+            *current = value;
+            current.head = head(op);
+            history.expected.insert(current.id.clone(), op.clone());
+        }
+        for edit in &text_desired {
+            self.apply_text_edit(edit, op)?;
+        }
+        self.check_document_text()?;
+        Ok(ChangeKind::HistoryChanged)
     }
 }
 pub(crate) fn sheets_fixed() -> CoreError {
-    crate::error::invalid("A note is one canvas: sheets can no longer be added or reordered")
+    invalid("A note is one canvas: sheets can no longer be added or reordered")
 }
-fn require(deps: &HashSet<&str>, operation: &str) -> CoreResult<()> {
+pub(crate) fn require(deps: &HashSet<&str>, operation: &str) -> CoreResult<()> {
     if !deps.contains(operation) {
         return Err(dependency());
     }
     Ok(())
 }
-fn check_base(base: &Base, current: &EntityHead, deps: &HashSet<&str>) -> CoreResult<()> {
+pub(crate) fn check_base(
+    base: &Base,
+    current: &EntityHead,
+    deps: &HashSet<&str>,
+) -> CoreResult<()> {
     match base {
         Base::Operation { operation_id } if *operation_id == current.operation_id => {
             require(deps, operation_id)

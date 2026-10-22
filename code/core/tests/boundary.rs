@@ -1,4 +1,6 @@
+mod common;
 use base64::{Engine, engine::general_purpose::STANDARD};
+use common::path;
 use serde::Deserialize;
 use serde_json::Value;
 use std::{
@@ -12,9 +14,6 @@ fn fixtures() -> PathBuf {
 }
 fn json(path: &str) -> Value {
     serde_json::from_slice(&std::fs::read(fixtures().join(path)).unwrap()).unwrap()
-}
-fn path(root: &Path) -> String {
-    root.to_str().unwrap().into()
 }
 #[derive(Deserialize)]
 struct Channels {

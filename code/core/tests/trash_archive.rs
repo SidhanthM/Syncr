@@ -1,25 +1,9 @@
 //! Archive (note metadata) and Recently deleted (`<root>/.trash/`): delete, restore, purge.
-use base64::{Engine, engine::general_purpose::STANDARD};
+mod common;
+use common::{base, blob, brush, path, request};
 use std::path::Path;
 use syncr_core::*;
 
-fn path(p: &Path) -> String {
-    p.to_str().unwrap().into()
-}
-fn request(notebook: Option<&str>) -> CreateNoteRequest {
-    CreateNoteRequest {
-        operation_id: new_id(),
-        note_id: new_id(),
-        first_sheet_id: new_id(),
-        title: "Note".into(),
-        notebook: notebook.map(Into::into),
-    }
-}
-fn base(id: &str) -> Base {
-    Base::Operation {
-        operation_id: id.into(),
-    }
-}
 fn set_archived(note: &Note, archived: bool) -> Command {
     let head = note.snapshot().unwrap().metadata_head.operation_id;
     Command {
@@ -40,14 +24,8 @@ fn add_stroke(note: &Note) -> Command {
             mutations: vec![MarkMutation::AddStroke {
                 mark_id: new_id(),
                 sheet_id: sheet.id,
-                samples: STANDARD
-                    .decode("U1lOUwEADwACAAAAAACAPwAAAIAAAABAAABAwAAAAAAAAIA/AAAAACoAAAA=")
-                    .unwrap(),
-                brush: Brush {
-                    family: BrushFamily::Pen,
-                    size: BrushSize::Medium,
-                    colour: InkColour::Ink,
-                },
+                samples: blob(),
+                brush: brush(),
             }],
         },
     };

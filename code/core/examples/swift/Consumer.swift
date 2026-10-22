@@ -150,6 +150,85 @@ func strokeMesh() throws {
     }
 }
 
+func previewStream() throws {
+    let noteId = newId(), sheetId = newId(), strokeId = newId()
+    func frame(_ seq: UInt32, _ body: PreviewBody, stroke: String? = nil, hover: Bool = false) -> PreviewFrame {
+        PreviewFrame(epoch: 1, noteId: noteId, sheetId: sheetId, strokeId: hover ? nil : (stroke ?? strokeId),
+                     sequence: seq, sentMs: 5000 + UInt64(seq), body: body)
+    }
+    let brush = Brush(family: .pen, size: .medium, colour: .ink)
+    let channels = SampleChannels(x: [1, 2], y: [3, 4], pressure: [0.5, 0.6], elapsedMs: [0, 8], tilt: nil, orientation: nil)
+    let queue = PreviewSendQueue()
+    try queue.pushPreview(frame: frame(9, .hover(x: 5, y: 6), hover: true))
+    try queue.pushPreview(frame: frame(0, .begin(brush: brush, viewportRevision: 1, space: .canvas)))
+    try queue.pushPreview(frame: frame(1, .samples(firstIndex: 0, channels: channels)))
+    try queue.pushPreview(frame: frame(2, .end(totalSamples: 2)))
+    let receiver = PreviewReceiver(epoch: 1)
+    var events: [PreviewEvent] = []
+    while let bytes = queue.pop() {
+        try check(try frameKind(bytes: bytes) == .preview && bytes.count <= Int(previewLimits().maxFrameBytes), "frame kind and size")
+        try check(try decodePreviewFrame(bytes: bytes) == decodePreviewFrame(bytes: encodePreviewFrame(frame: decodePreviewFrame(bytes: bytes))), "frame round trip")
+        events += try receiver.accept(frame: bytes, nowMs: 100)
+    }
+    try check(events.count == 4, "four events")
+    guard case .hoverMoved = events[0], case .strokeStarted = events[1],
+          case .samplesAppended(_, _, let got, _) = events[2], case .strokeEnded = events[3] else {
+        throw SmokeFailure(description: "unexpected preview events \(events)")
+    }
+    try check(got == channels, "samples survive")
+    try check(try receiver.commit(strokeId: strokeId) == [.dropped(strokeId: strokeId, reason: .committed)], "commit drops the preview")
+    try check(receiver.tick(nowMs: 10_000).isEmpty, "nothing left to expire")
+    do {
+        _ = try receiver.accept(frame: Data([1, 2, 3]), nowMs: 0)
+        throw SmokeFailure(description: "garbage accepted")
+    } catch CoreError.InvalidInput {}
+    let commit = StrokeCommit(noteId: noteId, sheetId: sheetId, strokeId: strokeId, brush: brush,
+                              space: .viewRelative, samples: try encodeSamples(channels: channels))
+    let chunks = try encodeStrokeCommit(commit: commit)
+    try check(chunks.count == 1 && (try frameKind(bytes: chunks[0])) == .strokeChunk, "one chunk")
+    try check(try StrokeReassembler().accept(frame: chunks[0], nowMs: 0) == commit, "stroke reassembles")
+}
+
+func typedText() throws {
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appendingPathComponent("syncr-swift-text-\(UUID().uuidString)")
+    defer { try? fm.removeItem(at: root) }
+    try fm.createDirectory(at: root, withIntermediateDirectories: true)
+    let library = try openLibrary(rootPath: root.path)
+    let r = CreateNoteRequest(operationId: newId(), noteId: newId(), firstSheetId: newId(), title: "Text", notebook: nil)
+    _ = try library.createNote(request: r)
+    let note = try library.openNote(noteId: r.noteId)
+    let initial = try note.snapshot()
+    // Existing constructors can omit the new trailing field.
+    let oldShape = NoteSnapshot(noteId: initial.noteId, title: initial.title, notebook: initial.notebook,
+        metadataHead: initial.metadataHead, structureHead: initial.structureHead, sheets: initial.sheets,
+        strokes: initial.strokes, localSequence: initial.localSequence, cursor: initial.cursor,
+        undoTarget: nil, redoTarget: nil, undoDependencies: [], redoDependencies: [])
+    try check(oldShape.textBlocks.isEmpty, "text snapshot field defaults to empty")
+    let block = newId(), addId = newId()
+    let add = Command(operationId: addId, dependencies: [r.operationId], body: .marks(mutations: [
+        .addText(markId: block, sheetId: r.firstSheetId, role: .document, originX: 0, originY: 0,
+                 width: 640, text: "Aé🙂\n", style: TextStyle(size: .medium, colour: .ink))]))
+    _ = try note.submit(command: add)
+    try check(try note.submit(command: add).duplicate, "text retry")
+    let splice = Command(operationId: newId(), dependencies: [addId], body: .marks(mutations: [
+        .spliceText(markId: block, base: .operation(operationId: addId), offset: 1, delete: 2, insert: "字")]))
+    _ = try note.submit(command: splice)
+    try check(try note.snapshot().textBlocks[0].text == "A字🙂\n", "UTF-8 byte splice")
+    let undo = try note.snapshot()
+    _ = try note.submit(command: Command(operationId: newId(), dependencies: undo.undoDependencies,
+                                        body: .undo(targetOperationId: undo.undoTarget!)))
+    try check(try note.snapshot().textBlocks[0].text == "Aé🙂\n", "splice inverse")
+    try note.closeNote()
+    let reopened = try library.openNote(noteId: r.noteId)
+    let redo = try reopened.snapshot()
+    _ = try reopened.submit(command: Command(operationId: newId(), dependencies: redo.redoDependencies,
+                                            body: .redo(targetOperationId: redo.redoTarget!)))
+    try check(try reopened.snapshot().textBlocks[0].text == "A字🙂\n", "persistent text redo")
+    try reopened.closeNote()
+    print("PASS: Swift text add/splice/retry/undo/reopen/redo and snapshot default")
+}
+
 @main
 struct Smoke {
     static func main() {
@@ -160,6 +239,8 @@ struct Smoke {
             try createAddSnapshotReopen(root: root.path)
             try canvasUpgrade()
             try strokeMesh()
+            try previewStream()
+            try typedText()
             print("Swift host smoke: OK")
         } catch {
             print("Swift host smoke: FAILED: \(error)")

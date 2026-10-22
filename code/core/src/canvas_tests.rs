@@ -10,7 +10,6 @@ use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 use std::{
     path::{Path, PathBuf},
-    process::Command as ProcessCommand,
     sync::Arc,
 };
 
@@ -348,19 +347,7 @@ fn crash_during_upgrade_leaves_the_v2_note_and_a_backup() {
         let root = copy_root();
         let file = root.path().join(fixture["file"].as_str().unwrap());
         let (old_document, old_log) = (document(&file), log(&file));
-        let result = ProcessCommand::new(std::env::current_exe().unwrap())
-            .args(["--exact", "failure_tests::crash_probe"])
-            .env("SYNCR_CRASH_ROOT", root.path())
-            .env("SYNCR_CRASH_STAGE", stage)
-            .env("SYNCR_CRASH_NOTE", note_id)
-            .output()
-            .unwrap();
-        assert_eq!(
-            result.status.code(),
-            Some(91),
-            "{stage}: {}",
-            String::from_utf8_lossy(&result.stderr)
-        );
+        crate::failure_tests::run_crash_probe(root.path(), stage, Some(note_id));
         assert_eq!(version(&file), 2, "{stage}");
         assert_eq!(document(&file), old_document, "{stage}");
         assert_eq!(log(&file), old_log, "{stage}");
@@ -392,9 +379,9 @@ fn failed_upgrade_rolls_back_and_failed_backup_changes_nothing() {
     let file = root.path().join(fixture["file"].as_str().unwrap());
     let (original, old_log) = (document(&file), log(&file));
     let lib = open_library(path(root.path())).unwrap();
-    store::FAIL_AT.with(|f| f.set(Some("upgrade_before_commit")));
+    crate::fault::FAIL_AT.with(|f| f.set(Some("upgrade_before_commit")));
     let failed = lib.open_note(note_id.into());
-    store::FAIL_AT.with(|f| f.set(None));
+    crate::fault::FAIL_AT.with(|f| f.set(None));
     assert!(matches!(failed, Err(CoreError::Internal { .. })));
     assert_eq!((version(&file), document(&file)), (2, original.clone()));
     assert_eq!(log(&file), old_log);
@@ -587,10 +574,10 @@ fn a_core_without_the_note_version_refuses_it_unchanged() {
         let lib = open_library(path(root.path())).unwrap();
         lib.open_note(note_id.into()).unwrap().close_note().unwrap();
     }
-    // Model "one version too new for this build" exactly as v3 is for the previous core.
+    // Model one version too new for this build (v4 text is now supported).
     Connection::open(&file)
         .unwrap()
-        .pragma_update(None, "user_version", NOTE_VERSION + 1)
+        .pragma_update(None, "user_version", store::TEXT_NOTE_VERSION + 1)
         .unwrap();
     let bytes = std::fs::read(&file).unwrap();
     assert!(matches!(

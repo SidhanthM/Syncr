@@ -1,4 +1,5 @@
-//! Faults are test-only. No production environment-controlled failure injection.
+//! Crash tests: a child process exits at a fault point (see `fault.rs`) and the parent
+//! checks what a reopened library sees.
 use crate::*;
 use std::{path::Path, process::Command as ProcessCommand, sync::Arc};
 const CREATE: &str = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
@@ -44,6 +45,26 @@ fn command() -> Command {
         },
     }
 }
+/// Runs [crash_probe] in a child process and asserts that it died at `stage`.
+pub(crate) fn run_crash_probe(root: &Path, stage: &str, note: Option<&str>) {
+    let mut child = ProcessCommand::new(std::env::current_exe().unwrap());
+    child
+        .args(["--exact", "failure_tests::crash_probe"])
+        .env("SYNCR_CRASH_ROOT", root)
+        .env("SYNCR_CRASH_STAGE", stage);
+    if let Some(note) = note {
+        child.env("SYNCR_CRASH_NOTE", note);
+    }
+    let result = child.output().unwrap();
+    assert_eq!(
+        result.status.code(),
+        Some(91),
+        "{stage}: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+/// Child-process entry point: does the operation that reaches `SYNCR_CRASH_STAGE`. A no-op
+/// in a normal test run.
 #[test]
 fn crash_probe() {
     let Ok(root) = std::env::var("SYNCR_CRASH_ROOT") else {
@@ -86,18 +107,7 @@ fn process_exit_before_after_commit_and_publication() {
                 .create_note(request())
                 .unwrap();
         }
-        let result = ProcessCommand::new(std::env::current_exe().unwrap())
-            .args(["--exact", "failure_tests::crash_probe"])
-            .env("SYNCR_CRASH_ROOT", root.path())
-            .env("SYNCR_CRASH_STAGE", stage)
-            .output()
-            .unwrap();
-        assert_eq!(
-            result.status.code(),
-            Some(91),
-            "{stage}: {}",
-            String::from_utf8_lossy(&result.stderr)
-        );
+        run_crash_probe(root.path(), stage, None);
         let creation_published = stage == "after_publication" || stage.starts_with("command_");
         let leftovers = |root: &Path| {
             std::fs::read_dir(root)
@@ -185,18 +195,7 @@ fn process_exit_during_delete_restore_and_purge() {
                 lib.delete_note(NOTE.into()).unwrap();
             }
         }
-        let result = ProcessCommand::new(std::env::current_exe().unwrap())
-            .args(["--exact", "failure_tests::crash_probe"])
-            .env("SYNCR_CRASH_ROOT", root.path())
-            .env("SYNCR_CRASH_STAGE", stage)
-            .output()
-            .unwrap();
-        assert_eq!(
-            result.status.code(),
-            Some(91),
-            "{stage}: {}",
-            String::from_utf8_lossy(&result.stderr)
-        );
+        run_crash_probe(root.path(), stage, None);
         let lib = open_library(path(root.path())).unwrap();
         let listed = lib.list_notes().unwrap().len();
         let deleted = lib.list_deleted_notes().unwrap().len();
@@ -226,7 +225,7 @@ fn process_exit_during_delete_restore_and_purge() {
         assert!(note.submit(command()).unwrap().duplicate);
     }
 }
-// Library-private tests live in library.rs so production internals remain private.
+/// An AddStroke of 64 Ki samples (about 1 MiB), large enough to overflow a capped page count.
 pub(crate) fn large_add(note: &Arc<Note>, request: &CreateNoteRequest) -> Command {
     let mut c = command();
     c.operation_id = new_id();

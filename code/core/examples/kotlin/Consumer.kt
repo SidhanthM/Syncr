@@ -112,6 +112,46 @@ fun createAddSnapshotReopen(root: String): NoteSnapshot {
     } finally { library.destroy() }
 }
 
+private fun typedText() {
+    val root = Files.createTempDirectory("syncr-kotlin-text-")
+    try {
+        openLibrary(root.toString()).use { library ->
+            val r = CreateNoteRequest(newId(), newId(), newId(), "Text", null)
+            library.createNote(r)
+            library.openNote(r.noteId).use { note ->
+                val initial = note.snapshot()
+                val oldShape = NoteSnapshot(initial.noteId, initial.title, initial.notebook, initial.metadataHead,
+                    initial.structureHead, initial.sheets, initial.strokes, initial.localSequence, initial.cursor,
+                    null, null, emptyList(), emptyList())
+                check(oldShape.textBlocks.isEmpty())
+                val block = newId()
+                val add = Command(newId(), listOf(r.operationId), CommandBody.Marks(listOf(
+                    MarkMutation.AddText(block, r.firstSheetId, TextRole.DOCUMENT, 0f, 0f, 640f,
+                        "Aé🙂\n", TextStyle(BrushSize.MEDIUM, InkColour.INK)),
+                )))
+                note.submit(add)
+                check(note.submit(add).duplicate)
+                val splice = Command(newId(), listOf(add.operationId), CommandBody.Marks(listOf(
+                    MarkMutation.SpliceText(block, Base.Operation(add.operationId), 1u, 2u, "字"),
+                )))
+                note.submit(splice)
+                check(note.snapshot().textBlocks.single().text == "A字🙂\n")
+                val undo = note.snapshot()
+                note.submit(Command(newId(), undo.undoDependencies, CommandBody.Undo(undo.undoTarget!!)))
+                check(note.snapshot().textBlocks.single().text == "Aé🙂\n")
+                note.closeNote()
+            }
+            library.openNote(r.noteId).use { note ->
+                val redo = note.snapshot()
+                note.submit(Command(newId(), redo.redoDependencies, CommandBody.Redo(redo.redoTarget!!)))
+                check(note.snapshot().textBlocks.single().text == "A字🙂\n")
+                note.closeNote()
+            }
+        }
+        println("PASS: Kotlin text add/splice/retry/undo/reopen/redo and snapshot default")
+    } finally { root.toFile().deleteRecursively() }
+}
+
 private fun checkDiagnostic(
     error: CoreException, detail: String, retryable: Boolean,
     expectedDetail: String, expectedRetryable: Boolean,
@@ -339,6 +379,43 @@ private fun archiveAndRecentlyDeleted() {
 }
 
 /** Native host smoke: exercises real Rust codec, errors and library identity. */
+private fun previewStream() {
+    val noteId = newId(); val sheetId = newId(); val strokeId = newId()
+    fun frame(seq: UInt, body: PreviewBody, stroke: String? = strokeId) =
+        PreviewFrame(epoch = 1u, noteId = noteId, sheetId = sheetId, strokeId = stroke, sequence = seq, sentMs = 5000uL + seq.toULong(), body = body)
+    val brush = Brush(BrushFamily.PEN, BrushSize.MEDIUM, InkColour.INK)
+    val channels = SampleChannels(listOf(1f, 2f), listOf(3f, 4f), listOf(0.5f, 0.6f), listOf(0u, 8u), null, null)
+    val frames = listOf(
+        frame(0u, PreviewBody.Begin(brush, 1u, CoordinateSpace.CANVAS)),
+        frame(1u, PreviewBody.Samples(0u, channels)),
+        frame(2u, PreviewBody.End(2u)),
+    )
+    val queue = PreviewSendQueue()
+    queue.pushPreview(frame(9u, PreviewBody.Hover(5f, 6f), null))
+    for (f in frames) queue.pushPreview(f)
+    val receiver = PreviewReceiver(1u)
+    val events = mutableListOf<PreviewEvent>()
+    while (true) {
+        val bytes = queue.pop() ?: break
+        check(frameKind(bytes) == FrameKind.PREVIEW && bytes.size <= previewLimits().maxFrameBytes.toInt())
+        check(decodePreviewFrame(bytes) == decodePreviewFrame(encodePreviewFrame(decodePreviewFrame(bytes))))
+        events += receiver.accept(bytes, 100uL)
+    }
+    check(events.size == 4)
+    check(events[0] is PreviewEvent.HoverMoved && events[1] is PreviewEvent.StrokeStarted)
+    check((events[2] as PreviewEvent.SamplesAppended).channels == channels)
+    check(events[3] is PreviewEvent.StrokeEnded)
+    check(receiver.commit(strokeId).single() == PreviewEvent.Dropped(strokeId, PreviewDropReason.COMMITTED))
+    check(receiver.tick(10_000uL).isEmpty())
+    try { receiver.accept(byteArrayOf(1, 2, 3), 0uL); error("garbage accepted") } catch (_: CoreException.InvalidInput) {}
+    val commit = StrokeCommit(noteId, sheetId, strokeId, brush, CoordinateSpace.VIEW_RELATIVE, encodeSamples(channels))
+    val chunks = encodeStrokeCommit(commit)
+    check(chunks.size == 1 && frameKind(chunks[0]) == FrameKind.STROKE_CHUNK)
+    val back = StrokeReassembler().accept(chunks[0], 0uL)!! // ByteArray fields compare by identity, so compare the parts
+    check(back.copy(samples = commit.samples) == commit && back.samples.contentEquals(commit.samples))
+    println("PASS: preview frames, sender queue, receiver events, commit, stroke chunk reassembly and typed errors")
+}
+
 fun main() {
     val channels = SampleChannels(
         x = listOf(1f, -0.0f), y = listOf(2f, -3f),
@@ -376,10 +453,12 @@ fun main() {
     val unsigned = Receipt(newId(), ULong.MAX_VALUE, EventCursor(newId(), ULong.MAX_VALUE), false)
     check(FfiConverterTypeReceipt.lift(FfiConverterTypeReceipt.lower(unsigned)) == unsigned)
 
+    typedText()
     legacyMultiSheetCanvas()
     canvasAndNotebooks()
     archiveAndRecentlyDeleted()
     strokeMesh()
+    previewStream()
     val root = Files.createTempDirectory("syncr-jni-smoke-")
     try {
         val library: SyncrLibrary = openLibrary(root.toString())

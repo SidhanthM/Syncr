@@ -243,6 +243,37 @@ typedef void (*UniffiForeignFutureCompleteVoid)(uint64_t, UniffiForeignFutureRes
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_CLONE_STROKEREASSEMBLER
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_CLONE_STROKEREASSEMBLER
+uint64_t uniffi_syncr_core_fn_clone_strokereassembler(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FREE_STROKEREASSEMBLER
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FREE_STROKEREASSEMBLER
+void uniffi_syncr_core_fn_free_strokereassembler(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_CONSTRUCTOR_STROKEREASSEMBLER_NEW
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_CONSTRUCTOR_STROKEREASSEMBLER_NEW
+uint64_t uniffi_syncr_core_fn_constructor_strokereassembler_new(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_STROKEREASSEMBLER_ACCEPT
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_STROKEREASSEMBLER_ACCEPT
+RustBuffer uniffi_syncr_core_fn_method_strokereassembler_accept(uint64_t ptr, RustBuffer frame, uint64_t now_ms, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_STROKEREASSEMBLER_IN_PROGRESS
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_STROKEREASSEMBLER_IN_PROGRESS
+int8_t uniffi_syncr_core_fn_method_strokereassembler_in_progress(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_STROKEREASSEMBLER_RESET
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_STROKEREASSEMBLER_RESET
+void uniffi_syncr_core_fn_method_strokereassembler_reset(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_CLONE_NOTE
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_CLONE_NOTE
 uint64_t uniffi_syncr_core_fn_clone_note(uint64_t handle, RustCallStatus *_Nonnull out_status
@@ -251,6 +282,16 @@ uint64_t uniffi_syncr_core_fn_clone_note(uint64_t handle, RustCallStatus *_Nonnu
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FREE_NOTE
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FREE_NOTE
 void uniffi_syncr_core_fn_free_note(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_NOTE_AGENT_AUTHOR_ID
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_NOTE_AGENT_AUTHOR_ID
+RustBuffer uniffi_syncr_core_fn_method_note_agent_author_id(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_NOTE_AGENT_SNAPSHOT
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_NOTE_AGENT_SNAPSHOT
+RustBuffer uniffi_syncr_core_fn_method_note_agent_snapshot(uint64_t ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_NOTE_CHANGES_SINCE
@@ -286,6 +327,11 @@ RustBuffer uniffi_syncr_core_fn_method_note_snapshot(uint64_t ptr, RustCallStatu
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_NOTE_SUBMIT
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_NOTE_SUBMIT
 RustBuffer uniffi_syncr_core_fn_method_note_submit(uint64_t ptr, RustBuffer command, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_NOTE_SUBMIT_AGENT
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_NOTE_SUBMIT_AGENT
+RustBuffer uniffi_syncr_core_fn_method_note_submit_agent(uint64_t ptr, RustBuffer command, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_CLONE_SYNCRLIBRARY
@@ -368,6 +414,102 @@ void uniffi_syncr_core_fn_method_syncrlibrary_rename_notebook(uint64_t ptr, Rust
 void uniffi_syncr_core_fn_method_syncrlibrary_restore_note(uint64_t ptr, RustBuffer note_id, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_CLONE_PREVIEWRECEIVER
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_CLONE_PREVIEWRECEIVER
+uint64_t uniffi_syncr_core_fn_clone_previewreceiver(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FREE_PREVIEWRECEIVER
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FREE_PREVIEWRECEIVER
+void uniffi_syncr_core_fn_free_previewreceiver(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_CONSTRUCTOR_PREVIEWRECEIVER_NEW
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_CONSTRUCTOR_PREVIEWRECEIVER_NEW
+uint64_t uniffi_syncr_core_fn_constructor_previewreceiver_new(uint32_t epoch, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_PREVIEWRECEIVER_ACCEPT
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_PREVIEWRECEIVER_ACCEPT
+RustBuffer uniffi_syncr_core_fn_method_previewreceiver_accept(uint64_t ptr, RustBuffer frame, uint64_t now_ms, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_PREVIEWRECEIVER_COMMIT
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_PREVIEWRECEIVER_COMMIT
+RustBuffer uniffi_syncr_core_fn_method_previewreceiver_commit(uint64_t ptr, RustBuffer stroke_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_PREVIEWRECEIVER_EPOCH
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_PREVIEWRECEIVER_EPOCH
+uint32_t uniffi_syncr_core_fn_method_previewreceiver_epoch(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_PREVIEWRECEIVER_LIVE_COUNT
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_PREVIEWRECEIVER_LIVE_COUNT
+uint32_t uniffi_syncr_core_fn_method_previewreceiver_live_count(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_PREVIEWRECEIVER_RESET
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_PREVIEWRECEIVER_RESET
+RustBuffer uniffi_syncr_core_fn_method_previewreceiver_reset(uint64_t ptr, uint32_t epoch, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_PREVIEWRECEIVER_TICK
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_PREVIEWRECEIVER_TICK
+RustBuffer uniffi_syncr_core_fn_method_previewreceiver_tick(uint64_t ptr, uint64_t now_ms, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_CLONE_PREVIEWSENDQUEUE
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_CLONE_PREVIEWSENDQUEUE
+uint64_t uniffi_syncr_core_fn_clone_previewsendqueue(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FREE_PREVIEWSENDQUEUE
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FREE_PREVIEWSENDQUEUE
+void uniffi_syncr_core_fn_free_previewsendqueue(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_CONSTRUCTOR_PREVIEWSENDQUEUE_NEW
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_CONSTRUCTOR_PREVIEWSENDQUEUE_NEW
+uint64_t uniffi_syncr_core_fn_constructor_previewsendqueue_new(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_PREVIEWSENDQUEUE_CLEAR_PREVIEW
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_PREVIEWSENDQUEUE_CLEAR_PREVIEW
+void uniffi_syncr_core_fn_method_previewsendqueue_clear_preview(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_PREVIEWSENDQUEUE_DROPPED_PREVIEW_FRAMES
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_PREVIEWSENDQUEUE_DROPPED_PREVIEW_FRAMES
+uint64_t uniffi_syncr_core_fn_method_previewsendqueue_dropped_preview_frames(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_PREVIEWSENDQUEUE_POP
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_PREVIEWSENDQUEUE_POP
+RustBuffer uniffi_syncr_core_fn_method_previewsendqueue_pop(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_PREVIEWSENDQUEUE_PUSH_COMMIT
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_PREVIEWSENDQUEUE_PUSH_COMMIT
+void uniffi_syncr_core_fn_method_previewsendqueue_push_commit(uint64_t ptr, RustBuffer commit, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_PREVIEWSENDQUEUE_PUSH_PREVIEW
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_PREVIEWSENDQUEUE_PUSH_PREVIEW
+void uniffi_syncr_core_fn_method_previewsendqueue_push_preview(uint64_t ptr, RustBuffer frame, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_PREVIEWSENDQUEUE_QUEUED_DURABLE_BYTES
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_PREVIEWSENDQUEUE_QUEUED_DURABLE_BYTES
+uint64_t uniffi_syncr_core_fn_method_previewsendqueue_queued_durable_bytes(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_PREVIEWSENDQUEUE_QUEUED_PREVIEW_BYTES
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_PREVIEWSENDQUEUE_QUEUED_PREVIEW_BYTES
+uint64_t uniffi_syncr_core_fn_method_previewsendqueue_queued_preview_bytes(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_CANVAS_SIZE
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_CANVAS_SIZE
 RustBuffer uniffi_syncr_core_fn_func_canvas_size(RustCallStatus *_Nonnull out_status
@@ -378,6 +520,11 @@ RustBuffer uniffi_syncr_core_fn_func_canvas_size(RustCallStatus *_Nonnull out_st
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_NEW_ID
 RustBuffer uniffi_syncr_core_fn_func_new_id(RustCallStatus *_Nonnull out_status
     
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_ENCODE_STROKE_COMMIT
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_ENCODE_STROKE_COMMIT
+RustBuffer uniffi_syncr_core_fn_func_encode_stroke_commit(RustBuffer commit, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_OPEN_LIBRARY
@@ -399,6 +546,27 @@ uint32_t uniffi_syncr_core_fn_func_mesh_renderer_version(RustCallStatus *_Nonnul
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_TESSELLATE_STROKE
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_TESSELLATE_STROKE
 RustBuffer uniffi_syncr_core_fn_func_tessellate_stroke(RustBuffer samples, RustBuffer style, RustBuffer transform, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_DECODE_PREVIEW_FRAME
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_DECODE_PREVIEW_FRAME
+RustBuffer uniffi_syncr_core_fn_func_decode_preview_frame(RustBuffer bytes, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_ENCODE_PREVIEW_FRAME
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_ENCODE_PREVIEW_FRAME
+RustBuffer uniffi_syncr_core_fn_func_encode_preview_frame(RustBuffer frame, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_FRAME_KIND
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_FRAME_KIND
+RustBuffer uniffi_syncr_core_fn_func_frame_kind(RustBuffer bytes, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_PREVIEW_LIMITS
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_PREVIEW_LIMITS
+RustBuffer uniffi_syncr_core_fn_func_preview_limits(RustCallStatus *_Nonnull out_status
+    
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_DECODE_SAMPLES
@@ -683,6 +851,12 @@ uint16_t uniffi_syncr_core_checksum_func_new_id(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_ENCODE_STROKE_COMMIT
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_ENCODE_STROKE_COMMIT
+uint16_t uniffi_syncr_core_checksum_func_encode_stroke_commit(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_OPEN_LIBRARY
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_OPEN_LIBRARY
 uint16_t uniffi_syncr_core_checksum_func_open_library(void
@@ -707,6 +881,30 @@ uint16_t uniffi_syncr_core_checksum_func_tessellate_stroke(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_DECODE_PREVIEW_FRAME
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_DECODE_PREVIEW_FRAME
+uint16_t uniffi_syncr_core_checksum_func_decode_preview_frame(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_ENCODE_PREVIEW_FRAME
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_ENCODE_PREVIEW_FRAME
+uint16_t uniffi_syncr_core_checksum_func_encode_preview_frame(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_FRAME_KIND
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_FRAME_KIND
+uint16_t uniffi_syncr_core_checksum_func_frame_kind(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_PREVIEW_LIMITS
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_PREVIEW_LIMITS
+uint16_t uniffi_syncr_core_checksum_func_preview_limits(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_DECODE_SAMPLES
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_DECODE_SAMPLES
 uint16_t uniffi_syncr_core_checksum_func_decode_samples(void
@@ -716,6 +914,36 @@ uint16_t uniffi_syncr_core_checksum_func_decode_samples(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_ENCODE_SAMPLES
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_ENCODE_SAMPLES
 uint16_t uniffi_syncr_core_checksum_func_encode_samples(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_STROKEREASSEMBLER_ACCEPT
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_STROKEREASSEMBLER_ACCEPT
+uint16_t uniffi_syncr_core_checksum_method_strokereassembler_accept(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_STROKEREASSEMBLER_IN_PROGRESS
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_STROKEREASSEMBLER_IN_PROGRESS
+uint16_t uniffi_syncr_core_checksum_method_strokereassembler_in_progress(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_STROKEREASSEMBLER_RESET
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_STROKEREASSEMBLER_RESET
+uint16_t uniffi_syncr_core_checksum_method_strokereassembler_reset(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_NOTE_AGENT_AUTHOR_ID
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_NOTE_AGENT_AUTHOR_ID
+uint16_t uniffi_syncr_core_checksum_method_note_agent_author_id(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_NOTE_AGENT_SNAPSHOT
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_NOTE_AGENT_SNAPSHOT
+uint16_t uniffi_syncr_core_checksum_method_note_agent_snapshot(void
     
 );
 #endif
@@ -758,6 +986,12 @@ uint16_t uniffi_syncr_core_checksum_method_note_snapshot(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_NOTE_SUBMIT
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_NOTE_SUBMIT
 uint16_t uniffi_syncr_core_checksum_method_note_submit(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_NOTE_SUBMIT_AGENT
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_NOTE_SUBMIT_AGENT
+uint16_t uniffi_syncr_core_checksum_method_note_submit_agent(void
     
 );
 #endif
@@ -842,6 +1076,102 @@ uint16_t uniffi_syncr_core_checksum_method_syncrlibrary_rename_notebook(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_SYNCRLIBRARY_RESTORE_NOTE
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_SYNCRLIBRARY_RESTORE_NOTE
 uint16_t uniffi_syncr_core_checksum_method_syncrlibrary_restore_note(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_PREVIEWRECEIVER_ACCEPT
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_PREVIEWRECEIVER_ACCEPT
+uint16_t uniffi_syncr_core_checksum_method_previewreceiver_accept(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_PREVIEWRECEIVER_COMMIT
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_PREVIEWRECEIVER_COMMIT
+uint16_t uniffi_syncr_core_checksum_method_previewreceiver_commit(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_PREVIEWRECEIVER_EPOCH
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_PREVIEWRECEIVER_EPOCH
+uint16_t uniffi_syncr_core_checksum_method_previewreceiver_epoch(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_PREVIEWRECEIVER_LIVE_COUNT
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_PREVIEWRECEIVER_LIVE_COUNT
+uint16_t uniffi_syncr_core_checksum_method_previewreceiver_live_count(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_PREVIEWRECEIVER_RESET
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_PREVIEWRECEIVER_RESET
+uint16_t uniffi_syncr_core_checksum_method_previewreceiver_reset(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_PREVIEWRECEIVER_TICK
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_PREVIEWRECEIVER_TICK
+uint16_t uniffi_syncr_core_checksum_method_previewreceiver_tick(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_PREVIEWSENDQUEUE_CLEAR_PREVIEW
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_PREVIEWSENDQUEUE_CLEAR_PREVIEW
+uint16_t uniffi_syncr_core_checksum_method_previewsendqueue_clear_preview(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_PREVIEWSENDQUEUE_DROPPED_PREVIEW_FRAMES
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_PREVIEWSENDQUEUE_DROPPED_PREVIEW_FRAMES
+uint16_t uniffi_syncr_core_checksum_method_previewsendqueue_dropped_preview_frames(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_PREVIEWSENDQUEUE_POP
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_PREVIEWSENDQUEUE_POP
+uint16_t uniffi_syncr_core_checksum_method_previewsendqueue_pop(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_PREVIEWSENDQUEUE_PUSH_COMMIT
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_PREVIEWSENDQUEUE_PUSH_COMMIT
+uint16_t uniffi_syncr_core_checksum_method_previewsendqueue_push_commit(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_PREVIEWSENDQUEUE_PUSH_PREVIEW
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_PREVIEWSENDQUEUE_PUSH_PREVIEW
+uint16_t uniffi_syncr_core_checksum_method_previewsendqueue_push_preview(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_PREVIEWSENDQUEUE_QUEUED_DURABLE_BYTES
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_PREVIEWSENDQUEUE_QUEUED_DURABLE_BYTES
+uint16_t uniffi_syncr_core_checksum_method_previewsendqueue_queued_durable_bytes(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_PREVIEWSENDQUEUE_QUEUED_PREVIEW_BYTES
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_PREVIEWSENDQUEUE_QUEUED_PREVIEW_BYTES
+uint16_t uniffi_syncr_core_checksum_method_previewsendqueue_queued_preview_bytes(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_CONSTRUCTOR_STROKEREASSEMBLER_NEW
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_CONSTRUCTOR_STROKEREASSEMBLER_NEW
+uint16_t uniffi_syncr_core_checksum_constructor_strokereassembler_new(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_CONSTRUCTOR_PREVIEWRECEIVER_NEW
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_CONSTRUCTOR_PREVIEWRECEIVER_NEW
+uint16_t uniffi_syncr_core_checksum_constructor_previewreceiver_new(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_CONSTRUCTOR_PREVIEWSENDQUEUE_NEW
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_CONSTRUCTOR_PREVIEWSENDQUEUE_NEW
+uint16_t uniffi_syncr_core_checksum_constructor_previewsendqueue_new(void
     
 );
 #endif

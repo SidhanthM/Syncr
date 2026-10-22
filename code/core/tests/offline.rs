@@ -1,10 +1,9 @@
+mod common;
 use base64::{Engine, engine::general_purpose::STANDARD};
+use common::{base, blob, brush, path};
 use std::{path::Path, sync::Arc};
 use syncr_core::*;
 
-fn path(p: &Path) -> String {
-    p.to_str().unwrap().into()
-}
 fn json(name: &str) -> serde_json::Value {
     serde_json::from_slice(
         &std::fs::read(
@@ -15,23 +14,6 @@ fn json(name: &str) -> serde_json::Value {
         .unwrap(),
     )
     .unwrap()
-}
-fn brush() -> Brush {
-    Brush {
-        family: BrushFamily::Pen,
-        size: BrushSize::Medium,
-        colour: InkColour::Ink,
-    }
-}
-fn blob() -> Vec<u8> {
-    STANDARD
-        .decode("U1lOUwEADwACAAAAAACAPwAAAIAAAABAAABAwAAAAAAAAIA/AAAAACoAAAA=")
-        .unwrap()
-}
-fn base(id: &str) -> Base {
-    Base::Operation {
-        operation_id: id.into(),
-    }
 }
 fn cmd(body: CommandBody, deps: &[&str]) -> Command {
     Command {
@@ -690,7 +672,7 @@ fn live_wal_export_reopens_without_device_history_and_refuses_overwrite() {
     drop(copied);
     drop(other);
     let db = rusqlite::Connection::open(&destination).unwrap();
-    db.pragma_update(None, "user_version", 4).unwrap();
+    db.pragma_update(None, "user_version", 5).unwrap();
     drop(db);
     let before = std::fs::read(&destination).unwrap();
     assert!(matches!(

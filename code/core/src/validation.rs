@@ -1,18 +1,22 @@
 //! Stateless admission checks. The transactional reducer additionally checks entity
 //! existence, exact heads, durable dependencies and sheet-creation provenance.
 use crate::{
-    error::{invalid, limit},
+    error::{invalid, limit, missing_dependency},
     samples, *,
 };
+
+/// Most marks one gesture may touch.
+const MAX_GESTURE_TARGETS: usize = 1024;
+const MAX_NOTEBOOK_NAME_BYTES: usize = 100;
 use std::collections::HashSet;
 
+/// IDs are canonical ULID strings: 26 characters, uppercase, round-tripping exactly.
 pub(crate) fn id(value: &str) -> CoreResult<()> {
-    if value.len() != 26
-        || value.parse::<ulid::Ulid>().is_err()
-        || value
+    let canonical = value.len() == 26
+        && value
             .parse::<ulid::Ulid>()
-            .is_ok_and(|id| id.to_string() != value)
-    {
+            .is_ok_and(|id| id.to_string() == value);
+    if !canonical {
         return Err(invalid("ID must be a canonical uppercase ULID"));
     }
     Ok(())
@@ -28,7 +32,7 @@ pub(crate) fn notebook_name(name: &str) -> CoreResult<()> {
             "Notebook name must not start or end with whitespace",
         ));
     }
-    if name.len() > 100 {
+    if name.len() > MAX_NOTEBOOK_NAME_BYTES {
         return Err(invalid("Notebook name exceeds 100 bytes"));
     }
     if name
@@ -69,17 +73,18 @@ pub(crate) fn affine(value: &Affine) -> CoreResult<()> {
     Ok(())
 }
 
-fn base(value: &Base, dependencies: &HashSet<&str>) -> CoreResult<()> {
+/// Offline, a base is either absent or a pending operation that the command lists as a
+/// dependency. The reducer later checks it against the entity's current head.
+pub(crate) fn base(value: &Base, dependencies: &HashSet<&str>) -> CoreResult<()> {
     match value {
         Base::Absent => Ok(()),
         Base::Confirmed { .. } => Err(invalid("Confirmed bases are not valid for unadopted notes")),
         Base::Operation { operation_id } => {
             id(operation_id)?;
             if !dependencies.contains(operation_id.as_str()) {
-                return Err(CoreError::MissingDependency {
-                    detail: "Entity head operation must be included in dependencies".into(),
-                    retryable: false,
-                });
+                return Err(missing_dependency(
+                    "Entity head operation must be included in dependencies",
+                ));
             }
             Ok(())
         }
@@ -97,8 +102,26 @@ pub(crate) fn command(command: &Command) -> CoreResult<()> {
     // Duplicates are legal and will be deduplicated/sorted by canonical encoding.
     let dependencies = command.dependencies.iter().map(String::as_str).collect();
     match &command.body {
-        CommandBody::Marks { mutations } => {
+        CommandBody::CompanionMarks { mutations } => {
             if mutations.is_empty() || mutations.len() > 1024 {
+                return Err(limit("Companion batch requires 1 to 1024 items"));
+            }
+            let mut ids = HashSet::new();
+            for m in mutations {
+                id(&m.id)?;
+                base(&m.base, &dependencies)?;
+                crate::companion::validate(&m.body)?;
+                if !ids.insert(&m.id) {
+                    return Err(invalid("Companion targets must be unique"));
+                }
+            }
+        }
+        CommandBody::SetCompanionSettings { settings, base: b } => {
+            base(b, &dependencies)?;
+            crate::companion::settings(settings)?;
+        }
+        CommandBody::Marks { mutations } => {
+            if mutations.is_empty() || mutations.len() > MAX_GESTURE_TARGETS {
                 return Err(limit("A gesture requires 1 to 1024 unique targets"));
             }
             let mut targets = HashSet::new();
@@ -121,7 +144,48 @@ pub(crate) fn command(command: &Command) -> CoreResult<()> {
                         samples::decode(blob)?;
                         mark_id
                     }
-                    MarkMutation::DeleteStroke { mark_id, base: b }
+                    MarkMutation::AddText {
+                        mark_id,
+                        sheet_id,
+                        origin_x,
+                        origin_y,
+                        width,
+                        text,
+                        ..
+                    } => {
+                        id(sheet_id)?;
+                        if !origin_x.is_finite() || !origin_y.is_finite() {
+                            return Err(invalid("Text origin must be finite"));
+                        }
+                        crate::text::width(*width)?;
+                        crate::text::content(text)?;
+                        mark_id
+                    }
+                    MarkMutation::SpliceText {
+                        mark_id,
+                        base: b,
+                        insert,
+                        ..
+                    } => {
+                        base(b, &dependencies)?;
+                        crate::text::content(insert)?;
+                        mark_id
+                    }
+                    MarkMutation::SetTextWidth {
+                        mark_id,
+                        base: b,
+                        width,
+                    } => {
+                        base(b, &dependencies)?;
+                        crate::text::width(*width)?;
+                        mark_id
+                    }
+                    MarkMutation::DeleteText { mark_id, base: b }
+                    | MarkMutation::RestoreText { mark_id, base: b }
+                    | MarkMutation::RestyleText {
+                        mark_id, base: b, ..
+                    }
+                    | MarkMutation::DeleteStroke { mark_id, base: b }
                     | MarkMutation::RestoreStroke { mark_id, base: b }
                     | MarkMutation::RestyleStroke {
                         mark_id, base: b, ..
@@ -129,7 +193,12 @@ pub(crate) fn command(command: &Command) -> CoreResult<()> {
                         base(b, &dependencies)?;
                         mark_id
                     }
-                    MarkMutation::TransformStroke {
+                    MarkMutation::TransformText {
+                        mark_id,
+                        base: b,
+                        transform,
+                    }
+                    | MarkMutation::TransformStroke {
                         mark_id,
                         base: b,
                         transform,

@@ -1,38 +1,10 @@
 //! The canvas size, flat notebooks, display timestamps and the v1 -> v3 upgrade.
-use base64::{Engine, engine::general_purpose::STANDARD};
+mod common;
+use common::{base, blob, brush, path, request};
 use rusqlite::Connection;
 use std::{path::Path, sync::Arc};
 use syncr_core::*;
 
-fn path(p: &Path) -> String {
-    p.to_str().unwrap().into()
-}
-fn blob() -> Vec<u8> {
-    STANDARD
-        .decode("U1lOUwEADwACAAAAAACAPwAAAIAAAABAAABAwAAAAAAAAIA/AAAAACoAAAA=")
-        .unwrap()
-}
-fn brush() -> Brush {
-    Brush {
-        family: BrushFamily::Pen,
-        size: BrushSize::Medium,
-        colour: InkColour::Ink,
-    }
-}
-fn request(notebook: Option<&str>) -> CreateNoteRequest {
-    CreateNoteRequest {
-        operation_id: new_id(),
-        note_id: new_id(),
-        first_sheet_id: new_id(),
-        title: "Note".into(),
-        notebook: notebook.map(Into::into),
-    }
-}
-fn base(id: &str) -> Base {
-    Base::Operation {
-        operation_id: id.into(),
-    }
-}
 fn set_notebook(note: &Note, notebook: Option<&str>) -> Command {
     let head = note.snapshot().unwrap().metadata_head.operation_id;
     Command {
@@ -45,7 +17,7 @@ fn set_notebook(note: &Note, notebook: Option<&str>) -> Command {
     }
 }
 fn add_stroke(note: &Note, sheet: &SheetView) -> Command {
-    Command {
+    let c = Command {
         operation_id: new_id(),
         dependencies: vec![sheet.creation_operation_id.clone()],
         body: CommandBody::Marks {
@@ -56,18 +28,10 @@ fn add_stroke(note: &Note, sheet: &SheetView) -> Command {
                 brush: brush(),
             }],
         },
-    }
-    .tap(|c| {
-        note.submit(c.clone()).unwrap();
-    })
+    };
+    note.submit(c.clone()).unwrap();
+    c
 }
-trait Tap: Sized {
-    fn tap(self, f: impl FnOnce(&Self)) -> Self {
-        f(&self);
-        self
-    }
-}
-impl<T> Tap for T {}
 fn summary(lib: &SyncrLibrary, id: &str) -> NoteSummary {
     lib.list_notes()
         .unwrap()

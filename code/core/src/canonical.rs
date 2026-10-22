@@ -1,17 +1,25 @@
-//! SYNO v1 canonical operations (creation tags 0 and 2 pre-canvas, 3 current). See README for the byte grammar. Never JSON equality.
-use crate::{error::limit, *};
+//! SYNO v1 canonical operation bytes: the identity of an operation for idempotency
+//! (an ID retried with different bytes is an `IdCollision`). Never JSON equality. The
+//! byte grammar is in README.md; any change here breaks every stored operation.
+use crate::{error::limit, samples::MAX_SAMPLE_BYTES, *};
+
+/// Budget for everything except sample bytes: prefix, tags, counts, strings, lengths.
+const MAX_METADATA_BYTES: usize = 64 * 1024;
+const PREFIX: &[u8] = b"SYNO\x01\x00";
 
 struct Encoder {
     bytes: Vec<u8>,
     metadata: usize,
     samples: usize,
+    text: usize,
 }
 impl Encoder {
     fn new() -> Self {
         Self {
-            bytes: b"SYNO\x01\x00".to_vec(),
-            metadata: 6,
+            bytes: PREFIX.to_vec(),
+            metadata: PREFIX.len(),
             samples: 0,
+            text: 0,
         }
     }
     fn raw(&mut self, bytes: &[u8]) {
@@ -27,8 +35,8 @@ impl Encoder {
         Ok(())
     }
     fn string(&mut self, value: &str) -> CoreResult<()> {
-        if value.len() > 64 * 1024
-            || self.metadata.saturating_add(4).saturating_add(value.len()) > 64 * 1024
+        if value.len() > MAX_METADATA_BYTES
+            || self.metadata.saturating_add(4).saturating_add(value.len()) > MAX_METADATA_BYTES
         {
             return Err(limit("Operation metadata exceeds 64 KiB"));
         }
@@ -42,11 +50,37 @@ impl Encoder {
             .samples
             .checked_add(value.len())
             .ok_or_else(|| limit("Gesture samples exceed size limit"))?;
-        if self.samples > crate::samples::MAX_SAMPLE_BYTES {
+        if self.samples > MAX_SAMPLE_BYTES {
             return Err(limit("Gesture samples exceed 16 MiB"));
         }
         self.bytes.extend_from_slice(value);
         Ok(())
+    }
+    fn text(&mut self, value: &str) -> CoreResult<()> {
+        if value.len() > crate::text::MAX_TEXT_BYTES {
+            return Err(limit("Text exceeds 1 MiB"));
+        }
+        self.text = self.text.saturating_add(value.len());
+        if self.text > crate::text::MAX_GESTURE_TEXT_BYTES {
+            return Err(limit("Gesture text exceeds 16 MiB"));
+        }
+        self.length(value.len())?;
+        self.bytes.extend_from_slice(value.as_bytes());
+        Ok(())
+    }
+    fn text_style(&mut self, style: &TextStyle) {
+        self.tag(match style.size {
+            BrushSize::Small => 0,
+            BrushSize::Medium => 1,
+            BrushSize::Large => 2,
+        });
+        self.tag(match style.colour {
+            InkColour::Ink => 0,
+            InkColour::Red => 1,
+            InkColour::Green => 2,
+            InkColour::Blue => 3,
+            InkColour::Orange => 4,
+        });
     }
     fn optional(&mut self, value: Option<&str>) -> CoreResult<()> {
         match value {
@@ -90,17 +124,148 @@ impl Encoder {
             InkColour::Orange => 4,
         });
     }
+    fn mutation(&mut self, m: &MarkMutation) -> CoreResult<()> {
+        match m {
+            MarkMutation::AddStroke {
+                mark_id,
+                sheet_id,
+                samples,
+                brush,
+            } => {
+                self.tag(0);
+                self.string(mark_id)?;
+                self.string(sheet_id)?;
+                self.blob(samples)?;
+                self.brush(brush);
+            }
+            MarkMutation::DeleteStroke { mark_id, base } => {
+                self.tag(1);
+                self.string(mark_id)?;
+                self.base(base)?;
+            }
+            MarkMutation::RestoreStroke { mark_id, base } => {
+                self.tag(2);
+                self.string(mark_id)?;
+                self.base(base)?;
+            }
+            MarkMutation::TransformStroke {
+                mark_id,
+                base,
+                transform: t,
+            } => {
+                self.tag(3);
+                self.string(mark_id)?;
+                self.base(base)?;
+                // Exact IEEE bits: -0.0 and 0.0 are different operations.
+                for v in [t.a, t.b, t.c, t.d, t.tx, t.ty] {
+                    self.raw(&v.to_bits().to_le_bytes());
+                }
+            }
+            MarkMutation::RestyleStroke {
+                mark_id,
+                base,
+                brush,
+            } => {
+                self.tag(4);
+                self.string(mark_id)?;
+                self.base(base)?;
+                self.brush(brush);
+            }
+            MarkMutation::AddText {
+                mark_id,
+                sheet_id,
+                role,
+                origin_x,
+                origin_y,
+                width,
+                text,
+                style,
+            } => {
+                self.tag(5);
+                self.string(mark_id)?;
+                self.string(sheet_id)?;
+                self.tag(match role {
+                    TextRole::Document => 0,
+                    TextRole::Free => 1,
+                });
+                for value in [origin_x, origin_y, width] {
+                    self.raw(&value.to_bits().to_le_bytes());
+                }
+                self.text(text)?;
+                self.text_style(style);
+            }
+            MarkMutation::SpliceText {
+                mark_id,
+                base,
+                offset,
+                delete,
+                insert,
+            } => {
+                self.tag(6);
+                self.string(mark_id)?;
+                self.base(base)?;
+                self.raw(&offset.to_le_bytes());
+                self.raw(&delete.to_le_bytes());
+                self.text(insert)?;
+            }
+            MarkMutation::SetTextWidth {
+                mark_id,
+                base,
+                width,
+            } => {
+                self.tag(7);
+                self.string(mark_id)?;
+                self.base(base)?;
+                self.raw(&width.to_bits().to_le_bytes());
+            }
+            MarkMutation::DeleteText { mark_id, base }
+            | MarkMutation::RestoreText { mark_id, base } => {
+                self.tag(if matches!(m, MarkMutation::DeleteText { .. }) {
+                    8
+                } else {
+                    9
+                });
+                self.string(mark_id)?;
+                self.base(base)?;
+            }
+            MarkMutation::TransformText {
+                mark_id,
+                base,
+                transform: t,
+            } => {
+                self.tag(10);
+                self.string(mark_id)?;
+                self.base(base)?;
+                for v in [t.a, t.b, t.c, t.d, t.tx, t.ty] {
+                    self.raw(&v.to_bits().to_le_bytes());
+                }
+            }
+            MarkMutation::RestyleText {
+                mark_id,
+                base,
+                style,
+            } => {
+                self.tag(11);
+                self.string(mark_id)?;
+                self.base(base)?;
+                self.text_style(style);
+            }
+        }
+        Ok(())
+    }
     fn finish(self) -> CoreResult<Vec<u8>> {
-        if self.metadata > 64 * 1024 {
+        if self.metadata > MAX_METADATA_BYTES {
             return Err(limit("Operation metadata exceeds 64 KiB"));
         }
         Ok(self.bytes)
     }
 }
+/// Creation tags. 0: before page formats (implies Inbox). 2: pre-canvas, with a page format
+/// byte. 3: current. Only 3 is produced; 0 and 2 are matched for retries of old notes.
 const LEGACY_CREATION: u8 = 0;
 const FORMAT_CREATION: u8 = 2;
 const CREATION: u8 = 3;
-/// Pre-canvas page format byte of a tag-2 creation: Phone 0, Sheet16x10 1.
+/// `format` is the tag-2 page format byte (Phone 0, Sheet16x10 1); other tags ignore it.
 fn creation_with(
     request: &CreateNoteRequest,
     author: &str,
@@ -140,7 +305,7 @@ pub(crate) fn creation_matches(
     request: &CreateNoteRequest,
     author: &str,
 ) -> CoreResult<bool> {
-    Ok(match stored.get(6) {
+    Ok(match stored.get(PREFIX.len()) {
         Some(&LEGACY_CREATION) => {
             request.notebook.is_none()
                 && creation_with(request, author, LEGACY_CREATION, 0)? == stored
@@ -152,6 +317,8 @@ pub(crate) fn creation_matches(
         _ => creation(request, author)? == stored,
     })
 }
+/// A command's identity. Dependencies are sorted and deduplicated here, so their order
+/// and repetition never change identity.
 pub(crate) fn command(command: &Command, note_id: &str, author: &str) -> CoreResult<Vec<u8>> {
     let mut e = Encoder::new();
     e.tag(1);
@@ -166,63 +333,30 @@ pub(crate) fn command(command: &Command, note_id: &str, author: &str) -> CoreRes
         e.string(d)?;
     }
     match &command.body {
+        CommandBody::CompanionMarks { mutations } => {
+            e.tag(8);
+            e.length(mutations.len())?;
+            for m in mutations {
+                e.string(&m.id)?;
+                e.base(&m.base)?;
+                e.tag(u8::from(m.tombstone));
+                let json = serde_json::to_string(&m.body)
+                    .map_err(|_| crate::error::invalid("Invalid companion body"))?;
+                e.text(&json)?;
+            }
+        }
+        CommandBody::SetCompanionSettings { settings, base } => {
+            e.tag(9);
+            e.base(base)?;
+            let json = serde_json::to_string(settings)
+                .map_err(|_| crate::error::invalid("Invalid companion settings"))?;
+            e.text(&json)?;
+        }
         CommandBody::Marks { mutations } => {
             e.tag(0);
             e.length(mutations.len())?;
             for m in mutations {
-                match m {
-                    MarkMutation::AddStroke {
-                        mark_id,
-                        sheet_id,
-                        samples,
-                        brush,
-                    } => {
-                        e.tag(0);
-                        e.string(mark_id)?;
-                        e.string(sheet_id)?;
-                        e.blob(samples)?;
-                        e.brush(brush);
-                    }
-                    MarkMutation::DeleteStroke { mark_id, base } => {
-                        e.tag(1);
-                        e.string(mark_id)?;
-                        e.base(base)?;
-                    }
-                    MarkMutation::RestoreStroke { mark_id, base } => {
-                        e.tag(2);
-                        e.string(mark_id)?;
-                        e.base(base)?;
-                    }
-                    MarkMutation::TransformStroke {
-                        mark_id,
-                        base,
-                        transform,
-                    } => {
-                        e.tag(3);
-                        e.string(mark_id)?;
-                        e.base(base)?;
-                        for v in [
-                            transform.a,
-                            transform.b,
-                            transform.c,
-                            transform.d,
-                            transform.tx,
-                            transform.ty,
-                        ] {
-                            e.raw(&v.to_bits().to_le_bytes());
-                        }
-                    }
-                    MarkMutation::RestyleStroke {
-                        mark_id,
-                        base,
-                        brush,
-                    } => {
-                        e.tag(4);
-                        e.string(mark_id)?;
-                        e.base(base)?;
-                        e.brush(brush);
-                    }
-                }
+                e.mutation(m)?;
             }
         }
         CommandBody::AddSheet { sheet_id, base } => {
