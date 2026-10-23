@@ -1,42 +1,43 @@
 package dev.syncr.prototype.tablet
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.selectableGroup
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import dev.syncr.prototype.ui.ActionTone
 import dev.syncr.prototype.ui.Hairline
 import dev.syncr.prototype.ui.MenuRow
 import dev.syncr.prototype.ui.SectionLabel
+import dev.syncr.prototype.ui.SettingsChoices
 import dev.syncr.prototype.ui.SettingsSlider
-import dev.syncr.prototype.ui.SyncDialogSystemBars
+import dev.syncr.prototype.ui.SyncrIcon
+import dev.syncr.prototype.ui.SyncrIcons
+import dev.syncr.prototype.ui.SyncrSheet
+import dev.syncr.prototype.ui.TextAction
+import dev.syncr.prototype.ui.theme.Space
 import dev.syncr.prototype.ui.theme.Syncr
+import dev.syncr.prototype.ui.theme.TouchTarget
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -58,9 +59,14 @@ data class TabletUiState(
     val problem: String? = null,
     /** A Mac was chosen before, so the bubble offers to reconnect to it. */
     val knownHost: Boolean = false,
+    /** Which link the pad writes over. */
+    val linkChoice: TabletLink = TabletLink.POINTER,
+    /** Stream: whether the Mac link is switched on, and one line about it. */
+    val streamEnabled: Boolean = false,
+    val streamSummary: String = "",
 ) {
-    val link: LinkState get() = LinkStatus.state(host, problem)
-    val caption: String get() = LinkStatus.padCaption(host, problem)
+    val link: LinkState get() = if (linkChoice == TabletLink.STREAM) LinkStatus.streamState(host != null, problem) else LinkStatus.state(host, problem)
+    val caption: String get() = if (linkChoice == TabletLink.STREAM) LinkStatus.padCaptionStream(host, problem) else LinkStatus.padCaption(host, problem)
 }
 
 class TabletSetupActions(
@@ -73,85 +79,81 @@ class TabletSetupActions(
     val selectMac: () -> Unit,
     val requestPermission: () -> Unit,
     val leave: () -> Unit,
+    val setLink: (TabletLink) -> Unit = {},
+    val enableMacLink: () -> Unit = {},
+    val macLinkSettings: () -> Unit = {},
 )
 
-/** Tablet settings, reached from the bubble. Styled like the app's other sheets. */
-@OptIn(ExperimentalMaterial3Api::class)
+/** Tablet settings, reached from the bubble. The same sheet and controls as the app's Settings. */
 @Composable
 fun TabletSetupPanel(state: TabletUiState, actions: TabletSetupActions) {
     val c = Syncr.colors
-    ModalBottomSheet(actions.close, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = c.chrome, contentColor = c.ink) {
-        SyncDialogSystemBars(c.dark)
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 32.dp)) {
-            Text("Tablet mode", style = Syncr.type.heading, color = c.ink, modifier = Modifier.padding(bottom = 4.dp))
-            Text("Look at the Mac, write on the phone. Nothing is stored.", style = Syncr.type.caption, color = c.muted)
+    SyncrSheet(actions.close, title = "Tablet mode") {
+        val stream = state.linkChoice == TabletLink.STREAM
+        Text(if (stream) "Look at the Mac, write on the phone. The stroke is saved in the Mac's note, not on the phone."
+            else "Look at the Mac, write on the phone. Nothing is stored.", style = Syncr.type.caption, color = c.muted)
 
-            SectionLabel("Link")
-            Column(Modifier.semantics { selectableGroup() }) {
-                Choice("Pointer · Bluetooth", "The phone is a pen-shaped mouse for any Mac app.", selected = true, enabled = true) {}
-                Choice("Stream · Wi-Fi", "Needs the Mac app, coming with Mac sync.", selected = false, enabled = false) {}
+        SectionLabel("Connection")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (state.problem != null) {
+                SyncrIcon(SyncrIcons.Attention, c.attention, size = 20.dp)
+                Spacer(Modifier.width(Space.s))
             }
+            Text(state.problem ?: if (state.host != null) "Connected to ${state.host}" else "Not connected",
+                style = Syncr.type.title, color = c.ink)
+        }
+        if (stream) {
+            Text(state.streamSummary, style = Syncr.type.caption, color = c.muted)
+            if (!state.streamEnabled) MenuRow("Turn on Mac link", "Then pair the Mac in Settings, under Mac link.", onClick = actions.enableMacLink)
+            MenuRow("Mac link settings", "Pair, reconnect or forget the Mac.", onClick = actions.macLinkSettings)
+        } else {
+            Text(state.status, style = Syncr.type.caption, color = c.muted)
+            if (state.needsPermission) MenuRow("Allow Bluetooth access", null, onClick = actions.requestPermission)
+            MenuRow(if (state.knownHost && state.host == null) "Reconnect or choose a Mac" else "Choose your Mac",
+                "Pair the phone and the Mac in both devices' Bluetooth settings first.", onClick = actions.selectMac)
+            MenuRow("Bluetooth settings", null, onClick = actions.bluetoothSettings)
+        }
 
-            Hairline(Modifier.padding(vertical = 12.dp))
-            SectionLabel("Mapping")
-            Column(Modifier.semantics { selectableGroup() }) {
-                Choice("Actual size", "1 cm on the phone moves the cursor 1 cm. Two fingers move the window.",
-                    selected = state.mode == MappingMode.ACTUAL_SIZE, enabled = true) { actions.setMode(MappingMode.ACTUAL_SIZE) }
-                Choice("Whole screen", "The pad covers the whole Mac screen, scaled evenly. Less precise.",
-                    selected = state.mode == MappingMode.WHOLE_SCREEN, enabled = true) { actions.setMode(MappingMode.WHOLE_SCREEN) }
-            }
+        Hairline(Modifier.padding(top = Space.l))
+        SettingsChoices("Link", TabletLink.entries, state.linkChoice,
+            label = { if (it == TabletLink.POINTER) "Pointer · Bluetooth" else "Stream · Wi-Fi" },
+            detail = { if (it == TabletLink.POINTER) "The phone is a pen-shaped mouse for any Mac app." else "Write into the note open in the Syncr Mac app. The stroke is saved there." },
+            onSelect = actions.setLink)
+
+        if (!stream) {
+            SettingsChoices("Mapping", listOf(MappingMode.ACTUAL_SIZE, MappingMode.WHOLE_SCREEN), state.mode,
+                label = { if (it == MappingMode.ACTUAL_SIZE) "Actual size" else "Whole screen" },
+                detail = { if (it == MappingMode.ACTUAL_SIZE) "1 cm on the phone moves the cursor 1 cm. Two fingers move the window."
+                    else "The pad covers the whole Mac screen, scaled evenly. Less precise." },
+                onSelect = actions.setMode)
 
             SectionLabel("Mac screen")
             ScreenSizeFields(state.screen, actions.setScreen)
             Text("A 13-inch MacBook Air is about 290 × 189 mm. Measure the lit area, not the bezel.",
-                style = Syncr.type.caption, color = c.muted)
+                style = Syncr.type.caption, color = c.muted, modifier = Modifier.padding(top = Space.xs))
             if (state.mode == MappingMode.ACTUAL_SIZE) {
                 Text("Pad window: ${mm(state.padWidthMm)} × ${mm(state.padHeightMm)} mm, by the phone's reported DPI.",
-                    style = Syncr.type.caption, color = c.muted, modifier = Modifier.padding(top = 8.dp))
-                Row(Modifier.fillMaxWidth().clickable(role = Role.Checkbox) { actions.setCalibrated(!state.calibrated) },
+                    style = Syncr.type.caption, color = c.muted, modifier = Modifier.padding(top = Space.s))
+                Row(Modifier.fillMaxWidth().heightIn(min = TouchTarget)
+                    .toggleable(state.calibrated, role = Role.Checkbox, onValueChange = actions.setCalibrated),
                     verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(state.calibrated, onCheckedChange = null)
+                    Checkbox(state.calibrated, onCheckedChange = null,
+                        colors = CheckboxDefaults.colors(checkedColor = c.ink, uncheckedColor = c.muted, checkmarkColor = c.chrome))
                     Text("Checked with a ruler: a 5 cm line on the phone is 5 cm on the Mac.",
-                        style = Syncr.type.caption, color = c.ink)
+                        style = Syncr.type.caption, color = c.ink, modifier = Modifier.padding(start = Space.m))
                 }
             }
 
-            var trail by remember(state.trailMs) { mutableFloatStateOf(state.trailMs.toFloat()) }
-            val span = TabletSettings.TRAIL_MAX_MS - TabletSettings.TRAIL_MIN_MS
-            SettingsSlider("Trail length", (trail - TabletSettings.TRAIL_MIN_MS) / span, "Short", "Long",
-                valueText = "${trail.roundToInt()} ms", onFinished = { actions.setTrail(trail.roundToInt().toLong()) }) { v ->
-                trail = TabletSettings.TRAIL_MIN_MS + v * span
-            }
-
-            Hairline(Modifier.padding(vertical = 12.dp))
-            SectionLabel("Bluetooth")
-            Text(state.problem ?: if (state.host != null) "Connected to ${state.host}." else "Not connected.",
-                style = Syncr.type.title, color = if (state.problem != null) c.attention else c.ink)
-            Text(state.status, style = Syncr.type.caption, color = c.muted)
-            if (state.needsPermission) MenuRow("Allow Bluetooth access", null, onClick = actions.requestPermission)
-            MenuRow("Select paired Mac", "Pair the phone and the Mac in both devices' Bluetooth settings first.", onClick = actions.selectMac)
-            MenuRow("Bluetooth settings", null, onClick = actions.bluetoothSettings)
-
-            Hairline(Modifier.padding(vertical = 12.dp))
-            MenuRow("Leave Tablet mode", null, onClick = actions.leave)
         }
-    }
-}
-
-@Composable
-private fun Choice(title: String, detail: String, selected: Boolean, enabled: Boolean, onSelect: () -> Unit) {
-    val c = Syncr.colors
-    Row(
-        Modifier.fillMaxWidth().selectable(selected, enabled = enabled, role = Role.RadioButton, onClick = onSelect)
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f).padding(end = 12.dp)) {
-            Text(title, style = Syncr.type.body, color = if (enabled) c.ink else c.muted)
-            Text(detail, style = Syncr.type.caption, color = c.muted)
+        var trail by remember(state.trailMs) { mutableFloatStateOf(state.trailMs.toFloat()) }
+        val span = TabletSettings.TRAIL_MAX_MS - TabletSettings.TRAIL_MIN_MS
+        SettingsSlider("Trail length", (trail - TabletSettings.TRAIL_MIN_MS) / span, "Short", "Long",
+            valueText = "${trail.roundToInt()} ms", onFinished = { actions.setTrail(trail.roundToInt().toLong()) }) { v ->
+            trail = TabletSettings.TRAIL_MIN_MS + v * span
         }
-        RadioButton(selected, onClick = null, enabled = enabled)
+
+        Hairline(Modifier.padding(vertical = Space.l))
+        MenuRow("Leave Tablet mode", null, tone = ActionTone.DEFAULT, onClick = actions.leave)
     }
 }
 
@@ -164,15 +166,13 @@ fun ScreenSizeFields(screen: MacScreen, onChange: (MacScreen) -> Unit) {
         val wv = nw.toDoubleOrNull(); val hv = nh.toDoubleOrNull()
         if (wv != null && hv != null && wv in 50.0..2000.0 && hv in 50.0..2000.0) onChange(MacScreen(wv, hv))
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(horizontalArrangement = Arrangement.spacedBy(Space.m), verticalAlignment = Alignment.CenterVertically) {
         OutlinedTextField(w, { w = it; commit(it, h) }, Modifier.weight(1f), singleLine = true,
-            label = { Text("Width mm") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+            label = { Text("Width (mm)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Next))
         OutlinedTextField(h, { h = it; commit(w, it) }, Modifier.weight(1f), singleLine = true,
-            label = { Text("Height mm") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+            label = { Text("Height (mm)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done))
     }
-    if (screen != MacScreen.DEFAULT) {
-        TextButton(onClick = { onChange(MacScreen.DEFAULT) }) { Text("Reset to MacBook Air 13\" (290 × 189)", color = Syncr.colors.ink) }
-    }
+    if (screen != MacScreen.DEFAULT) TextAction("Reset to MacBook Air 13″ (290 × 189)", { onChange(MacScreen.DEFAULT) })
 }
 
 private fun mm(v: Double): String =

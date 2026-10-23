@@ -1,11 +1,13 @@
 package dev.syncr.prototype
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import android.Manifest
-import android.app.AlertDialog
+import android.annotation.SuppressLint
+import android.bluetooth.BluetoothDevice
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
-import android.graphics.drawable.ColorDrawable
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -16,14 +18,28 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.graphics.drawable.toDrawable
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import dev.syncr.prototype.link.android.LinkController
+import dev.syncr.prototype.link.android.LinkUi
+import dev.syncr.prototype.ui.linkSummary
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.dp
+import dev.syncr.prototype.tablet.StreamAction
+import dev.syncr.prototype.tablet.StreamPadStatus
+import dev.syncr.prototype.tablet.TabletMacLinkSettings
+import dev.syncr.prototype.tablet.defaultTabletLink
+import dev.syncr.prototype.tablet.streamPadState
 import dev.syncr.prototype.tablet.LinkStatus
 import dev.syncr.prototype.tablet.MacScreen
 import dev.syncr.prototype.tablet.MappingMode
@@ -32,6 +48,7 @@ import dev.syncr.prototype.tablet.TabletMapping
 import dev.syncr.prototype.tablet.TabletPadView
 import dev.syncr.prototype.tablet.TabletBubble
 import dev.syncr.prototype.tablet.TabletBubbleActions
+import dev.syncr.prototype.tablet.MacPickerDialog
 import dev.syncr.prototype.tablet.TabletSettings
 import dev.syncr.prototype.tablet.TabletSetupActions
 import dev.syncr.prototype.tablet.TabletSetupPanel
@@ -40,7 +57,8 @@ import dev.syncr.prototype.ui.theme.SyncrTheme
 
 /**
  * Tablet mode (design §8.2, §8.7). Pointer link: the phone is a Bluetooth HID absolute mouse; the Mac owns
- * the canvas and nothing is stored. Stream (Wi-Fi into a Syncr note) waits for the Mac app.
+ * the canvas and nothing is stored. Stream link: the pad writes into the note open in the Syncr Mac app over the
+ * Wi-Fi link (wifi-link-v0 §3.5); the stroke is saved there, never on the phone.
  * The class keeps its old name so existing entry points and the manifest entry keep working.
  */
 class PointerActivity : ComponentActivity() {
@@ -49,17 +67,34 @@ class PointerActivity : ComponentActivity() {
     private lateinit var pad: TabletPadView
     private var ui by mutableStateOf(
         TabletUiState(MappingMode.ACTUAL_SIZE, MacScreen.DEFAULT, false, null,
-            "Pair the phone in Android and macOS Bluetooth settings, then select your Mac.", needsPermission = false)
+            "Pair this phone with your Mac in Bluetooth settings on both, then choose your Mac.", needsPermission = false)
     )
     private var panelOpen by mutableStateOf(false)
     private var bubbleOpen by mutableStateOf(false)
+    /** Paired devices offered in the "Choose your Mac" dialog; null while it is closed. */
+    private var macChoices by mutableStateOf<List<BluetoothDevice>?>(null)
     private var autoConnectTried = false
+    private var pointerHost: String? = null
+    private var pointerStatus = "Choose your paired Mac to use the Bluetooth pointer."
+    private lateinit var link: LinkController
+    private var linkUi by mutableStateOf(LinkUi())
+    private var activeLink by mutableStateOf(TabletLink.POINTER)
+    private var sessionLink: TabletLink? = null
+    private var macLinkOpen by mutableStateOf(false)
+    private val streaming get() = activeLink == TabletLink.STREAM
+    private val streamState get() = streamPadState(linkUi.enabled, linkUi.pairedMac != null,
+        linkUi.status.phase, linkUi.status.macName ?: linkUi.pairedMac, linkUi.target)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         settings = TabletSettings(this)
-        settings.link = TabletLink.POINTER // The only link that exists today.
-        window.setBackgroundDrawable(ColorDrawable(Color.BLACK))
+        link = LinkController.get(this)
+        linkUi = link.state.value
+        activeLink = defaultTabletLink(settings.link, linkUi.enabled, linkUi.pairedMac != null)
+        link.bind(this)
+        sessionLink = savedInstanceState?.getString("session_link")?.let { name -> TabletLink.entries.firstOrNull { it.name == name } }
+        sessionLink?.let { activeLink = it }
+        window.setBackgroundDrawable(Color.BLACK.toDrawable())
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         if (Build.VERSION.SDK_INT >= 28) {
             window.attributes = window.attributes.apply {
@@ -74,7 +109,8 @@ class PointerActivity : ComponentActivity() {
             runOnUiThread { onStatus(message) }
         }
         ui = ui.copy(mode = settings.mode, screen = settings.screen, calibrated = settings.calibrated,
-            needsPermission = !hasBluetoothPermission(), trailMs = settings.trailMs, knownHost = settings.hostAddress != null)
+            needsPermission = !hasBluetoothPermission(), trailMs = settings.trailMs, knownHost = settings.hostAddress != null,
+            linkChoice = activeLink)
 
         pad = TabletPadView(
             this,
@@ -89,22 +125,43 @@ class PointerActivity : ComponentActivity() {
         )
         pad.configure(settings.mode, settings.screen, settings.offsetXMm, settings.offsetYMm)
         pad.setTrailMs(settings.trailMs)
+        pad.setStream(if (streaming) link.streamPen else null)
+        pad.onCaptionClick = { applyLink(if (streaming) TabletLink.POINTER else TabletLink.STREAM) }
         refreshCaption()
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                link.state.collect { next ->
+                    linkUi = next
+                    val choice = sessionLink ?: defaultTabletLink(settings.link, next.enabled, next.pairedMac != null)
+                    if (choice != activeLink) switchLink(choice)
+                    refreshCaption()
+                }
+            }
+        }
 
         setContent {
             SyncrTheme(dark = true) {
                 Box(Modifier.fillMaxSize()) {
                     AndroidView(factory = { pad }, modifier = Modifier.fillMaxSize())
                     TabletBubble(ui, bubbleOpen, bubbleActions)
+                    if (streaming && !panelOpen && !bubbleOpen && !macLinkOpen) {
+                        StreamPadStatus(streamState, Modifier.align(Alignment.TopCenter).padding(top = 8.dp), ::streamAction)
+                    }
                     if (panelOpen) TabletSetupPanel(ui, setupActions)
+                    if (macLinkOpen) TabletMacLinkSettings { macLinkOpen = false; syncPadInput(); hideSystemBars() }
+                    macChoices?.let { devices ->
+                        MacPickerDialog(devices.map { deviceName(it) },
+                            onPick = { index -> closeMacPicker(); settings.hostAddress = devices[index].address; controller.connect(devices[index]) },
+                            onDismiss = { closeMacPicker() })
+                    }
                 }
             }
         }
 
         if (!controller.available()) {
-            onStatus("This phone does not expose Android's Bluetooth HID Device profile (Android 9+ required).")
-        } else requestBluetoothAccess()
-        if (settings.hostAddress == null) openPanel()
+            onStatus("This phone can't act as a Bluetooth pen. It needs Android 9 or later with Bluetooth HID support.")
+        } else if (!streaming) requestBluetoothAccess()
+        if (settings.hostAddress == null && !streaming) openPanel()
     }
 
     private val setupActions = TabletSetupActions(
@@ -138,7 +195,44 @@ class PointerActivity : ComponentActivity() {
         selectMac = { selectHost() },
         requestPermission = { requestBluetoothAccess() },
         leave = { finish() },
+        setLink = { choice -> applyLink(choice) },
+        enableMacLink = { link.setEnabled(true) },
+        macLinkSettings = { panelOpen = false; macLinkOpen = true; syncPadInput() },
     )
+
+    /** Pointer (Bluetooth mouse) or Stream (Wi-Fi into the Mac's note). A stroke in progress is released first. */
+    private fun applyLink(choice: TabletLink) {
+        settings.link = choice // Even selecting the current automatic choice makes it explicit.
+        sessionLink = null
+        switchLink(choice)
+    }
+
+    private fun switchLink(choice: TabletLink) {
+        if (choice != activeLink) {
+            pad.releaseAll()
+            activeLink = choice
+            ui = ui.copy(host = if (streaming) null else pointerHost, linkChoice = choice,
+                status = if (streaming) ui.status else pointerStatus)
+            pad.setStream(if (streaming) link.streamPen else null)
+            link.padOpened(streaming && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+            if (!streaming && controller.available()) {
+                requestBluetoothAccess()
+                if (hasBluetoothPermission() && controller.enabled()) autoConnect()
+            }
+        }
+        refreshCaption()
+    }
+
+    private fun streamAction(action: StreamAction) {
+        when (action) {
+            StreamAction.ENABLE -> link.setEnabled(true)
+            StreamAction.PAIR -> { macLinkOpen = true; syncPadInput() }
+            StreamAction.POINTER -> {
+                sessionLink = TabletLink.POINTER // Recovery is only for this pad session, never the saved preference.
+                switchLink(TabletLink.POINTER)
+            }
+        }
+    }
 
     /** Bubble taps are finger input on Compose, never pad input; opening it also releases a held button. */
     private val bubbleActions = TabletBubbleActions(
@@ -154,7 +248,7 @@ class PointerActivity : ComponentActivity() {
     )
 
     private fun syncPadInput() {
-        pad.inputEnabled = !bubbleOpen && !panelOpen // Disabling releases a held button first.
+        pad.inputEnabled = !bubbleOpen && !panelOpen && !macLinkOpen && macChoices == null // Disabling releases a held button first.
     }
 
     private fun openPanel() {
@@ -169,16 +263,28 @@ class PointerActivity : ComponentActivity() {
     }
 
     private fun onStatus(message: String) {
-        val host = LinkStatus.connectedHost(message, ui.host)
-        ui = ui.copy(status = message, host = host)
+        pointerHost = LinkStatus.connectedHost(message, pointerHost)
+        pointerStatus = message
+        if (streaming) return // Keep Bluetooth status for a later switch, but do not show it as the Stream link.
+        ui = ui.copy(status = message, host = pointerHost)
         refreshCaption()
         if (message.startsWith("Bluetooth controller ready")) autoConnect()
     }
 
     private fun refreshCaption() {
-        ui = ui.copy(problem = problem(), knownHost = settings.hostAddress != null)
+        if (streaming) { refreshStreamCaption(); return }
+        ui = ui.copy(problem = problem(), knownHost = settings.hostAddress != null, linkChoice = activeLink)
         // The spoken description keeps the mapping and calibration detail the visible line leaves out.
         pad.setCaption(ui.caption, ui.link, LinkStatus.caption(ui.host, ui.mode, ui.calibrated))
+    }
+
+    /** Stream: the Mac link's state and whether the Mac has a note this pad can write into. */
+    private fun refreshStreamCaption() {
+        val mac = linkUi.status.macName.takeIf { linkUi.connected }
+        val problem = streamState.problem
+        ui = ui.copy(host = mac, problem = problem, linkChoice = activeLink, streamEnabled = linkUi.enabled,
+            streamSummary = streamState.message, status = linkSummary(linkUi))
+        pad.setCaption(ui.caption, ui.link, LinkStatus.captionStream(mac, problem))
     }
 
     /** What stops the link working, in a few words for the caption; null when nothing does. */
@@ -211,7 +317,7 @@ class PointerActivity : ComponentActivity() {
         ui = ui.copy(needsPermission = !hasBluetoothPermission())
         refreshCaption()
         if (granted) controller.start()
-        else onStatus("Bluetooth permission is needed to pair and send pointer input.")
+        else onStatus("Syncr needs Bluetooth permission to connect to your Mac.")
     }
 
     /** Reconnects to the Mac chosen last time, once per launch, when the HID app is registered. */
@@ -227,11 +333,13 @@ class PointerActivity : ComponentActivity() {
         hideSystemBars()
         ui = ui.copy(needsPermission = !hasBluetoothPermission())
         refreshCaption()
-        if (controller.available() && hasBluetoothPermission()) controller.start()
+        if (!streaming && controller.available() && hasBluetoothPermission()) controller.start()
+        link.padOpened(streaming) // Stream: the Mac creates a note for the pad if none is open
     }
 
     override fun onPause() {
-        pad.releaseAll() // Never leave the mouse button held.
+        pad.releaseAll() // Never leave the mouse button held, or a stream stroke open.
+        link.padOpened(false)
         super.onPause()
     }
 
@@ -252,17 +360,27 @@ class PointerActivity : ComponentActivity() {
         if (!controller.enabled()) { onStatus("Turn on Bluetooth in system settings first."); return }
         val devices = controller.bonded()
         if (devices.isEmpty()) {
-            onStatus("No paired devices. Pair your Mac in Bluetooth settings on both devices first.")
+            onStatus("No paired devices yet. Pair your Mac in Bluetooth settings on both devices first.")
             return
         }
-        AlertDialog.Builder(this, android.R.style.Theme_Material_Dialog_Alert)
-            .setTitle("Choose your paired Mac")
-            .setItems(devices.map { it.name ?: it.address }.toTypedArray()) { _, index ->
-                settings.hostAddress = devices[index].address
-                controller.connect(devices[index])
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
+        macChoices = devices
+        syncPadInput()
+    }
+
+    private fun closeMacPicker() {
+        macChoices = null
+        syncPadInput()
+        hideSystemBars()
+    }
+
+    /** A paired device's name; the address when the name can't be read. Reading it is guarded by the permission check. */
+    @SuppressLint("MissingPermission")
+    private fun deviceName(device: BluetoothDevice): String =
+        (if (hasBluetoothPermission()) runCatching { device.name }.getOrNull() else null) ?: device.address
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        sessionLink?.let { outState.putString("session_link", it.name) }
+        super.onSaveInstanceState(outState)
     }
 
     override fun onDestroy() {

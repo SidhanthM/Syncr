@@ -171,11 +171,11 @@ class TabletMappingTest {
     }
 
     @Test fun captionShowsLinkAndCalibration() {
-        assertEquals("POINTER · BLUETOOTH · NOT CONNECTED · ACTUAL SIZE · UNCALIBRATED",
+        assertEquals("Tablet mode pad. Pointer over Bluetooth. Not connected. Actual size, not checked with a ruler.",
             LinkStatus.caption(null, MappingMode.ACTUAL_SIZE, calibrated = false))
-        assertEquals("POINTER · BLUETOOTH · CONNECTED TO MAC · ACTUAL SIZE",
+        assertEquals("Tablet mode pad. Pointer over Bluetooth. Connected to Mac. Actual size.",
             LinkStatus.caption("Mac", MappingMode.ACTUAL_SIZE, calibrated = true))
-        assertEquals("POINTER · BLUETOOTH · CONNECTED TO MAC · WHOLE SCREEN",
+        assertEquals("Tablet mode pad. Pointer over Bluetooth. Connected to Mac. Whole screen.",
             LinkStatus.caption("Mac", MappingMode.WHOLE_SCREEN, calibrated = false))
     }
 }

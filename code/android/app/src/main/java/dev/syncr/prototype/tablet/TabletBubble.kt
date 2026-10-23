@@ -66,7 +66,7 @@ fun TabletBubble(state: TabletUiState, open: Boolean, actions: TabletBubbleActio
             }
         })
         MorphingBubble(open, center,
-            description = "Tablet mode, ${state.caption}. Show options", stateDescription = state.caption,
+            description = "Tablet mode options. ${state.caption}", stateDescription = state.caption,
             onOpen = actions.open,
             ring = { BubbleRing(state.link.ring()) },
             glyph = { PenGlyph() },
@@ -76,17 +76,18 @@ fun TabletBubble(state: TabletUiState, open: Boolean, actions: TabletBubbleActio
 
 @Composable
 private fun BubbleBarScope.TabletBar(state: TabletUiState, actions: TabletBubbleActions) {
-    val actual = state.mode == MappingMode.ACTUAL_SIZE
-    val count = if (actual) 6 else 5
+    val pointer = state.linkChoice == TabletLink.POINTER
+    val actual = pointer && state.mode == MappingMode.ACTUAL_SIZE
+    val count = if (pointer) (if (actual) 5 else 4) else 2
     var i = 0
     Row(Modifier.padding(horizontal = 6.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-        BubbleChip(if (actual) "Actual size" else "Whole screen", i++, count,
+        if (pointer) BubbleChip(if (actual) "Actual size" else "Whole screen", i++, count,
             description = "Mapping: ${if (actual) "Actual size" else "Whole screen"}. Switch to ${if (actual) "Whole screen" else "Actual size"}",
             onClick = actions.toggleMapping)
         if (actual) BubbleChip("Recentre", i++, count, description = "Recentre the window on the Mac screen", onClick = actions.recentre)
-        BubbleChip(if (state.knownHost && state.host == null) "Reconnect" else "Select Mac", i++, count, onClick = actions.selectMac)
+        if (pointer) BubbleChip(if (state.knownHost && state.host == null) "Reconnect" else "Choose Mac", i++, count,
+            description = if (state.knownHost && state.host == null) "Reconnect to your Mac" else "Choose your paired Mac", onClick = actions.selectMac)
         BubbleChip("Settings", i++, count, description = "Tablet settings", onClick = actions.settings)
-        BubbleChip("Stream: needs the Mac app", i++, count, enabled = false)
         BubbleChip("Leave", i++, count, description = "Leave Tablet mode", onClick = actions.leave)
     }
 }

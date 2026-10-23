@@ -1,18 +1,19 @@
 package dev.syncr.prototype.tablet
 
 import android.content.Context
+import androidx.core.content.edit
 
 /** Tablet mode choices, persisted in SharedPreferences. */
 class TabletSettings(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("tablet_mode", Context.MODE_PRIVATE)
 
-    var link: TabletLink
-        get() = enumOr(prefs.getString(KEY_LINK, null), TabletLink.POINTER)
-        set(value) = prefs.edit().putString(KEY_LINK, value.name).apply()
+    var link: TabletLink?
+        get() = TabletLink.entries.firstOrNull { it.name == prefs.getString(KEY_LINK, null) }
+        set(value) = prefs.edit { putString(KEY_LINK, value?.name) }
 
     var mode: MappingMode
         get() = enumOr(prefs.getString(KEY_MODE, null), MappingMode.ACTUAL_SIZE)
-        set(value) = prefs.edit().putString(KEY_MODE, value.name).apply()
+        set(value) = prefs.edit { putString(KEY_MODE, value.name) }
 
     var screen: MacScreen
         get() = runCatching {
@@ -21,30 +22,30 @@ class TabletSettings(context: Context) {
                 prefs.getFloat(KEY_H, MacScreen.DEFAULT.heightMm.toFloat()).toDouble(),
             )
         }.getOrDefault(MacScreen.DEFAULT)
-        set(value) = prefs.edit().putFloat(KEY_W, value.widthMm.toFloat()).putFloat(KEY_H, value.heightMm.toFloat()).apply()
+        set(value) = prefs.edit { putFloat(KEY_W, value.widthMm.toFloat()); putFloat(KEY_H, value.heightMm.toFloat()) }
 
     /** The user has checked actual size with a ruler for the current Mac screen size. */
     var calibrated: Boolean
         get() = prefs.getBoolean(KEY_CALIBRATED, false)
-        set(value) = prefs.edit().putBoolean(KEY_CALIBRATED, value).apply()
+        set(value) = prefs.edit { putBoolean(KEY_CALIBRATED, value) }
 
     var offsetXMm: Double
         get() = prefs.getFloat(KEY_OX, 0f).toDouble()
-        set(value) = prefs.edit().putFloat(KEY_OX, value.toFloat()).apply()
+        set(value) = prefs.edit { putFloat(KEY_OX, value.toFloat()) }
 
     var offsetYMm: Double
         get() = prefs.getFloat(KEY_OY, 0f).toDouble()
-        set(value) = prefs.edit().putFloat(KEY_OY, value.toFloat()).apply()
+        set(value) = prefs.edit { putFloat(KEY_OY, value.toFloat()) }
 
     /** Bluetooth address of the last Mac chosen in "Select paired Mac", reconnected automatically. */
     var hostAddress: String?
         get() = prefs.getString(KEY_HOST, null)
-        set(value) = prefs.edit().putString(KEY_HOST, value).apply()
+        set(value) = prefs.edit { putString(KEY_HOST, value) }
 
     /** How long the pen's fading trail lasts on the pad. */
     var trailMs: Long
         get() = prefs.getLong(KEY_TRAIL, TRAIL_DEFAULT_MS).coerceIn(TRAIL_MIN_MS.toLong(), TRAIL_MAX_MS.toLong())
-        set(value) = prefs.edit().putLong(KEY_TRAIL, value.coerceIn(TRAIL_MIN_MS.toLong(), TRAIL_MAX_MS.toLong())).apply()
+        set(value) = prefs.edit { putLong(KEY_TRAIL, value.coerceIn(TRAIL_MIN_MS.toLong(), TRAIL_MAX_MS.toLong())) }
 
     private inline fun <reified T : Enum<T>> enumOr(name: String?, fallback: T): T =
         enumValues<T>().firstOrNull { it.name == name } ?: fallback

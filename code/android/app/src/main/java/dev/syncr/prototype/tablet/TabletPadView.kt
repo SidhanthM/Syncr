@@ -5,11 +5,15 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.os.Build
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
+import dev.syncr.prototype.link.StreamMapping
+import dev.syncr.prototype.link.StreamPen
 
 /**
  * The Tablet mode pad (design §8.7, the `tablet-screen` mock): pure black, one thin solid outline round the
@@ -37,6 +41,12 @@ class TabletPadView(
     private var requestedOffsetX = 0.0
     private var requestedOffsetY = 0.0
     private var caption = ""
+    var onCaptionClick: (() -> Unit)? = null
+    private val captionBounds = RectF()
+    private val tapSlop = ViewConfiguration.get(context).scaledTouchSlop
+    private var captionTap = false
+    private var tapX = 0f
+    private var tapY = 0f
     private var link = LinkState.NOT_CONNECTED
     private var trailMs = TabletSettings.TRAIL_DEFAULT_MS
     var inputEnabled = true
@@ -44,8 +54,12 @@ class TabletPadView(
 
     private var mapper: TabletMapper? = null
 
+    /** Stream link: pen strokes go to the Mac as view-relative preview and a stroke-commit; null is the Bluetooth Pointer. */
+    private var stream: StreamPen? = null
+
     // Pen stroke.
     private var penId = -1
+    private var lastPenUp = -1000L
     private var lastX = 0f
     private var lastY = 0f
     private var hoverX = Float.NaN
@@ -72,7 +86,7 @@ class TabletPadView(
     }
     private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = ACCENT }
     private val statusPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val captionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val captionPaint = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(140, 255, 255, 255) // white at 55%
         typeface = Typeface.DEFAULT
     }
@@ -84,9 +98,20 @@ class TabletPadView(
         rebuildMapper()
     }
 
+    /** Switches between Stream (non-null) and the Bluetooth Pointer (null). A stroke in progress is released first. */
+    fun setStream(pen: StreamPen?) {
+        if (pen === stream) return
+        releaseAll()
+        stream = pen
+        rebuildMapper()
+    }
+
     /** The caption's words and the status dot's state. [description] is the spoken version. */
     fun setCaption(text: String, state: LinkState, description: String) {
-        caption = text; link = state; contentDescription = description; invalidate()
+        caption = "$text  ⇄"; link = state
+        contentDescription = "$description Tap the caption to switch Stream · Wi-Fi and Pointer · Bluetooth."
+        isClickable = true
+        invalidate()
     }
 
     fun setTrailMs(ms: Long) { trailMs = ms }
@@ -103,6 +128,7 @@ class TabletPadView(
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        if (stream != null) releaseAll() // Never change the pad mapping in a Stream stroke.
         val metrics = resources.displayMetrics
         dpi = PhoneDpi(metrics.xdpi.toDouble(), metrics.ydpi.toDouble())
         rebuildMapper()
@@ -115,9 +141,12 @@ class TabletPadView(
         // and the bubble docks in the right margin, outside it.
         val edge = 12f * unit
         val side = maxOf(edge, dp(BUBBLE_ZONE_DP))
-        val bounds = PadRect(side.toDouble(), edge.toDouble(), (width - 2 * side).toDouble(), (height - 2 * edge).toDouble())
+        val top = if (stream != null) maxOf(edge, dp(40f)) else edge // Room for Stream's destination line.
+        val bounds = PadRect(side.toDouble(), top.toDouble(), (width - 2 * side).toDouble(), (height - top - edge).toDouble())
         if (bounds.width <= 0 || bounds.height <= 0) return
-        val m = TabletMapper(mode, bounds, dpi, screen, requestedOffsetX, requestedOffsetY)
+        // Stream maps the pad onto the Mac's 4800 x 3000 view with the Whole-screen maths: one scale, letterboxed.
+        val m = if (stream != null) TabletMapper(MappingMode.WHOLE_SCREEN, bounds, dpi, MacScreen(StreamMapping.WIDTH, StreamMapping.HEIGHT))
+        else TabletMapper(mode, bounds, dpi, screen, requestedOffsetX, requestedOffsetY)
         mapper = m
         onMapperChanged(m)
         invalidate()
@@ -139,11 +168,27 @@ class TabletPadView(
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
         if (!inputEnabled) return true
+        if (e.actionMasked == MotionEvent.ACTION_DOWN && !isPen(e, 0) &&
+            tabletCaptionTapAllowed(penId != -1, e.eventTime, lastPenUp) && captionBounds.contains(e.x, e.y)) {
+            captionTap = true; tapX = e.x; tapY = e.y
+            return true
+        }
+        if (captionTap) {
+            when (e.actionMasked) {
+                MotionEvent.ACTION_UP -> { captionTap = false; if (captionBounds.contains(e.x, e.y)) performClick(); return true }
+                MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN -> captionTap = false
+                MotionEvent.ACTION_MOVE -> {
+                    if (kotlin.math.abs(e.x - tapX) > tapSlop || kotlin.math.abs(e.y - tapY) > tapSlop) captionTap = false
+                    return true
+                }
+            }
+        }
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                 val i = e.actionIndex
                 if (isPen(e, i)) {
-                    if (penId == -1) penDown(e.getPointerId(i), e.getX(i), e.getY(i))
+                    if (penId == -1) penDown(e.getPointerId(i), e.getX(i), e.getY(i), e, i)
+                    else if (stream != null) releaseAll() // A second pen cancels, never completes the first stroke.
                     dragging = false
                 } else updateDrag(e, excludeIndex = -1)
             }
@@ -153,11 +198,11 @@ class TabletPadView(
             }
             MotionEvent.ACTION_POINTER_UP -> {
                 val i = e.actionIndex
-                if (e.getPointerId(i) == penId) penUp(e.getX(i), e.getY(i), canceled = isCanceled(e))
+                if (e.getPointerId(i) == penId) { if (stream != null && !isCanceled(e)) penMove(e); penUp(e.getX(i), e.getY(i), canceled = isCanceled(e)) }
                 else updateDrag(e, excludeIndex = i)
             }
             MotionEvent.ACTION_UP -> {
-                if (e.getPointerId(0) == penId) penUp(e.x, e.y, canceled = isCanceled(e))
+                if (e.getPointerId(0) == penId) { if (stream != null && !isCanceled(e)) penMove(e); penUp(e.x, e.y, canceled = isCanceled(e)) }
                 endDrag()
             }
             MotionEvent.ACTION_CANCEL -> {
@@ -169,10 +214,12 @@ class TabletPadView(
 
     private fun isCanceled(e: MotionEvent) = Build.VERSION.SDK_INT >= 33 && (e.flags and MotionEvent.FLAG_CANCELED) != 0
 
-    private fun penDown(id: Int, x: Float, y: Float) {
+    private fun penDown(id: Int, x: Float, y: Float, e: MotionEvent, index: Int) {
         penId = id; lastX = x; lastY = y
         hoverX = Float.NaN
         addTrail(x, y, starts = true)
+        val pen = stream
+        if (pen != null) { streamDown(pen, e, index); return }
         // Position without clicking first, so the host does not draw a line from the old cursor position.
         emit(x, y, false)
         emit(x, y, true)
@@ -180,7 +227,9 @@ class TabletPadView(
 
     private fun penMove(e: MotionEvent) {
         val i = e.findPointerIndex(penId)
-        if (i < 0) return
+        if (i < 0) { releaseAll(); return }
+        val pen = stream
+        if (pen != null) { streamMove(pen, e, i); return }
         // Every historical sample, oldest first, then the current one.
         for (h in 0 until e.historySize) {
             lastX = e.getHistoricalX(i, h); lastY = e.getHistoricalY(i, h)
@@ -194,6 +243,13 @@ class TabletPadView(
 
     /** Pen lifted: the final point with the button held, then the release. A canceled pointer skips the final point. */
     private fun penUp(x: Float, y: Float, canceled: Boolean) {
+        lastPenUp = SystemClock.uptimeMillis()
+        val pen = stream
+        if (pen != null) {
+            if (canceled) pen.cancel() else pen.up()
+            penId = -1
+            return
+        }
         if (!canceled) { lastX = x; lastY = y; emit(x, y, true) }
         emit(lastX, lastY, false)
         penId = -1
@@ -201,12 +257,48 @@ class TabletPadView(
 
     /** Releases the button (if held) and stops any drag. Called on cancel, pause, focus loss, bubble and panel open. */
     fun releaseAll() {
+        captionTap = false
         if (penId != -1) {
-            emit(lastX, lastY, false)
+            lastPenUp = SystemClock.uptimeMillis()
+            stream?.cancel() ?: emit(lastX, lastY, false)
             penId = -1
         }
         endDrag()
     }
+
+    // ---- Stream ----
+
+    private fun streamDown(pen: StreamPen, e: MotionEvent, i: Int) {
+        val m = mapper ?: return
+        val device = e.device
+        pen.down(
+            viewX(m, e.getX(i)), viewY(m, e.getY(i)), e.getPressure(i),
+            e.getAxisValue(MotionEvent.AXIS_TILT, i), e.getAxisValue(MotionEvent.AXIS_ORIENTATION, i), e.eventTime,
+            hasTilt = device?.getMotionRange(MotionEvent.AXIS_TILT) != null,
+            hasOrientation = device?.getMotionRange(MotionEvent.AXIS_ORIENTATION) != null,
+        )
+        pen.flush()
+    }
+
+    /** Every historical sample, oldest first, then the current one: one batch, one frame. */
+    private fun streamMove(pen: StreamPen, e: MotionEvent, i: Int) {
+        val m = mapper ?: return
+        for (h in 0 until e.historySize) {
+            lastX = e.getHistoricalX(i, h); lastY = e.getHistoricalY(i, h)
+            addTrail(lastX, lastY, starts = false)
+            pen.move(viewX(m, lastX), viewY(m, lastY), e.getHistoricalPressure(i, h),
+                e.getHistoricalAxisValue(MotionEvent.AXIS_TILT, i, h), e.getHistoricalAxisValue(MotionEvent.AXIS_ORIENTATION, i, h),
+                e.getHistoricalEventTime(h))
+        }
+        lastX = e.getX(i); lastY = e.getY(i)
+        addTrail(lastX, lastY, starts = false)
+        pen.move(viewX(m, lastX), viewY(m, lastY), e.getPressure(i),
+            e.getAxisValue(MotionEvent.AXIS_TILT, i), e.getAxisValue(MotionEvent.AXIS_ORIENTATION, i), e.eventTime)
+        pen.flush()
+    }
+
+    private fun viewX(m: TabletMapper, x: Float) = StreamMapping.toView(m.activeArea, x.toDouble(), 0.0).first
+    private fun viewY(m: TabletMapper, y: Float) = StreamMapping.toView(m.activeArea, 0.0, y.toDouble()).second
 
     private fun fingerCentroid(e: MotionEvent, excludeIndex: Int): Triple<Int, Float, Float> {
         var n = 0; var sx = 0f; var sy = 0f
@@ -221,7 +313,7 @@ class TabletPadView(
     private fun updateDrag(e: MotionEvent, excludeIndex: Int) {
         val (n, cx, cy) = fingerCentroid(e, excludeIndex)
         val wasDragging = dragging
-        dragging = n == 2 && penId == -1 && mode == MappingMode.ACTUAL_SIZE
+        dragging = tabletWindowDragAllowed(stream != null, penId != -1, mode, n)
         if (dragging) { dragCx = cx; dragCy = cy }
         else if (wasDragging) persistWindow()
     }
@@ -253,12 +345,25 @@ class TabletPadView(
             MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> {
                 if (penId == -1) {
                     hoverX = e.x; hoverY = e.y
+                    val pen = stream
+                    val m = mapper
+                    if (pen != null) {
+                        if (m != null) pen.hover(viewX(m, e.x), viewY(m, e.y), e.eventTime)
+                        invalidate()
+                        return true
+                    }
                     emit(e.x, e.y, false) // Hover moves the cursor without clicking.
                     invalidate()
                 }
             }
             MotionEvent.ACTION_HOVER_EXIT -> { hoverX = Float.NaN; invalidate() }
         }
+        return true
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        onCaptionClick?.invoke()
         return true
     }
 
@@ -313,8 +418,11 @@ class TabletPadView(
         captionPaint.textSize = u(8.5f, 10f, 13f)
         val pad = u(8f, 8f, 14f)
         val baseline = a.bottom.toFloat() - pad
-        val textLeft = a.right.toFloat() - pad - captionPaint.measureText(caption)
-        canvas.drawText(caption, textLeft, baseline, captionPaint)
+        val visible = android.text.TextUtils.ellipsize(caption, captionPaint,
+            (a.width.toFloat() - 2 * pad - dp(16f)).coerceAtLeast(1f), android.text.TextUtils.TruncateAt.MIDDLE).toString()
+        val textLeft = a.right.toFloat() - pad - captionPaint.measureText(visible)
+        canvas.drawText(visible, textLeft, baseline, captionPaint)
+        captionBounds.set(textLeft - dp(16f), baseline - dp(36f), a.right.toFloat(), baseline + dp(12f))
         val dot = u(3f, 2.5f, 4f)
         val cx = textLeft - dot - u(5f, 5f, 8f)
         val cy = baseline - captionPaint.textSize * 0.34f
@@ -329,8 +437,8 @@ class TabletPadView(
     companion object {
         /** Room kept free on each side of the active area; the tool bubble docks in the right one. */
         const val BUBBLE_ZONE_DP = 88f
-        private val ACCENT = Color.rgb(0xd3, 0x99, 0x99)
-        private val GREY = Color.rgb(0x75, 0x71, 0x7a)
-        private val AMBER = Color.rgb(0xe3, 0xa6, 0x3c)
+        private val ACCENT = Color.rgb(0xd3, 0x99, 0x99) // --accent
+        private val GREY = Color.rgb(0x8f, 0x8e, 0x88) // dark --faint
+        private val AMBER = Color.rgb(0xe0, 0xb2, 0x5c) // dark --amber
     }
 }
