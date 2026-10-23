@@ -1,0 +1,10 @@
+{
+  "paper": {"light": "ffffffff", "dark": "ff1b1b1d"},
+  "desk": {"light": "fff4f3f1", "dark": "ff0e0e0f"},
+  "ink": {"light": "ff29252b", "dark": "ffeee7ed"},
+  "red": {"light": "ffbe3544", "dark": "ffbe3544"},
+  "green": {"light": "ff278052", "dark": "ff278052"},
+  "blue": {"light": "ff356dc1", "dark": "ff356dc1"},
+  "orange": {"light": "ffcf711c", "dark": "ffcf711c"},
+  "highlighter_alpha": "66"
+}
