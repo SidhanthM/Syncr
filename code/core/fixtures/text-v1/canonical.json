@@ -1,0 +1,233 @@
+[
+  {
+    "name": "AddText",
+    "note_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "author_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+    "command": {
+      "operation_id": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+      "dependencies": [
+        "01ARZ3NDEKTSV4RRFFQ69G5FA0",
+        "01ARZ3NDEKTSV4RRFFQ69G5FA0"
+      ],
+      "body": {
+        "Marks": {
+          "mutations": [
+            {
+              "AddText": {
+                "mark_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+                "sheet_id": "01ARZ3NDEKTSV4RRFFQ69G5FAZ",
+                "role": "Document",
+                "origin_x": -0.0,
+                "origin_y": 12.5,
+                "width": 640.0,
+                "text": "Aé🙂\n",
+                "style": {
+                  "size": "Large",
+                  "colour": "Blue"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "canonical_hex": "53594e4f0100011a000000303141525a334e44454b545356345252464651363947354641561a000000303141525a334e44454b545356345252464651363947354641571a000000303141525a334e44454b54535634525246465136394735464158010000001a000000303141525a334e44454b545356345252464651363947354641300001000000051a000000303141525a334e44454b545356345252464651363947354641591a000000303141525a334e44454b5453563452524646513639473546415a000000008000004841000020440800000041c3a9f09f99820a0203",
+    "canonical_length": 224
+  },
+  {
+    "name": "SpliceText",
+    "note_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "author_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+    "command": {
+      "operation_id": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+      "dependencies": [
+        "01ARZ3NDEKTSV4RRFFQ69G5FA0",
+        "01ARZ3NDEKTSV4RRFFQ69G5FA0"
+      ],
+      "body": {
+        "Marks": {
+          "mutations": [
+            {
+              "SpliceText": {
+                "mark_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+                "base": {
+                  "Operation": {
+                    "operation_id": "01ARZ3NDEKTSV4RRFFQ69G5FA0"
+                  }
+                },
+                "offset": 1,
+                "delete": 2,
+                "insert": "ñ"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "canonical_hex": "53594e4f0100011a000000303141525a334e44454b545356345252464651363947354641561a000000303141525a334e44454b545356345252464651363947354641571a000000303141525a334e44454b54535634525246465136394735464158010000001a000000303141525a334e44454b545356345252464651363947354641300001000000061a000000303141525a334e44454b54535634525246465136394735464159011a000000303141525a334e44454b54535634525246465136394735464130010000000200000002000000c3b1",
+    "canonical_length": 212
+  },
+  {
+    "name": "SetTextWidth",
+    "note_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "author_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+    "command": {
+      "operation_id": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+      "dependencies": [
+        "01ARZ3NDEKTSV4RRFFQ69G5FA0",
+        "01ARZ3NDEKTSV4RRFFQ69G5FA0"
+      ],
+      "body": {
+        "Marks": {
+          "mutations": [
+            {
+              "SetTextWidth": {
+                "mark_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+                "base": {
+                  "Operation": {
+                    "operation_id": "01ARZ3NDEKTSV4RRFFQ69G5FA0"
+                  }
+                },
+                "width": 720.5
+              }
+            }
+          ]
+        }
+      }
+    },
+    "canonical_hex": "53594e4f0100011a000000303141525a334e44454b545356345252464651363947354641561a000000303141525a334e44454b545356345252464651363947354641571a000000303141525a334e44454b54535634525246465136394735464158010000001a000000303141525a334e44454b545356345252464651363947354641300001000000071a000000303141525a334e44454b54535634525246465136394735464159011a000000303141525a334e44454b5453563452524646513639473546413000203444",
+    "canonical_length": 202
+  },
+  {
+    "name": "DeleteText",
+    "note_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "author_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+    "command": {
+      "operation_id": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+      "dependencies": [
+        "01ARZ3NDEKTSV4RRFFQ69G5FA0",
+        "01ARZ3NDEKTSV4RRFFQ69G5FA0"
+      ],
+      "body": {
+        "Marks": {
+          "mutations": [
+            {
+              "DeleteText": {
+                "mark_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+                "base": {
+                  "Operation": {
+                    "operation_id": "01ARZ3NDEKTSV4RRFFQ69G5FA0"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "canonical_hex": "53594e4f0100011a000000303141525a334e44454b545356345252464651363947354641561a000000303141525a334e44454b545356345252464651363947354641571a000000303141525a334e44454b54535634525246465136394735464158010000001a000000303141525a334e44454b545356345252464651363947354641300001000000081a000000303141525a334e44454b54535634525246465136394735464159011a000000303141525a334e44454b54535634525246465136394735464130",
+    "canonical_length": 198
+  },
+  {
+    "name": "RestoreText",
+    "note_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "author_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+    "command": {
+      "operation_id": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+      "dependencies": [
+        "01ARZ3NDEKTSV4RRFFQ69G5FA0",
+        "01ARZ3NDEKTSV4RRFFQ69G5FA0"
+      ],
+      "body": {
+        "Marks": {
+          "mutations": [
+            {
+              "RestoreText": {
+                "mark_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+                "base": {
+                  "Operation": {
+                    "operation_id": "01ARZ3NDEKTSV4RRFFQ69G5FA0"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "canonical_hex": "53594e4f0100011a000000303141525a334e44454b545356345252464651363947354641561a000000303141525a334e44454b545356345252464651363947354641571a000000303141525a334e44454b54535634525246465136394735464158010000001a000000303141525a334e44454b545356345252464651363947354641300001000000091a000000303141525a334e44454b54535634525246465136394735464159011a000000303141525a334e44454b54535634525246465136394735464130",
+    "canonical_length": 198
+  },
+  {
+    "name": "TransformText",
+    "note_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "author_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+    "command": {
+      "operation_id": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+      "dependencies": [
+        "01ARZ3NDEKTSV4RRFFQ69G5FA0",
+        "01ARZ3NDEKTSV4RRFFQ69G5FA0"
+      ],
+      "body": {
+        "Marks": {
+          "mutations": [
+            {
+              "TransformText": {
+                "mark_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+                "base": {
+                  "Operation": {
+                    "operation_id": "01ARZ3NDEKTSV4RRFFQ69G5FA0"
+                  }
+                },
+                "transform": {
+                  "a": 1.0,
+                  "b": 0.0,
+                  "c": 0.0,
+                  "d": 2.0,
+                  "tx": -0.0,
+                  "ty": 30.0
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "canonical_hex": "53594e4f0100011a000000303141525a334e44454b545356345252464651363947354641561a000000303141525a334e44454b545356345252464651363947354641571a000000303141525a334e44454b54535634525246465136394735464158010000001a000000303141525a334e44454b5453563452524646513639473546413000010000000a1a000000303141525a334e44454b54535634525246465136394735464159011a000000303141525a334e44454b54535634525246465136394735464130000000000000f03f00000000000000000000000000000000000000000000004000000000000000800000000000003e40",
+    "canonical_length": 246
+  },
+  {
+    "name": "RestyleText",
+    "note_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    "author_id": "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+    "command": {
+      "operation_id": "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+      "dependencies": [
+        "01ARZ3NDEKTSV4RRFFQ69G5FA0",
+        "01ARZ3NDEKTSV4RRFFQ69G5FA0"
+      ],
+      "body": {
+        "Marks": {
+          "mutations": [
+            {
+              "RestyleText": {
+                "mark_id": "01ARZ3NDEKTSV4RRFFQ69G5FAY",
+                "base": {
+                  "Operation": {
+                    "operation_id": "01ARZ3NDEKTSV4RRFFQ69G5FA0"
+                  }
+                },
+                "style": {
+                  "size": "Large",
+                  "colour": "Blue"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "canonical_hex": "53594e4f0100011a000000303141525a334e44454b545356345252464651363947354641561a000000303141525a334e44454b545356345252464651363947354641571a000000303141525a334e44454b54535634525246465136394735464158010000001a000000303141525a334e44454b5453563452524646513639473546413000010000000b1a000000303141525a334e44454b54535634525246465136394735464159011a000000303141525a334e44454b545356345252464651363947354641300203",
+    "canonical_length": 200
+  }
+]
