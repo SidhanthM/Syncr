@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The design page colour; the window ground before Compose draws, so there is no flash. -->
+    <color name="syncr_page">#FFFBFBFA</color>
+    <color name="syncr_ink">#FF1E1E1E</color>
+    <color name="syncr_accent">#FFD39999</color>
+    <!-- The launcher icon is paper in both themes. -->
+    <color name="ic_launcher_background">#FFFBFBFA</color>
+</resources>

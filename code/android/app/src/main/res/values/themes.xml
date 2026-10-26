@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Light platform parent; values-night swaps it for the dark one, so the theme is DayNight. -->
+    <style name="Platform.Theme.Syncr" parent="android:Theme.Material.Light.NoActionBar" />
+
+    <style name="Base.Theme.Syncr" parent="Platform.Theme.Syncr">
+        <item name="android:windowBackground">@color/syncr_page</item>
+        <item name="android:colorBackground">@color/syncr_page</item>
+        <item name="android:colorAccent">@color/syncr_ink</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">@bool/syncr_light_system_bars</item>
+    </style>
+
+    <!-- The app. Compose draws everything; this only sets the first frame and the system bars. -->
+    <style name="Theme.Syncr" parent="Base.Theme.Syncr" />
+
+    <!-- Tablet mode: a black, full-screen pad from the first frame. -->
+    <style name="Theme.Syncr.Tablet" parent="android:Theme.Material.NoActionBar.Fullscreen">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:colorBackground">@android:color/black</item>
+        <item name="android:statusBarColor">@android:color/black</item>
+        <item name="android:navigationBarColor">@android:color/black</item>
+    </style>
+</resources>

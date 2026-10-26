@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The tool dot (design .tdot): an ink disc inside a rose ring, on paper. 108dp canvas, content within the 66dp safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#1E1E1E"
+        android:pathData="M54,40a14,14 0 1,1 0,28a14,14 0 1,1 0,-28z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#D39999"
+        android:strokeWidth="2.5"
+        android:pathData="M54,34a20,20 0 1,1 0,40a20,20 0 1,1 0,-40z" />
+</vector>
