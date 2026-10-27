@@ -1,0 +1,167 @@
+package dev.syncr.prototype.link
+
+/** What a session reports upward. Called on the link thread. */
+interface SessionEvents {
+    fun status(status: SessionStatus)
+    fun target(target: StreamTarget)
+
+    /** The session is over on the Mac's say-so or ours. [fatal]: reconnecting cannot help until the user acts. */
+    fun close(reason: String, fatal: Boolean)
+}
+
+/**
+ * The client side of one connection, as a state machine (wifi-link-v0 §3). Link thread only; it never touches a socket:
+ * it queues control messages on the [SendScheduler] and reacts to what [onControl] is given.
+ *
+ * hello, then either `welcome` (token accepted) or `pair`, a four-digit [submitCode], `paired` and `welcome`. After
+ * welcome: the manifest, ping every 2 s, `viewing` and `pad` as the app sets them.
+ */
+class LinkSession(
+    private val device: String,
+    private val store: PairingStore,
+    private val target: Endpoint,
+    private val scheduler: SendScheduler,
+    private val sync: SyncSender,
+    private val pump: FeedPump,
+    private val feed: PenFeed,
+    private val clock: Clock,
+    private val latency: LatencyLog,
+    private val source: NoteSource,
+    private val events: SessionEvents,
+) {
+    @Volatile var phase = Phase.CONNECTING
+        private set
+
+    /** The open note the app last reported, for the manifest and `viewing`. */
+    private var openId: String? = null
+    private var viewing: String? = null
+    private var padOn = false
+    private var sentToken: String? = null
+    private var pendingToken: String? = null
+    private var macName: String? = null
+    private var pingId = 0L
+    private var nextPing = 0L
+
+    fun start() {
+        // A stored token goes only to the Mac it was issued by; a Mac that is not known yet gets a chance to say so.
+        val stored = store.pairing()?.takeIf { target.macId == null || it.macId == target.macId }
+        sentToken = stored?.token
+        scheduler.sendControl(Control.Hello(device, store.phoneId(), stored?.token))
+        events.status(SessionStatus(Phase.CONNECTING, stored?.macName ?: target.name))
+    }
+
+    fun onControl(c: Control) {
+        when (c) {
+            is Control.Welcome -> onWelcome(c)
+            Control.PairRequest -> {
+                if (phase == Phase.CONNECTED) return
+                // A token we sent was unknown: the Mac forgot this phone. Ours is useless now.
+                if (sentToken != null) { store.forget(); sentToken = null }
+                phase = Phase.NEEDS_CODE
+                events.status(SessionStatus(Phase.NEEDS_CODE, target.name))
+            }
+            is Control.Paired -> if (phase == Phase.NEEDS_CODE && c.token.isNotEmpty()) pendingToken = c.token
+            is Control.Denied -> {
+                if (phase != Phase.NEEDS_CODE) return
+                if (c.left <= 0) {
+                    events.close("Too many wrong codes. Start again for a new code.", fatal = true)
+                } else {
+                    events.status(SessionStatus(Phase.NEEDS_CODE, target.name, c.left, "That code was wrong."))
+                }
+            }
+            is Control.Bye -> onBye(c)
+            is Control.Ping -> scheduler.sendControl(Control.Pong(c.id, c.at, clock.nowMs()))
+            is Control.Pong -> {
+                val rtt = clock.nowMs() - c.at
+                if (rtt >= 0) latency.roundTrip.add(rtt * 1000)
+            }
+            is Control.Want -> if (phase == Phase.CONNECTED) sync.onWant(c.ids)
+            is Control.Have -> if (phase == Phase.CONNECTED) sync.onHave(c.id, c.seq)
+            is Control.FileError -> if (phase == Phase.CONNECTED) sync.onFileError(c.xfer, c.id, c.reason)
+            is Control.Target -> if (phase == Phase.CONNECTED) {
+                events.target(StreamTarget(c.note, c.sheet, c.writable, c.rev))
+            }
+            // The Mac never sends these; a confused or hostile one is ignored rather than trusted.
+            is Control.Hello, is Control.Code, is Control.Notes, is Control.File, is Control.FileEnd,
+            is Control.Viewing, is Control.Pad -> Unit
+        }
+    }
+
+    private fun onWelcome(c: Control.Welcome) {
+        if (c.v != Control.VERSION) {
+            events.close("This Mac app speaks a different link version.", fatal = true)
+            return
+        }
+        val token = pendingToken
+        val existing = store.pairing()
+        if (token != null) store.save(Pairing(c.macId, c.mac, token))
+        else if (existing != null && sentToken != null) store.save(existing.copy(macId = c.macId, macName = c.mac))
+        pendingToken = null
+        macName = c.mac
+        phase = Phase.CONNECTED
+        pump.epoch = c.epoch
+        feed.enabled = true
+        nextPing = clock.nowMs() + PING_MS
+        events.status(SessionStatus(Phase.CONNECTED, c.mac))
+        sync.onWelcome(source.list(), openId)
+        viewing?.let { scheduler.sendControl(Control.Viewing(it)) }
+        if (padOn) scheduler.sendControl(Control.Pad(true))
+    }
+
+    private fun onBye(c: Control.Bye) {
+        when (c.reason) {
+            "unpaired" -> {
+                store.forget()
+                events.close("The Mac forgot this phone. Connect again to pair.", fatal = true)
+            }
+            "version" -> events.close("This Mac app speaks a different link version.", fatal = true)
+            else -> events.close("The Mac closed the link (${c.reason}).", fatal = false)
+        }
+    }
+
+    /** The user typed the four digits the Mac shows. False if the session is not asking, or the code is not four digits. */
+    fun submitCode(code: String): Boolean {
+        if (phase != Phase.NEEDS_CODE || code.length != 4 || !code.all { it in '0'..'9' }) return false
+        scheduler.sendControl(Control.Code(code))
+        return true
+    }
+
+    /** Called often by the link thread: the 2-second ping. */
+    fun tick() {
+        if (phase != Phase.CONNECTED) return
+        val now = clock.nowMs()
+        if (now >= nextPing) {
+            nextPing = now + PING_MS
+            scheduler.sendControl(Control.Ping(++pingId, now))
+        }
+    }
+
+    /** The app's notes changed; [open] is the note on screen. */
+    fun notesChanged(notes: List<NoteMeta>, open: String?) {
+        openId = open
+        sync.update(notes, open)
+    }
+
+    fun setViewing(id: String?) {
+        if (viewing == id) return
+        viewing = id
+        if (phase == Phase.CONNECTED) scheduler.sendControl(Control.Viewing(id))
+    }
+
+    fun setPad(on: Boolean) {
+        if (padOn == on) return
+        padOn = on
+        if (phase == Phase.CONNECTED) scheduler.sendControl(Control.Pad(on))
+    }
+
+    /** The app's wishes survive a reconnect: [viewing] and [pad] are re-sent after the next welcome. */
+    fun adopt(viewing: String?, pad: Boolean, open: String?) {
+        this.viewing = viewing
+        this.padOn = pad
+        this.openId = open
+    }
+
+    companion object {
+        const val PING_MS = 2_000L
+    }
+}
