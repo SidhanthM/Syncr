@@ -93,6 +93,12 @@ fun TabletSetupPanel(state: TabletUiState, actions: TabletSetupActions) {
         Text(if (stream) "Look at the Mac, write on the phone. The stroke is saved in the Mac's note, not on the phone."
             else "Look at the Mac, write on the phone. Nothing is stored.", style = Syncr.type.caption, color = c.muted)
 
+        // The link decides what Connection shows, so it comes first.
+        SettingsChoices("Link", TabletLink.entries, state.linkChoice,
+            label = { if (it == TabletLink.POINTER) "Pointer · Bluetooth" else "Stream · Wi-Fi" },
+            detail = { if (it == TabletLink.POINTER) "The phone is a pen-shaped mouse for any Mac app." else "Write into the note open in the Syncr Mac app. The stroke is saved there." },
+            onSelect = actions.setLink)
+
         SectionLabel("Connection")
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (state.problem != null) {
@@ -103,8 +109,8 @@ fun TabletSetupPanel(state: TabletUiState, actions: TabletSetupActions) {
                 style = Syncr.type.title, color = c.ink)
         }
         if (stream) {
-            Text(state.streamSummary, style = Syncr.type.caption, color = c.muted)
-            if (!state.streamEnabled) MenuRow("Turn on Mac link", "Then pair the Mac in Settings, under Mac link.", onClick = actions.enableMacLink)
+            if (state.streamSummary != state.problem) Text(state.streamSummary, style = Syncr.type.caption, color = c.muted)
+            if (!state.streamEnabled) MenuRow("Turn on Mac link", "Then pair the Mac in Mac link settings.", onClick = actions.enableMacLink)
             MenuRow("Mac link settings", "Pair, reconnect or forget the Mac.", onClick = actions.macLinkSettings)
         } else {
             Text(state.status, style = Syncr.type.caption, color = c.muted)
@@ -115,10 +121,6 @@ fun TabletSetupPanel(state: TabletUiState, actions: TabletSetupActions) {
         }
 
         Hairline(Modifier.padding(top = Space.l))
-        SettingsChoices("Link", TabletLink.entries, state.linkChoice,
-            label = { if (it == TabletLink.POINTER) "Pointer · Bluetooth" else "Stream · Wi-Fi" },
-            detail = { if (it == TabletLink.POINTER) "The phone is a pen-shaped mouse for any Mac app." else "Write into the note open in the Syncr Mac app. The stroke is saved there." },
-            onSelect = actions.setLink)
 
         if (!stream) {
             SettingsChoices("Mapping", listOf(MappingMode.ACTUAL_SIZE, MappingMode.WHOLE_SCREEN), state.mode,
