@@ -19,6 +19,8 @@ import UniformTypeIdentifiers
     private var live: LiveInkCoordinator?
     private var link: LinkController?
     private let linkLabel = NSTextField(labelWithString: "")
+    /// Title-bar height holder so the link status sits on the title's centre line rather than the bar's top edge.
+    private let linkAccessory = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 28))
 
     init(model: LibraryModel, workspace: Workspace) {
         self.model = model
@@ -55,7 +57,13 @@ import UniformTypeIdentifiers
             linkLabel.font = Theme.smallFont
             linkLabel.textColor = Theme.muted
             let accessory = NSTitlebarAccessoryViewController()
-            accessory.view = linkLabel
+            linkLabel.translatesAutoresizingMaskIntoConstraints = false
+            linkAccessory.addSubview(linkLabel)
+            NSLayoutConstraint.activate([
+                linkLabel.centerYAnchor.constraint(equalTo: linkAccessory.centerYAnchor),
+                linkLabel.trailingAnchor.constraint(equalTo: linkAccessory.trailingAnchor, constant: -12)
+            ])
+            accessory.view = linkAccessory
             accessory.layoutAttribute = .trailing
             window.addTitlebarAccessoryViewController(accessory)
         }
@@ -143,8 +151,8 @@ import UniformTypeIdentifiers
 
     private func linkChanged() {
         guard let link else { return }
-        linkLabel.stringValue = " " + link.statusText + "  "
-        linkLabel.sizeToFit()
+        linkLabel.stringValue = link.statusText
+        linkAccessory.setFrameSize(NSSize(width: linkLabel.intrinsicContentSize.width + 24, height: linkAccessory.frame.height))
         workspace.hasPairedPhones = link.hasPairedPhones
     }
 

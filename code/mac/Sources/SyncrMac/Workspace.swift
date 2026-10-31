@@ -5,6 +5,8 @@ struct SidebarNote: Equatable {
     let id: String
     let title: String
     let readOnly: Bool
+    /// Shown small at the row's right, such as a tag's note count.
+    var detail: String? = nil
 }
 
 struct SidebarSection: Equatable {
@@ -90,7 +92,7 @@ struct SessionState: Codable, Equatable {
         }
         if !model.notebookIndex.tags.isEmpty {
             result.append(SidebarSection(kind: .tags, title: "Tags", notes: model.notebookIndex.tags.map {
-                SidebarNote(id: "tag:" + $0.0, title: "#\($0.0) (\($0.1))", readOnly: false)
+                SidebarNote(id: "tag:" + $0.0, title: "#" + $0.0, readOnly: false, detail: String($0.1))
             }, expanded: !collapsed.contains("tags")))
         }
         let trash = model.deleted.map { (id: $0.id, title: $0.title, readOnly: false) }
@@ -120,7 +122,8 @@ struct SessionState: Codable, Equatable {
 
     func availableCommands() -> Set<AppCommand> {
         var set: Set<AppCommand> = [.companionSettings, .lastCompanionRequest, .newNote, .newNotebook, .quickSwitcher, .toggleSidebar, .importExport, .chooseFolder, .phoneLink, .followPhone]
-        set.formUnion([.searchNotes, .dailyNote, .toggleBacklinks, .importMarkdown, .browseTags])
+        set.formUnion([.settings, .hotkeys, .commandPalette, .showLeftSidebar, .hideLeftSidebar, .showRightSidebar, .hideRightSidebar,
+                       .searchNotes, .dailyNote, .toggleBacklinks, .importMarkdown, .browseTags])
         if active != nil { set.formUnion([.findInNote, .exportMarkdown, .documentView, .outline]) }
         if activeIsWritable { set.formUnion([.askSyncr, .drawSelection, .askAllReaders, .undoCompanion, .redoCompanion, .undo, .redo, .bold, .italic, .insertLink, .toggleTask, .slashMenu, .freeText]) }
         if hasPairedPhones { set.insert(.forgetPhone) }

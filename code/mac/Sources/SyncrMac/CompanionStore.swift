@@ -6,7 +6,7 @@ import SyncrCompanion
 /// calls these functions; a provider never receives a core handle or writes the user's words.
 enum CompanionStore {
     static func settings(_ snapshot: NoteSnapshot) -> CompanionSettings {
-        snapshot.companionSettings?.settings ?? CompanionSettings(tell: "", mode: .whenAsked, web: false, activeReader: "staff-engineer", colour: .blue)
+        snapshot.companionSettings?.settings ?? CompanionSettings(tell: "", mode: .whenAsked, web: false, activeReader: "staff-engineer", colour: .ink)
     }
     static func mode(_ value: SyncrCore.CompanionMode) -> SyncrCompanion.CompanionMode {
         switch value { case .off: .off; case .whenAsked: .whenAsked; case .thinksWithYou: .thinksWithYou }

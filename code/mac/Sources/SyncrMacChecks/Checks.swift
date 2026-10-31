@@ -142,8 +142,13 @@ func viewportAndOffscreenMeshPixels() throws {
 
 @main struct Checks {
     @MainActor static func main() {
+        let isolatedSettings = FileManager.default.temporaryDirectory.appendingPathComponent("syncr-checks-presentation-\(UUID().uuidString)")
+        setenv("SYNCR_MAC_SETTINGS_FOLDER", isolatedSettings.path, 1)
+        defer { try? FileManager.default.removeItem(at: isolatedSettings) }
         do {
             _ = NSApplication.shared
+            if CommandLine.arguments.contains("--hotkeys") { try hotkeyChecks(); return }
+            if CommandLine.arguments.contains("--settings") { try settingsChecks(); return }
             try notebookLogicChecks()
             try markdownMappingChecks()
             try notebookCoreN1Checks()
@@ -156,6 +161,8 @@ func viewportAndOffscreenMeshPixels() throws {
             try newerCopiesAndCancelledLoads()
             try rendererCoverageOverlapAndReuse()
             try notebookWorkspaceChecks()
+            try hotkeyChecks()
+            try settingsChecks()
             try switcherAndCommandChecks()
             try readOnlyAndSessionChecks()
             try liveInkChecks()

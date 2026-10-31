@@ -57,7 +57,7 @@ import AppKit
         // A separate sibling layer; never rasterize the Metal layer or an ancestor of it.
         layer?.masksToBounds = false
         title.isBordered = false; title.drawsBackground = false
-        title.font = .systemFont(ofSize: 76, weight: .bold); title.delegate = self
+        title.font = DocumentLayout.titleFont; title.textColor = Theme.ink; title.delegate = self
         title.focusRingType = .none
         title.onDrag = { [weak self] dx, dy in self?.onMove?(dx, dy) }
         textView.isRichText = false; textView.importsGraphics = false
@@ -68,9 +68,10 @@ import AppKit
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = true
-        textView.isContinuousSpellCheckingEnabled = true
+        textView.isContinuousSpellCheckingEnabled = AppPreferences.shared.values.spellCheck
         textView.delegate = self
-        textView.linkTextAttributes = [.cursor: NSCursor.pointingHand, .underlineStyle: NSUnderlineStyle.single.rawValue]
+        textView.linkTextAttributes = [.cursor: NSCursor.pointingHand]
+        textView.insertionPointColor = Theme.ink
         textView.onScroll = { [weak self] x, y in self?.onScroll?(x, y) }
         textView.onReveal = { [weak self] in self?.onReveal?($0) }
         textView.onLinkClick = { [weak self] link, newTab in self?.followLink(link, newTab: newTab) ?? false }
@@ -80,10 +81,21 @@ import AppKit
             guard let self, self.document?.writable == true else { return }
             self.apply(MarkdownEditing.task(self.textView.string, selection: NSRange(location: offset, length: 0)))
         }
-        suggestions.font = .systemFont(ofSize: 36); suggestions.textColor = .secondaryLabelColor
+        suggestions.font = .systemFont(ofSize: 36); suggestions.textColor = Theme.muted
         suggestions.drawsBackground = true; suggestions.backgroundColor = .textBackgroundColor
         suggestions.isHidden = true
         addSubview(title); addSubview(textView); addSubview(suggestions)
+        NotificationCenter.default.addObserver(self, selector: #selector(preferencesChanged), name: AppPreferences.didChange, object: AppPreferences.shared)
+    }
+    @objc private func preferencesChanged() {
+        textView.isContinuousSpellCheckingEnabled = AppPreferences.shared.values.spellCheck
+        textView.insertionPointColor = Theme.ink
+        style(); onWidthPreview?()
+    }
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        textView.insertionPointColor = Theme.ink
+        style()
     }
     required init?(coder: NSCoder) { fatalError("not used") }
 
@@ -136,8 +148,8 @@ import AppKit
     override func layout() { super.layout(); resizeText() }
     private func resizeText() {
         let width = max(200, pageWidth - (isFree ? 0 : 200))
-        title.frame = isFree ? CGRect(x: 0, y: 0, width: 60, height: 42) : CGRect(x: 100, y: 70, width: width, height: 110)
-        title.font = .systemFont(ofSize: isFree ? 32 : 76, weight: .bold)
+        title.frame = isFree ? CGRect(x: 0, y: 0, width: 60, height: 42) : CGRect(x: 100, y: 70, width: width, height: 110 * AppPreferences.shared.textScale)
+        title.font = isFree ? .systemFont(ofSize: 32, weight: .medium) : DocumentLayout.titleFont
         textView.textContainer?.containerSize = CGSize(width: width, height: .greatestFiniteMagnitude)
         textView.layoutManager?.ensureLayout(for: textView.textContainer!)
         let height = max(1200, (textView.layoutManager?.usedRect(for: textView.textContainer!).height ?? 0) + 180)
@@ -150,7 +162,7 @@ import AppKit
         let selection = textView.selectedRange()
         textView.textStorage?.setAttributedString(DocumentLayout.attributed(textView.string, caret: document?.writable == true ? selection.location : nil, resolving: resolve, drawingHeights: drawingHeights))
         textView.setSelectedRange(selection)
-        textView.typingAttributes = [.font: NSFont.systemFont(ofSize: DocumentLayout.bodySize), .foregroundColor: NSColor.labelColor]
+        textView.typingAttributes = [.font: NSFont.systemFont(ofSize: DocumentLayout.bodySize), .foregroundColor: Theme.ink]
         styling = false
         resizeText()
     }
@@ -295,6 +307,8 @@ import AppKit
 }
 
 @MainActor final class MarkdownTextView: NSTextView {
+    /// Passages a margin note answers: drawn with a thin muted underline, the only link to the margin.
+    var passages: [NSRange] = [] { didSet { if passages != oldValue { needsDisplay = true } } }
     var onScroll: ((Float, Float) -> Void)?
     var onHistory: ((Bool) -> Void)?
     var onShortcut: ((String) -> Void)?
@@ -309,26 +323,28 @@ import AppKit
     var onReveal: ((Int) -> Void)?
     override func scrollRangeToVisible(_ range: NSRange) { onReveal?(range.location) }
     override func scrollWheel(with event: NSEvent) { onScroll?(Float(event.scrollingDeltaX), Float(event.scrollingDeltaY)) }
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if event.modifierFlags.contains(.command) {
-            switch event.charactersIgnoringModifiers?.lowercased() {
-            case "z": onHistory?(event.modifierFlags.contains(.shift)); return true
-            case "b": onShortcut?("bold"); return true
-            case "i": onShortcut?("italic"); return true
-            case "k": onShortcut?("link"); return true
-            case "\r": onShortcut?("task"); return true
-            case "f" where !event.modifierFlags.contains(.shift): onShortcut?("find"); return true
-            default: break
-            }
-        }
-        return super.performKeyEquivalent(with: event)
-    }
+    // App shortcuts are dispatched by the window's binding registry before TextKit sees them.
+    // Do not duplicate defaults here: doing so would keep old shortcuts alive after rebinding.
     @objc func undo(_ sender: Any?) { onHistory?(false) }
     @objc func redo(_ sender: Any?) { onHistory?(true) }
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        guard let manager = layoutManager else { return }
+        DocumentLayout.backgrounds(text: string, manager: manager, width: bounds.width)
+    }
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard let manager = layoutManager else { return }
         DocumentLayout.decorations(text: string, manager: manager, width: bounds.width, caret: isEditable ? selectedRange().location : nil)
+        guard let container = textContainer else { return }
+        Theme.muted.setFill()
+        for passage in passages where NSMaxRange(passage) <= string.utf16.count {
+            let glyphs = manager.glyphRange(forCharacterRange: passage, actualCharacterRange: nil)
+            // One rule per visual line, just under the text (line spacing sits below the used rect's text).
+            manager.enumerateEnclosingRects(forGlyphRange: glyphs, withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0), in: container) { rect, _ in
+                NSRect(x: rect.minX, y: rect.maxY - 14, width: rect.width, height: 3).fill()
+            }
+        }
     }
     override func mouseDown(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)

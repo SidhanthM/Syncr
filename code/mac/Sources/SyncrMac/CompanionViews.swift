@@ -2,121 +2,606 @@ import AppKit
 import SyncrCore
 import SyncrCompanion
 
+/// Canvas-space layer for margin notes and drawings. Clicks that miss them fall through to the canvas.
 @MainActor final class CompanionOverlay: NSView {
     override var isFlipped: Bool { true }
-    override func hitTest(_ point: NSPoint) -> NSView? { let hit = super.hitTest(point); return hit === self ? nil : hit }
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        return hit === self ? nil : hit
+    }
 }
 
 @MainActor final class ActionButton: NSButton {
     var run: (() -> Void)?
-    convenience init(_ title: String, action: @escaping () -> Void) { self.init(title: title, target: nil, action: nil); target = self; self.action = #selector(clicked); run = action; bezelStyle = .rounded; controlSize = .small }
+    convenience init(_ title: String, action: @escaping () -> Void) {
+        self.init(title: title, target: nil, action: nil)
+        target = self
+        self.action = #selector(clicked)
+        run = action
+        bezelStyle = .rounded
+        controlSize = .small
+    }
+    /// A borderless text action in quiet sans.
+    convenience init(link title: String, size: CGFloat, colour: NSColor = Theme.muted, action: @escaping () -> Void) {
+        self.init(title, action: action)
+        isBordered = false
+        attributedTitle = NSAttributedString(string: title, attributes: [.font: NSFont.systemFont(ofSize: size), .foregroundColor: colour])
+    }
+    convenience init(symbol: String, label: String, action: @escaping () -> Void) {
+        self.init("", action: action)
+        image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
+        isBordered = false
+        contentTintColor = Theme.muted
+        toolTip = label
+    }
     @objc private func clicked() { run?() }
 }
-@MainActor final class CompanionStrip: NSView {
+
+/// A quiet text menu, "Reader: Staff engineer ▾": muted text that opens a menu of choices.
+@MainActor final class QuietMenu: NSButton {
+    var prefix = ""
+    var mark: NSColor? { didSet { refresh() } }
+    var onChange: (() -> Void)?
+    private(set) var itemTitles: [String] = []
+    private(set) var indexOfSelectedItem = -1
+
+    convenience init(prefix: String = "") {
+        self.init(title: "", target: nil, action: nil)
+        self.prefix = prefix
+        isBordered = false
+        setButtonType(.momentaryChange)
+        (cell as? NSButtonCell)?.highlightsBy = []
+        focusRingType = .none
+        target = self
+        action = #selector(open)
+        setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+    }
+    func addItems(withTitles titles: [String]) { itemTitles += titles; if indexOfSelectedItem < 0, !titles.isEmpty { indexOfSelectedItem = 0 }; refresh() }
+    func removeAllItems() { itemTitles = []; indexOfSelectedItem = -1; refresh() }
+    func selectItem(at index: Int) { if itemTitles.indices.contains(index) { indexOfSelectedItem = index; refresh() } }
+    override var isEnabled: Bool { didSet { refresh() } }
+
+    private func refresh() {
+        let text = NSMutableAttributedString()
+        let colour = isEnabled ? Theme.muted : Theme.muted.withAlphaComponent(0.5)
+        if let mark { text.append(NSAttributedString(string: "● ", attributes: [.font: NSFont.systemFont(ofSize: 9), .foregroundColor: mark, .baselineOffset: 1])) }
+        let value = itemTitles.indices.contains(indexOfSelectedItem) ? itemTitles[indexOfSelectedItem] : ""
+        text.append(NSAttributedString(string: prefix + value + " ▾", attributes: [.font: Theme.font, .foregroundColor: colour]))
+        attributedTitle = text
+    }
+    @objc private func open() {
+        let menu = NSMenu()
+        for (index, title) in itemTitles.enumerated() {
+            let item = NSMenuItem(title: title, action: #selector(pick(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = index
+            item.state = index == indexOfSelectedItem ? .on : .off
+            menu.addItem(item)
+        }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + 4), in: self)
+    }
+    @objc private func pick(_ item: NSMenuItem) {
+        guard item.tag != indexOfSelectedItem else { return }
+        selectItem(at: item.tag)
+        onChange?()
+    }
+    override var isFlipped: Bool { true }
+}
+
+/// The companion's two quiet rows above the note: its name and menu, the mode with its amber mark, the Web
+/// switch and the reader; then "Tell Syncr" with the line in the serif. Hidden (zero height) for read-only notes.
+@MainActor final class CompanionStrip: ThemedView {
+    static let colours: [InkColour] = [.ink, .red, .green, .blue, .orange]
+    static let colourNames = ["Ink", "Red", "Green", "Blue", "Orange"]
+    static func colour(_ value: InkColour) -> NSColor {
+        // Plain ink is the quiet default: a muted mark, since colour means state.
+        switch value { case .ink: Theme.muted; case .red: .systemRed; case .green: .systemGreen; case .blue: .systemBlue; case .orange: .systemOrange }
+    }
+    static let height: CGFloat = 62
+
     let tell = NSTextField(string: "")
-    let mode = NSPopUpButton(), reader = NSPopUpButton(), presets = NSPopUpButton(), colour = NSPopUpButton()
-    let web = NSButton(checkboxWithTitle: "Web", target: nil, action: nil)
-    let meter = NSTextField(labelWithString: "0 tokens")
-    let flight = NSProgressIndicator()
-    var changed: (() -> Void)?; var ask: (() -> Void)?; var settings: (() -> Void)?
+    let mode = QuietMenu(prefix: "")
+    let reader = QuietMenu(prefix: "Reader: ")
+    let web = NSSwitch()
+    private let name = NSButton(title: "", target: nil, action: nil)
+    private let status = NSTextField(labelWithString: "")
+    private var askLink: ActionButton!
+    private weak var hotkeys: HotkeyStore?
+    private var colourIndex = 0
+    private var writable = true
+    var changed: (() -> Void)?
+    var ask: (() -> Void)?
+    var askAll: (() -> Void)?
+    var draw: (() -> Void)?
+    var settings: (() -> Void)?
+    var lastRequest: (() -> Void)?
+    /// The day's budget, for the window's status bar: text, tooltip, paused.
+    var onBudget: ((String, String, Bool) -> Void)?
+    /// The companion is working: the mode mark pulses.
+    var thinking = false { didSet { if thinking != oldValue { pulse() } } }
+    private(set) lazy var height = heightAnchor.constraint(equalToConstant: Self.height)
+    override var isHidden: Bool { didSet { height.constant = isHidden ? 0 : Self.height } }
+
     override init(frame: NSRect) {
         super.init(frame: frame)
-        tell.placeholderString = "Tell Syncr — what is this note for?"; tell.font = .systemFont(ofSize: 12)
+        fill = Theme.page
+        wantsLayer = true
+        name.isBordered = false
+        name.target = self
+        name.action = #selector(openMenu)
+        name.attributedTitle = {
+            let text = NSMutableAttributedString(string: "● ", attributes: [.font: NSFont.systemFont(ofSize: 9), .foregroundColor: Theme.ink, .baselineOffset: 1])
+            text.append(NSAttributedString(string: "Syncr ▾", attributes: [.font: Theme.font, .foregroundColor: Theme.soft]))
+            return text
+        }()
+        name.toolTip = "Ask, readers, colour, settings"
         mode.addItems(withTitles: ["Off", "When you ask", "Thinks with you"])
-        presets.addItems(withTitles: ["Tell presets…"] + Reader.tellPresets)
-        colour.addItems(withTitles:["Ink", "Red", "Green", "Blue", "Orange"])
-        for popup in [mode,reader,presets,colour] { popup.target = self; popup.action = #selector(change) }
-        web.target = self; web.action = #selector(change); tell.target = self; tell.action = #selector(change)
-        flight.style = .spinning; flight.controlSize = .small; flight.isDisplayedWhenStopped = false
-        meter.font = .systemFont(ofSize: 10); meter.textColor = .secondaryLabelColor
-        let ask = ActionButton("Ask Syncr ⌘J") { [weak self] in self?.ask?() }
-        let settings = ActionButton("⚙") { [weak self] in self?.settings?() }
-        let top = NSStackView(views:[tell,mode,web,reader,settings]); top.spacing = 6
-        let bottom = NSStackView(views:[presets,colour,ask,flight,meter]); bottom.spacing = 8
-        let stack = NSStackView(views:[top,bottom]); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 4
-        stack.translatesAutoresizingMaskIntoConstraints = false; addSubview(stack)
-        NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo:leadingAnchor,constant:12),stack.trailingAnchor.constraint(equalTo:trailingAnchor,constant:-12),stack.topAnchor.constraint(equalTo:topAnchor,constant:5),stack.bottomAnchor.constraint(equalTo:bottomAnchor,constant:-5),top.widthAnchor.constraint(equalTo:stack.widthAnchor),tell.widthAnchor.constraint(greaterThanOrEqualToConstant:120)])
+        mode.toolTip = "When Syncr speaks"
+        reader.toolTip = "Who reads this note"
+        for menu in [mode, reader] { menu.onChange = { [weak self] in self?.changed?() } }
+        web.controlSize = .mini
+        web.target = self
+        web.action = #selector(change)
+        web.toolTip = "Let Syncr search the web"
+        let webLabel = NSTextField(labelWithString: "Web")
+        webLabel.font = Theme.font
+        webLabel.textColor = Theme.muted
+        status.font = Theme.smallFont
+        status.textColor = Theme.muted
+        status.lineBreakMode = .byTruncatingTail
+        status.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        askLink = ActionButton(link: "Ask", size: 12) { [weak self] in self?.ask?() }
+        askLink.toolTip = "Ask about the selection"
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.init(1), for: .horizontal)
+        let top = NSStackView(views: [name, mode, NSStackView(views: [webLabel, web]), reader, spacer, status, askLink])
+        top.spacing = 16
+
+        let pen = NSTextField(labelWithString: "✎ Tell Syncr")
+        pen.font = Theme.font
+        pen.textColor = Theme.muted
+        pen.setContentHuggingPriority(.required, for: .horizontal)
+        tell.isBordered = false
+        tell.drawsBackground = false
+        tell.focusRingType = .none
+        tell.font = Theme.serif(15.5)
+        tell.textColor = Theme.soft
+        tell.placeholderAttributedString = NSAttributedString(string: "what is this note for?", attributes: [.font: Theme.serif(15.5), .foregroundColor: Theme.muted])
+        tell.lineBreakMode = .byTruncatingTail
+        tell.cell?.usesSingleLineMode = true
+        tell.target = self
+        tell.action = #selector(change)
+        let bottom = NSStackView(views: [pen, tell])
+        bottom.spacing = 16
+        bottom.alignment = .firstBaseline
+
+        for row in [top, bottom] {
+            row.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(row)
+            NSLayoutConstraint.activate([
+                row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 28),
+                row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
+                row.heightAnchor.constraint(equalToConstant: 24)
+            ])
+        }
+        NSLayoutConstraint.activate([
+            top.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            bottom.topAnchor.constraint(equalTo: top.bottomAnchor)
+        ])
+        clipsToBounds = true
+        pulse()
     }
-    required init?(coder: NSCoder) { fatalError() }
-    @objc private func change(_ sender: Any?) {
-        if let popup = sender as? NSPopUpButton, popup === presets, presets.indexOfSelectedItem > 0 { tell.stringValue = Reader.tellPresets[presets.indexOfSelectedItem-1]; presets.selectItem(at:0) }
-        changed?()
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    func updateHotkeys(_ store: HotkeyStore) {
+        hotkeys = store
+        let title = "Ask" + (store.binding(for: .askSyncr).map { "  \($0.compact)" } ?? "")
+        askLink.attributedTitle = NSAttributedString(string: title, attributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: Theme.muted])
+        askLink.toolTip = store.hint(.askSyncr)
     }
-    func show(_ value: CompanionSettings, readers: [Reader], writable: Bool) {
-        if tell.currentEditor() == nil { tell.stringValue = value.tell }
-        mode.selectItem(at:value.mode == .off ? 0 : value.mode == .whenAsked ? 1 : 2); web.state = value.web ? .on : .off
-        colour.selectItem(at:[InkColour.ink,.red,.green,.blue,.orange].firstIndex(of:value.colour) ?? 3)
-        let names = readers.map(\.name)
-        if reader.itemTitles != names { reader.removeAllItems(); reader.addItems(withTitles:names) }
-        if let index = readers.firstIndex(where:{$0.id == value.activeReader}) { reader.selectItem(at:index) }
-        for control in [tell,mode,web,reader,presets,colour] as [NSControl] { control.isEnabled = writable }
+
+    @objc private func change(_ sender: Any?) { changed?() }
+
+    @objc private func openMenu() {
+        let menu = NSMenu()
+        func item(_ title: String, _ key: String = "", _ run: (() -> Void)?) -> NSMenuItem {
+            let entry = NSMenuItem(title: title, action: #selector(ClosureTarget.fire), keyEquivalent: key)
+            entry.target = ClosureTarget.attach(to: entry) { run?() }
+            return entry
+        }
+        let askItem = item("Ask Syncr", hotkeys?.binding(for: .askSyncr)?.key ?? "", ask)
+        askItem.keyEquivalentModifierMask = hotkeys?.binding(for: .askSyncr)?.flags ?? []
+        menu.addItem(askItem)
+        menu.addItem(item("Ask All Readers", "", askAll))
+        menu.addItem(item("Draw This Selection (Experimental)", "", draw))
+        menu.addItem(.separator())
+        let presets = NSMenuItem(title: "Tell Presets", action: nil, keyEquivalent: "")
+        presets.submenu = NSMenu()
+        for preset in Reader.tellPresets {
+            presets.submenu?.addItem(item(preset, "") { [weak self] in self?.tell.stringValue = preset; self?.changed?() })
+        }
+        presets.isEnabled = writable
+        menu.addItem(presets)
+        let colours = NSMenuItem(title: "Margin Colour", action: nil, keyEquivalent: "")
+        colours.submenu = NSMenu()
+        for (index, title) in Self.colourNames.enumerated() {
+            let entry = item(title, "") { [weak self] in self?.colourIndex = index; self?.changed?() }
+            entry.state = index == colourIndex ? .on : .off
+            entry.image = Self.swatch(Self.colour(Self.colours[index]))
+            colours.submenu?.addItem(entry)
+        }
+        colours.isEnabled = writable
+        menu.addItem(colours)
+        menu.addItem(.separator())
+        menu.addItem(item("Companion Settings…", "", settings))
+        menu.addItem(item("Last Companion Request…", "", lastRequest))
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: name.bounds.height + 4), in: name)
     }
-}
-@MainActor final class MarginCard: NSView {
-    var hover: ((Bool) -> Void)?
-    override var isFlipped: Bool { true }
-    init(text: String, caption: String, sources: [CompanionSource], colour: NSColor, open: @escaping () -> Void, pin: @escaping () -> Void, dismiss: @escaping () -> Void, add: @escaping () -> Void) {
-        super.init(frame:.zero); wantsLayer = true; layer?.backgroundColor = colour.withAlphaComponent(0.055).cgColor; layer?.cornerRadius = 18
-        let title = NSTextField(labelWithString:caption); title.font = .systemFont(ofSize:31,weight:.medium); title.textColor = colour
-        let label = NSTextField(wrappingLabelWithString:text); label.font = NSFont(name:"Georgia",size:44) ?? .systemFont(ofSize:44); label.textColor = colour
-        let buttons = NSStackView(views:[ActionButton("Thread",action:open),ActionButton("Pin",action:pin),ActionButton("Dismiss",action:dismiss),ActionButton("Add to note",action:add)])
-        for button in buttons.views.compactMap({$0 as? NSButton}) { button.font = .systemFont(ofSize:30); button.controlSize = .large }
-        let sourceLabel = NSTextField(wrappingLabelWithString:sources.map { "🌐 \($0.title)\n\($0.url)" }.joined(separator:"\n")); sourceLabel.font = .systemFont(ofSize:26); sourceLabel.textColor = .secondaryLabelColor; sourceLabel.isSelectable = true
-        let stack = NSStackView(views:[title,label,buttons,sourceLabel]); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 16; stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack); NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo:leadingAnchor,constant:22),stack.trailingAnchor.constraint(equalTo:trailingAnchor,constant:-22),stack.topAnchor.constraint(equalTo:topAnchor,constant:18),label.widthAnchor.constraint(equalTo:stack.widthAnchor),sourceLabel.widthAnchor.constraint(equalTo:stack.widthAnchor)])
-    }
-    required init?(coder: NSCoder) { fatalError() }
-    override func updateTrackingAreas() { super.updateTrackingAreas(); trackingAreas.forEach(removeTrackingArea); addTrackingArea(NSTrackingArea(rect:bounds,options:[.mouseEnteredAndExited,.activeInKeyWindow],owner:self)) }
-    override func mouseEntered(with event:NSEvent) { hover?(true) }
-    override func mouseExited(with event:NSEvent) { hover?(false) }
-}
-@MainActor final class CompanionThreads: NSView {
-    private let scroll = NSScrollView(), stack = NSStackView()
-    var onReply: ((String,String) -> Void)?
-    var onState: ((String,MarginState) -> Void)?
-    override init(frame:NSRect) {
-        super.init(frame:frame); scroll.hasVerticalScroller = true; scroll.drawsBackground = false; stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 12; stack.edgeInsets = NSEdgeInsets(top:12,left:12,bottom:12,right:12)
-        scroll.documentView = stack; scroll.translatesAutoresizingMaskIntoConstraints = false; stack.translatesAutoresizingMaskIntoConstraints = false; addSubview(scroll)
-        NSLayoutConstraint.activate([scroll.leadingAnchor.constraint(equalTo:leadingAnchor),scroll.trailingAnchor.constraint(equalTo:trailingAnchor),scroll.topAnchor.constraint(equalTo:topAnchor),scroll.bottomAnchor.constraint(equalTo:bottomAnchor),stack.leadingAnchor.constraint(equalTo:scroll.contentView.leadingAnchor),stack.trailingAnchor.constraint(equalTo:scroll.contentView.trailingAnchor),stack.topAnchor.constraint(equalTo:scroll.contentView.topAnchor)])
-    }
-    required init?(coder:NSCoder){fatalError()}
-    func show(_ items:[CompanionItemView], open:Set<String>) {
-        stack.arrangedSubviews.forEach { stack.removeArrangedSubview($0); $0.removeFromSuperview() }
-        for margin in items where !margin.tombstone {
-            guard case .marginNote(_,_,let text,let reader,let state,let sources) = margin.body, state != .dismissed, (state == .pinned || open.contains(margin.id)) else { continue }
-            let title = NSTextField(labelWithString:"\(state == .pinned ? "📌 " : "")\(reader)"); title.font = .systemFont(ofSize:13,weight:.semibold)
-            let question = NSTextField(wrappingLabelWithString:text); question.font = NSFont(name:"Georgia",size:14); question.widthAnchor.constraint(equalToConstant:240).isActive = true
-            stack.addArrangedSubview(title); stack.addArrangedSubview(question)
-            let replies = items.filter { v in if case .threadMessage(let id,_,_,_,_) = v.body { return id == margin.id && !v.tombstone }; return false }.sorted { a,b in
-                if case .threadMessage(_,let n,_,_,_) = a.body, case .threadMessage(_,let m,_,_,_) = b.body { return n < m }; return false
-            }
-            for reply in replies { if case .threadMessage(_,_,let who,let text,let urls) = reply.body {
-                let label = NSTextField(wrappingLabelWithString:"\(who == .you ? "You" : "Syncr"): \(text)" + urls.map { "\n🌐 \($0.title) \($0.url)" }.joined()); label.font = .systemFont(ofSize:13); label.isSelectable = true; label.widthAnchor.constraint(equalToConstant:240).isActive = true; stack.addArrangedSubview(label)
-            }}
-            if !sources.isEmpty { let label = NSTextField(wrappingLabelWithString:sources.map { "🌐 \($0.title)\n\($0.url)" }.joined(separator:"\n")); label.font = .systemFont(ofSize:11); label.widthAnchor.constraint(equalToConstant:240).isActive = true; stack.addArrangedSubview(label) }
-            let field = NSTextField(string:""); field.placeholderString = "Ask why, push back…"; field.widthAnchor.constraint(equalToConstant:240).isActive = true
-            stack.addArrangedSubview(field)
-            stack.addArrangedSubview(NSStackView(views:[ActionButton("Reply") { [weak self,weak field] in guard let text = field?.stringValue, !text.isEmpty else { return }; self?.onReply?(margin.id,text); field?.stringValue = "" },ActionButton(state == .pinned ? "Unpin" : "Pin") { [weak self] in self?.onState?(margin.id,state == .pinned ? .open : .pinned) },ActionButton("Dismiss") { [weak self] in self?.onState?(margin.id,.dismissed) }]))
+
+    private static func swatch(_ colour: NSColor) -> NSImage {
+        NSImage(size: NSSize(width: 10, height: 10), flipped: false) { rect in
+            colour.setFill()
+            NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1)).fill()
+            return true
         }
     }
-}
-@MainActor final class DrawingCard:NSView {
-    let drawing:SyncrCompanion.Drawing; private let image = NSImageView(), caption = NSTextField(labelWithString:""), counter = NSTextField(labelWithString:"")
-    private var step = 0; private var timer:Timer?; private var larger:NSWindow?
-    override var isFlipped:Bool { true }
-    init(_ drawing:SyncrCompanion.Drawing) {
-        self.drawing = drawing; super.init(frame:.zero)
-        let row = NSStackView(views:[ActionButton("Previous") { [weak self] in self?.advance(-1) },counter,ActionButton("Next") { [weak self] in self?.advance(1) },ActionButton("Replay") { [weak self] in self?.replay() },ActionButton("See it larger") { [weak self] in self?.enlarge() }])
-        for b in row.views.compactMap({$0 as? NSButton}) { b.font = .systemFont(ofSize:30) }; counter.font = .systemFont(ofSize:30); caption.font = .systemFont(ofSize:30); caption.lineBreakMode = .byTruncatingTail
-        image.imageScaling = .scaleProportionallyUpOrDown
-        let stack = NSStackView(views:[row,image,caption]); stack.orientation = .vertical; stack.alignment = .leading; stack.translatesAutoresizingMaskIntoConstraints = false; addSubview(stack)
-        NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo:leadingAnchor),stack.trailingAnchor.constraint(equalTo:trailingAnchor),stack.topAnchor.constraint(equalTo:topAnchor),stack.bottomAnchor.constraint(equalTo:bottomAnchor),image.widthAnchor.constraint(equalTo:widthAnchor),image.heightAnchor.constraint(equalToConstant:drawing.height)])
-        step = drawing.steps.count; render()
+
+    private var pulseTimer: Timer?
+    private func pulse() {
+        let base = mode.indexOfSelectedItem == 0 ? Theme.muted : Theme.thinking
+        mode.mark = base
+        pulseTimer?.invalidate()
+        pulseTimer = nil
+        guard thinking else { return }
+        pulseTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.mode.mark = AppPreferences.shared.reducedMotion ? base : (self.mode.mark == base ? base.withAlphaComponent(0.35) : base)
+            }
+        }
     }
-    required init?(coder:NSCoder){fatalError()}
-    func debug(_ action:String) { switch action { case "previous": advance(-1); case "next": advance(1); case "replay": replay(); case "larger": enlarge(); default: break } }
-    private func advance(_ n:Int) { timer?.invalidate(); step = max(0,min(drawing.steps.count,step+n)); render() }
-    private func render() { if let cg = SketchRenderer.image(drawing,through:step) { image.image = NSImage(cgImage:cg,size:NSSize(width:drawing.width,height:drawing.height)) }; counter.stringValue = "\(step)/\(drawing.steps.count)"; caption.stringValue = step > 0 ? drawing.steps[step-1].caption : drawing.title }
-    private func replay() { timer?.invalidate(); step = 0; render(); timer = Timer.scheduledTimer(withTimeInterval:0.8,repeats:true) { [weak self] _ in MainActor.assumeIsolated { guard let self else { return }; self.step += 1; self.render(); if self.step >= self.drawing.steps.count { self.timer?.invalidate() } } } }
-    private func enlarge() { let view = DrawingCard(drawing); let window = NSWindow(contentRect:NSRect(x:0,y:0,width:min(1100,drawing.width),height:min(850,drawing.height+160)),styleMask:[.titled,.closable,.resizable],backing:.buffered,defer:false); window.title = drawing.title; let scroll = NSScrollView(); scroll.hasVerticalScroller = true; scroll.hasHorizontalScroller = true; view.frame = CGRect(x:0,y:0,width:max(1100,drawing.width),height:drawing.height+180); scroll.documentView = view; window.contentView = scroll; window.isReleasedWhenClosed = false; window.center(); window.makeKeyAndOrderFront(nil); larger = window }
+
+    /// The settings the controls currently show.
+    func settings(readers: [Reader]) -> CompanionSettings {
+        let modes: [SyncrCore.CompanionMode] = [.off, .whenAsked, .thinksWithYou]
+        let readerID = readers.indices.contains(reader.indexOfSelectedItem) ? readers[reader.indexOfSelectedItem].id : "staff-engineer"
+        return CompanionSettings(tell: tell.stringValue, mode: modes[max(0, min(2, mode.indexOfSelectedItem))], web: web.state == .on,
+                                 activeReader: readerID, colour: Self.colours[max(0, min(4, colourIndex))])
+    }
+
+    func show(_ value: CompanionSettings, readers: [Reader], writable: Bool) {
+        self.writable = writable
+        if tell.currentEditor() == nil { tell.stringValue = value.tell }
+        mode.selectItem(at: value.mode == .off ? 0 : value.mode == .whenAsked ? 1 : 2)
+        web.state = value.web ? .on : .off
+        colourIndex = Self.colours.firstIndex(of: value.colour) ?? 0
+        let names = readers.map(\.name)
+        if reader.itemTitles != names {
+            reader.removeAllItems()
+            reader.addItems(withTitles: names)
+        }
+        if let index = readers.firstIndex(where: { $0.id == value.activeReader }) { reader.selectItem(at: index) }
+        for control in [tell, mode, web, reader] as [NSControl] { control.isEnabled = writable }
+        pulse()
+    }
+
+    /// The status goes on the strip (it is what changed); the budget goes to the status bar.
+    func show(meter value: BudgetMeter, status text: String) {
+        status.stringValue = text == "Ready" ? "" : text
+        status.textColor = text.hasPrefix("Choose") || text.hasPrefix("Turn on") ? Theme.needsYou : Theme.muted
+        let share = Int((Double(value.tokens) / Double(max(1, value.tokenLimit)) * 100).rounded())
+        let budget = value.reached ? "Syncr paused: today's budget is used" : "Syncr \(share)% of today's budget"
+        onBudget?(budget, "\(value.tokens) of \(value.tokenLimit) tokens today\n\(value.unmeteredRequests) of \(value.requestLimit) unmetered requests", value.reached)
+    }
+}
+
+/// A margin note beside its passage, in canvas units: one small dot, then the companion's words in large
+/// serif. No card and no border. Its actions appear in quiet sans beneath on hover.
+@MainActor final class MarginCard: NSView {
+    static let width: CGFloat = 1000
+    var hover: ((Bool) -> Void)?
+    private(set) var fittedHeight: CGFloat = 0
+    private let actions: NSStackView
+    override var isFlipped: Bool { true }
+
+    init(text: String, caption: String, sources: [CompanionSource], colour: NSColor, open: @escaping () -> Void, pin: @escaping () -> Void,
+         pinned: Bool, dismiss: @escaping () -> Void, add: @escaping () -> Void) {
+        actions = NSStackView(views: [
+            ActionButton(link: "Reply", size: 34, action: open),
+            ActionButton(link: pinned ? "Unpin" : "Pin", size: 34, action: pin),
+            ActionButton(link: "Add to note", size: 34, action: add),
+            ActionButton(link: "Dismiss", size: 34, action: dismiss)
+        ])
+        super.init(frame: .zero)
+        let inner = Self.width - 56
+        let dot = ThemedView()
+        dot.fill = colour
+        dot.radius = 10
+        dot.frame = CGRect(x: 0, y: 26, width: 20, height: 20)
+        addSubview(dot)
+        let label = NSTextField(wrappingLabelWithString: text)
+        label.font = Theme.serif(50)
+        label.textColor = Theme.ink
+        label.preferredMaxLayoutWidth = inner
+        label.isSelectable = true
+        var views: [NSView] = [label]
+        if !sources.isEmpty {
+            let list = NSTextField(wrappingLabelWithString: sources.map { "↗ \($0.title) — \(URL(string: $0.url)?.host ?? $0.url)" }.joined(separator: "\n"))
+            list.font = .systemFont(ofSize: 32)
+            list.textColor = Theme.muted
+            list.isSelectable = true
+            list.preferredMaxLayoutWidth = inner
+            list.toolTip = sources.map(\.url).joined(separator: "\n")
+            views.append(list)
+        }
+        if !caption.isEmpty {
+            let who = NSTextField(labelWithString: caption)
+            who.font = .systemFont(ofSize: 34)
+            who.textColor = Theme.muted
+            actions.insertArrangedSubview(who, at: 0)
+        }
+        actions.spacing = 40
+        actions.alphaValue = 0
+        views.append(actions)
+        let stack = NSStackView(views: views)
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 16
+        stack.setCustomSpacing(26, after: views[views.count - 2])
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 56), stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor)
+        ])
+        fittedHeight = ceil(stack.fittingSize.height)
+        toolTip = caption
+    }
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInKeyWindow], owner: self))
+    }
+    override func mouseEntered(with event: NSEvent) {
+        if AppPreferences.shared.reducedMotion { actions.alphaValue = 1 } else { actions.animator().alphaValue = 1 }
+        hover?(true)
+    }
+    override func mouseExited(with event: NSEvent) {
+        if AppPreferences.shared.reducedMotion { actions.alphaValue = 0 } else { actions.animator().alphaValue = 0 }
+        hover?(false)
+    }
+}
+
+/// Open and pinned margin threads, shown at the bottom of the right pane. Sized by its content.
+@MainActor final class CompanionThreads: NSView {
+    private let stack = FlippedStack()
+    var onReply: ((String, String) -> Void)?
+    var onState: ((String, MarginState) -> Void)?
+    var onResize: (() -> Void)?
+    override var isFlipped: Bool { true }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor), stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor), stack.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    func show(_ items: [CompanionItemView], open: Set<String>) {
+        stack.arrangedSubviews.forEach { stack.removeArrangedSubview($0); $0.removeFromSuperview() }
+        defer { onResize?() }
+        let margins = items.filter { item in
+            guard !item.tombstone, case .marginNote(_, _, _, _, let state, _) = item.body else { return false }
+            return state == .pinned || (state == .open && open.contains(item.id))
+        }
+        guard !margins.isEmpty else { return }
+        let allPinned = margins.allSatisfy { if case .marginNote(_, _, _, _, .pinned, _) = $0.body { return true }; return false }
+        add(NSTextField(labelWithAttributedString: Theme.groupLabel(allPinned ? (margins.count == 1 ? "Pinned thread" : "Pinned threads") : "Threads")), spacing: 10)
+        for margin in margins {
+            guard case .marginNote(_, _, let text, let reader, let state, let sources) = margin.body else { continue }
+            let pinned = state == .pinned
+            add(wrapping(text, font: Theme.serif(14), colour: Theme.ink), spacing: 6)
+            for (who, reply, urls) in Self.replies(to: margin.id, in: items) {
+                let line = NSMutableAttributedString()
+                if who == .you {
+                    line.append(NSAttributedString(string: "You · " + reply, attributes: [.font: Theme.font, .foregroundColor: Theme.muted]))
+                } else {
+                    line.append(NSAttributedString(string: reply, attributes: [.font: Theme.serif(13.5), .foregroundColor: Theme.ink]))
+                }
+                for url in urls { line.append(NSAttributedString(string: "\n↗ \(url.title)", attributes: [.font: Theme.smallFont, .foregroundColor: Theme.muted, .link: url.url])) }
+                let label = wrapping("", font: Theme.font, colour: Theme.ink)
+                label.attributedStringValue = line
+                add(label, spacing: 6)
+            }
+            if !sources.isEmpty {
+                add(wrapping(sources.map { "↗ \($0.title)" }.joined(separator: "\n"), font: Theme.smallFont, colour: Theme.muted), spacing: 6)
+            }
+            let field = NSTextField(string: "")
+            field.placeholderString = "Ask why, push back…"
+            field.font = Theme.font
+            field.bezelStyle = .roundedBezel
+            field.controlSize = .small
+            let send = { [weak self, weak field] in
+                guard let field, !field.stringValue.isEmpty else { return }
+                self?.onReply?(margin.id, field.stringValue)
+                field.stringValue = ""
+            }
+            field.target = ClosureTarget.attach(to: field, send)
+            field.action = #selector(ClosureTarget.fire)
+            add(field, spacing: 4)
+            field.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+            let who = NSTextField(labelWithString: reader)
+            who.font = Theme.smallFont
+            who.textColor = Theme.muted
+            let spacer = NSView()
+            spacer.setContentHuggingPriority(.init(1), for: .horizontal)
+            let row = NSStackView(views: [
+                who, spacer,
+                ActionButton(link: pinned ? "Unpin" : "Pin", size: 11.5) { [weak self] in self?.onState?(margin.id, pinned ? .open : .pinned) },
+                ActionButton(link: "Dismiss", size: 11.5) { [weak self] in self?.onState?(margin.id, .dismissed) }
+            ])
+            row.spacing = 10
+            add(row, spacing: 18)
+            row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        }
+    }
+
+    private func add(_ view: NSView, spacing: CGFloat) {
+        stack.addArrangedSubview(view)
+        stack.setCustomSpacing(spacing, after: view)
+    }
+    private func wrapping(_ text: String, font: NSFont, colour: NSColor) -> NSTextField {
+        let label = NSTextField(wrappingLabelWithString: text)
+        label.font = font
+        label.textColor = colour
+        label.isSelectable = true
+        label.preferredMaxLayoutWidth = NotebookSidebar.inner
+        return label
+    }
+    private static func replies(to id: String, in items: [CompanionItemView]) -> [(MessageWho, String, [CompanionSource])] {
+        items.compactMap { item -> (UInt32, MessageWho, String, [CompanionSource])? in
+            guard !item.tombstone, case .threadMessage(let parent, let order, let who, let text, let urls) = item.body, parent == id else { return nil }
+            return (order, who, text, urls)
+        }
+        .sorted { $0.0 < $1.0 }
+        .map { ($0.1, $0.2, $0.3) }
+    }
+}
+
+/// Holds an action closure for controls that only offer target/action.
+@MainActor final class ClosureTarget: NSObject {
+    private static var key = 0
+    private let run: () -> Void
+    private init(_ run: @escaping () -> Void) { self.run = run }
+    static func attach(to object: NSObject, _ run: @escaping () -> Void) -> ClosureTarget {
+        let target = ClosureTarget(run)
+        objc_setAssociatedObject(object, &key, target, .OBJC_ASSOCIATION_RETAIN)
+        return target
+    }
+    @objc func fire() { run() }
+}
+
+final class FlippedStack: NSStackView { override var isFlipped: Bool { true } }
+
+/// A step-by-step companion drawing set on the page under its passage, in canvas units: thin ink lines,
+/// serif labels, a serif caption for the current step left of a quiet stepper, "See it larger" beneath.
+@MainActor final class DrawingCard: NSView {
+    let drawing: SyncrCompanion.Drawing
+    private let image = NSImageView()
+    private let caption = NSTextField(labelWithString: "")
+    private let counter = NSTextField(labelWithString: "")
+    private var step = 0
+    private var timer: Timer?
+    private var larger: NSWindow?
+    override var isFlipped: Bool { true }
+    /// Extra height under the picture for the caption, stepper and "See it larger".
+    static let chrome: CGFloat = 180
+
+    init(_ drawing: SyncrCompanion.Drawing) {
+        self.drawing = drawing
+        super.init(frame: .zero)
+        caption.font = Theme.serif(38)
+        caption.textColor = Theme.soft
+        caption.lineBreakMode = .byTruncatingTail
+        caption.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        counter.font = .monospacedDigitSystemFont(ofSize: 32, weight: .regular)
+        counter.textColor = Theme.muted
+        let stepper = NSStackView(views: [
+            caption,
+            ActionButton(link: "‹", size: 36) { [weak self] in self?.advance(-1) },
+            counter,
+            ActionButton(link: "›", size: 36) { [weak self] in self?.advance(1) },
+            ActionButton(link: "↻", size: 34) { [weak self] in self?.replay() }
+        ])
+        stepper.spacing = 36
+        let larger = ActionButton(link: "See it larger", size: 32) { [weak self] in self?.enlarge() }
+        image.imageScaling = .scaleProportionallyUpOrDown
+        image.imageAlignment = .alignTopLeft
+        let stack = NSStackView(views: [image, stepper, larger])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 18
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor), stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            image.widthAnchor.constraint(equalTo: widthAnchor), image.heightAnchor.constraint(equalToConstant: drawing.height),
+            stepper.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor)
+        ])
+        step = drawing.steps.count
+        render()
+    }
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); render() }
+
+    func debug(_ action: String) {
+        switch action {
+        case "previous": advance(-1)
+        case "next": advance(1)
+        case "replay": replay()
+        case "larger": enlarge()
+        default: break
+        }
+    }
+    private func advance(_ n: Int) {
+        timer?.invalidate()
+        step = max(0, min(drawing.steps.count, step + n))
+        render()
+    }
+    /// Thinner than handwriting, in the Ink token on the page itself.
+    private var style: SketchRenderer.Style {
+        var ink = Theme.ink.cgColor, muted = Theme.muted.cgColor
+        effectiveAppearance.performAsCurrentDrawingAppearance { ink = Theme.ink.cgColor; muted = Theme.muted.cgColor }
+        return SketchRenderer.Style(background: nil, ink: ink, secondary: muted, lineWidth: 1.1,
+                                    labelFont: { Theme.serif($0) }, serifLabelSize: 13)
+    }
+    private func render() {
+        if let cg = SketchRenderer.image(drawing, through: step, scale: 2, style: style) {
+            image.image = NSImage(cgImage: cg, size: NSSize(width: drawing.width, height: drawing.height))
+        }
+        counter.stringValue = "\(step)/\(drawing.steps.count)"
+        caption.stringValue = step > 0 ? drawing.steps[step - 1].caption : drawing.title
+    }
+    private func replay() {
+        timer?.invalidate()
+        step = 0
+        render()
+        timer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.step += 1
+                self.render()
+                if self.step >= self.drawing.steps.count { self.timer?.invalidate() }
+            }
+        }
+    }
+    private func enlarge() {
+        let view = DrawingCard(drawing)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: min(1100, drawing.width), height: min(850, drawing.height + 160)),
+                              styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        window.title = drawing.title
+        window.backgroundColor = Theme.page
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = true
+        scroll.hasHorizontalScroller = true
+        scroll.drawsBackground = false
+        view.frame = CGRect(x: 0, y: 0, width: max(1100, drawing.width), height: drawing.height + Self.chrome)
+        scroll.documentView = view
+        window.contentView = scroll
+        window.isReleasedWhenClosed = false
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        larger = window
+    }
 }

@@ -3,6 +3,8 @@ import Foundation
 /// Every app command the palette lists. Execution lives with the window; availability and
 /// filtering live here so they can be checked without a window.
 enum AppCommand: String, CaseIterable, Sendable {
+    case settings, hotkeys, commandPalette
+    case showLeftSidebar, hideLeftSidebar, showRightSidebar, hideRightSidebar
     case newNote, newNotebook, quickSwitcher, renameNote, moveNote, deleteNote, restoreNote
     case closeTab, nextTab, previousTab, toggleSidebar, zoomIn, zoomOut, fit
     case importExport, chooseFolder
@@ -17,6 +19,13 @@ enum AppCommand: String, CaseIterable, Sendable {
 
     var title: String {
         switch self {
+        case .settings: "Settings…"
+        case .hotkeys: "Hotkeys…"
+        case .commandPalette: "Command Palette…"
+        case .showLeftSidebar: "Show Left Sidebar"
+        case .hideLeftSidebar: "Hide Left Sidebar"
+        case .showRightSidebar: "Show Right Sidebar"
+        case .hideRightSidebar: "Hide Right Sidebar"
         case .askSyncr: "Ask Syncr"
         case .drawSelection: "Draw This Selection (Experimental)"
         case .askAllReaders: "Ask All Readers"
@@ -35,7 +44,7 @@ enum AppCommand: String, CaseIterable, Sendable {
         case .findInNote: "Find in Note"
         case .searchNotes: "Search All Notes"
         case .dailyNote: "Open Daily Note"
-        case .toggleBacklinks: "Toggle Backlinks and Outline"
+        case .toggleBacklinks: "Toggle Right Pane (Outline, Backlinks, Threads)"
         case .documentView: "Document View"
         case .importMarkdown: "Import Markdown File or Vault…"
         case .exportMarkdown: "Export Markdown…"
@@ -51,7 +60,7 @@ enum AppCommand: String, CaseIterable, Sendable {
         case .closeTab: "Close Tab"
         case .nextTab: "Next Tab"
         case .previousTab: "Previous Tab"
-        case .toggleSidebar: "Toggle Sidebar"
+        case .toggleSidebar: "Toggle Left Sidebar"
         case .zoomIn: "Zoom In"
         case .zoomOut: "Zoom Out"
         case .fit: "Fit to Window"
@@ -68,37 +77,25 @@ enum AppCommand: String, CaseIterable, Sendable {
         }
     }
 
-    var shortcut: String {
+    /// Default hint for model-only consumers. Live UI uses HotkeyStore's effective binding.
+    var shortcut: String { KeyBinding.defaultBinding(for: self)?.compact ?? "" }
+
+    var isDebug: Bool {
         switch self {
-        case .askSyncr: "⌘J"
-        case .drawSelection, .askAllReaders, .companionSettings, .lastCompanionRequest, .undoCompanion, .redoCompanion: ""
-        case .undo: "⌘Z"
-        case .redo: "⇧⌘Z"
-        case .bold: "⌘B"
-        case .italic: "⌘I"
-        case .insertLink: "⌘K"
-        case .toggleTask: "⌘↩"
-        case .findInNote: "⌘F"
-        case .searchNotes: "⇧⌘F"
-        case .dailyNote: "⌘D"
-        case .toggleBacklinks: "⌥⌘B"
-        case .browseTags, .outline, .documentView, .importMarkdown, .exportMarkdown, .slashMenu, .freeText: ""
-        case .newNote: "⌘N"
-        case .newNotebook: "⇧⌘N"
-        case .quickSwitcher: "⌘O"
-        case .renameNote: "F2"
-        case .deleteNote: "⌘⌫"
-        case .closeTab: "⌘W"
-        case .nextTab: "⇧⌘]"
-        case .previousTab: "⇧⌘["
-        case .toggleSidebar: "⌘\\"
-        case .zoomIn: "⌘+"
-        case .zoomOut: "⌘−"
-        case .fit: "⌘0"
-        case .importExport: "⇧⌘I"
-        case .chooseFolder: "⇧⌘O"
-        case .moveNote, .restoreNote, .phoneLink, .followPhone, .forgetPhone, .replayTestStroke, .replayHighlighter, .replayCancelled, .replayViewRelative,
-             .simulateDisconnect: ""
+        case .replayTestStroke, .replayHighlighter, .replayCancelled, .replayViewRelative, .simulateDisconnect: true
+        default: false
+        }
+    }
+
+    var category: String {
+        switch self {
+        case .settings, .hotkeys, .commandPalette: "Application"
+        case .showLeftSidebar, .hideLeftSidebar, .showRightSidebar, .hideRightSidebar,
+             .toggleSidebar, .toggleBacklinks, .nextTab, .previousTab, .zoomIn, .zoomOut, .fit, .documentView: "Workspace"
+        case .askSyncr, .drawSelection, .askAllReaders, .companionSettings, .lastCompanionRequest, .undoCompanion, .redoCompanion: "Companion"
+        case .phoneLink, .followPhone, .forgetPhone: "Phone"
+        case .undo, .redo, .bold, .italic, .insertLink, .toggleTask, .slashMenu, .freeText: "Editor"
+        default: "Notes"
         }
     }
 

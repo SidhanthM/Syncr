@@ -95,7 +95,7 @@ func rendererCoverageOverlapAndReuse() throws {
         let single = Drawing(title: "single", strokes: [stroke()], lowestInk: 120)
         try renderer.render(single, viewport: Viewport(zoom: 8), dark: dark, target: target)
         let once = pixel(20, 20)
-        let paper = NotePalette.rgba(NotePalette.paper(dark))
+        let paper = NotePalette.rgba(ThemeTokens.page(dark))
         let ink = NotePalette.colour(.red, dark: dark, highlighter: true)
         let expected = (SIMD3(ink.z, ink.y, ink.x) * ink.w + SIMD3(paper.z, paper.y, paper.x) * (1 - ink.w)) * 255
         for channel in 0..<3 { try check(abs(Float(once[channel]) - expected[channel]) <= 2, "self-overlap blends once, \(dark)") }

@@ -162,7 +162,7 @@ final class MeshRenderer {
         pass.colorAttachments[0].resolveTexture = target
         pass.colorAttachments[0].loadAction = .clear
         pass.colorAttachments[0].storeAction = .multisampleResolve
-        let paper = NotePalette.rgba(NotePalette.paper(dark))
+        let paper = NotePalette.rgba(ThemeTokens.page(dark))
         pass.colorAttachments[0].clearColor = MTLClearColor(red: Double(paper.x), green: Double(paper.y), blue: Double(paper.z), alpha: 1)
         pass.stencilAttachment.texture = stencilTarget
         pass.stencilAttachment.loadAction = .clear
@@ -205,7 +205,7 @@ final class MeshRenderer {
                                 mesh.maxX + stroke.originX, mesh.maxY + stroke.originY) else { continue }
             bind(stroke.highlighter)
             draw(upload.vertices, upload.indices, count: mesh.indices.count / 4, origin: SIMD2(stroke.originX, stroke.originY),
-                 colour: NotePalette.colour(stroke.colour, dark: dark, highlighter: stroke.highlighter))
+                 colour: MeshRenderer.colour(stroke.colour, dark: dark, highlighter: stroke.highlighter))
         }
         // Wet layer. Sheet origin is zero: only the first sheet of a Mac note takes live ink.
         for stroke in wet?.strokes ?? [] {
@@ -213,7 +213,7 @@ final class MeshRenderer {
             for piece in stroke.pieces where visibleBounds(piece.minX, piece.minY, piece.maxX, piece.maxY) {
                 if !bound { bind(stroke.highlighter); bound = true }
                 draw(piece.vertices, piece.indices, count: piece.indexCount, origin: .zero,
-                     colour: NotePalette.colour(stroke.colour, dark: dark, highlighter: stroke.highlighter))
+                     colour: MeshRenderer.colour(stroke.colour, dark: dark, highlighter: stroke.highlighter))
             }
         }
         if let hover = wet?.hover {
@@ -226,7 +226,7 @@ final class MeshRenderer {
             if let v = device.makeBuffer(bytes: points, length: points.count * MemoryLayout<SIMD2<Float>>.stride),
                let i = device.makeBuffer(bytes: triangles, length: triangles.count * 4) {
                 bind(false)
-                draw(v, i, count: triangles.count, origin: .zero, colour: NotePalette.colour(.blue, dark: dark, highlighter: false))
+                draw(v, i, count: triangles.count, origin: .zero, colour: MeshRenderer.colour(.ink, dark: dark, highlighter: false))
             }
         }
         encoder.endEncoding()
@@ -257,3 +257,13 @@ final class MeshRenderer {
 }
 
 enum RendererError: Error { case unavailable }
+
+extension MeshRenderer {
+    /// Pen colours on the Mac's page. Plain ink is the window's Ink token so handwriting matches typed text
+    /// at full strength; the other pen colours are the shared ones.
+    static func colour(_ colour: InkColour, dark: Bool, highlighter: Bool) -> SIMD4<Float> {
+        guard colour == .ink else { return NotePalette.colour(colour, dark: dark, highlighter: highlighter) }
+        let rgb = ThemeTokens.ink(dark)
+        return NotePalette.rgba(highlighter ? (rgb & 0x00ffffff) | (NotePalette.highlighterAlpha << 24) : rgb)
+    }
+}

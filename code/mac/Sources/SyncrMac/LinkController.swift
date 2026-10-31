@@ -150,6 +150,8 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
     private(set) var pairingCode: (phone: String, code: String)?
     private(set) var viewing: String?
     private(set) var padOn = false
+    /// The note the phone is writing in right now: the pad's target while it is open, else the note it views.
+    var liveNote: String? { registry.sessions.isEmpty ? nil : (padOn ? workspace.active : viewing) }
     private let bridge = LinkBridge()
     private let registry = LinkRegistry<LinkSession>()
     private var server: LinkServer?
@@ -407,6 +409,7 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
 
     fileprivate func phoneViewing(_ id: String?) {
         viewing = id
+        onStatus?()
         log("link: viewing id=\(id ?? "none")")
         pendingFollow = nil
         followViewing()
@@ -423,6 +426,7 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
     fileprivate func phonePad(_ on: Bool) {
         padOn = on
         log("link: pad on=\(on)")
+        defer { onStatus?() }
         if on, !(workspace.active != nil && workspace.activeIsWritable) {
             do { _ = try workspace.newNote() } catch { log("link: pad-note-failed reason=\(error.localizedDescription)") }
         }

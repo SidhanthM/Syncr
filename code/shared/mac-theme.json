@@ -1,0 +1,13 @@
+{
+  "_comment": "Mac window tokens (rework-v1 §T). Pen colours stay in colours.json. Values are ARGB.",
+  "page":      {"dark": "ff131312", "light": "fff7f5f0"},
+  "panel":     {"dark": "ff191918", "light": "ffefece6"},
+  "well":      {"dark": "ff0e0e0d", "light": "ffe7e4dd"},
+  "raise":     {"dark": "ff1f1f1d", "light": "ffe0ddd5"},
+  "ink":       {"dark": "ffe9e6df", "light": "ff1c1b19"},
+  "soft":      {"dark": "ffb9b5ac", "light": "ff4a4741"},
+  "muted":     {"dark": "ff85827a", "light": "ff7d7a72"},
+  "thinking":  {"dark": "ffd9a441", "light": "ffb7831f"},
+  "connected": {"dark": "ff8fb596", "light": "ff5f8a67"},
+  "needs_you": {"dark": "ffd08a5a", "light": "ffb5683a"}
+}

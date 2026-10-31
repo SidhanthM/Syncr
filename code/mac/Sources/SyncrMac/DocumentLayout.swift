@@ -17,7 +17,13 @@ struct DocumentLayoutLine: Equatable {
 }
 
 @MainActor enum DocumentLayout {
-    static let bodySize: CGFloat = 48
+    static var bodySize: CGFloat { 48 * AppPreferences.shared.textScale }
+    /// Headings are only a little larger than the body, medium weight and tightly tracked (rework-v1 §T).
+    static func headingFont(_ level: Int) -> NSFont {
+        let scale: CGFloat = [1.5, 1.3, 1.15][safe: level - 1] ?? 1.05
+        return NSFont.systemFont(ofSize: (bodySize * scale).rounded(), weight: .medium)
+    }
+    static var titleFont: NSFont { .systemFont(ofSize: 76 * AppPreferences.shared.textScale, weight: .medium) }
     static func page(note: NoteSnapshot, width: CGFloat) -> DocumentPage? {
         guard let block = note.textBlocks.first(where: { $0.role == .document && !$0.tombstone }) else { return nil }
         let sheet = note.sheets.first { $0.id == block.sheetId }
@@ -35,8 +41,10 @@ struct DocumentLayoutLine: Equatable {
         return image(note: page, width: page.width, scale: scale)
     }
     static func attributed(_ text: String, caret: Int? = nil, resolving: ((String) -> Bool)? = nil, drawingHeights: [String: CGFloat] = [:]) -> NSAttributedString {
-        let out = NSMutableAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: bodySize), .foregroundColor: NSColor.labelColor])
-        let paragraph = NSMutableParagraphStyle(); paragraph.lineSpacing = 12; paragraph.paragraphSpacing = 8
+        let out = NSMutableAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: bodySize), .foregroundColor: Theme.ink])
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = bodySize * AppPreferences.shared.values.lineSpacing.multiplier
+        paragraph.paragraphSpacing = 10 * AppPreferences.shared.textScale
         out.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: out.length))
         func hide(_ r: NSRange) { if r.length > 0 { out.addAttributes([.font: NSFont.systemFont(ofSize: 0.01), .foregroundColor: NSColor.clear], range: r) } }
         for line in Markdown.lines(text) {
@@ -44,26 +52,30 @@ struct DocumentLayoutLine: Equatable {
             let raw = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
             if raw.hasPrefix("![[syncr-drawing:"), raw.hasSuffix("]]"), let height = drawingHeights[String(raw.dropFirst(17).dropLast(2))] {
                 let embed = NSMutableParagraphStyle(); embed.minimumLineHeight = height; embed.maximumLineHeight = height
-                out.addAttributes([.paragraphStyle: embed, .font: NSFont.systemFont(ofSize: active ? 14 : 0.01), .foregroundColor: active ? NSColor.secondaryLabelColor : NSColor.clear], range: line.range)
+                out.addAttributes([.paragraphStyle: embed, .font: NSFont.systemFont(ofSize: active ? 14 : 0.01), .foregroundColor: active ? Theme.muted : NSColor.clear], range: line.range)
             }
             var hiddenPrefix = false
             switch line.kind {
             case .heading(let level):
-                out.addAttribute(.font, value: NSFont.systemFont(ofSize: bodySize + CGFloat(7 - level) * 8, weight: .semibold), range: line.range); hiddenPrefix = true
-            case .quote: out.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: line.range); hiddenPrefix = true
+                let font = headingFont(level)
+                out.addAttributes([.font: font, .kern: -0.02 * font.pointSize], range: line.range); hiddenPrefix = true
+            case .quote: out.addAttribute(.foregroundColor, value: Theme.soft, range: line.range); hiddenPrefix = true
             case .task, .bullet, .numbered: hiddenPrefix = true
             case .fence:
-                out.addAttributes([.font: NSFont.monospacedSystemFont(ofSize: 34, weight: .regular), .foregroundColor: NSColor.secondaryLabelColor], range: line.range)
+                out.addAttributes([.font: NSFont.monospacedSystemFont(ofSize: 34 * AppPreferences.shared.textScale, weight: .regular), .foregroundColor: Theme.muted], range: line.range)
                 hiddenPrefix = !active
             case .code(let language):
-                out.addAttributes([.font: NSFont.monospacedSystemFont(ofSize: 42, weight: .regular), .backgroundColor: NSColor.quaternaryLabelColor], range: line.range)
+                out.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 42 * AppPreferences.shared.textScale, weight: .regular), range: line.range)
                 colourCode(line, language: language, into: out)
-            case .rule: out.addAttribute(.foregroundColor, value: active ? NSColor.secondaryLabelColor : NSColor.clear, range: line.range)
+            case .rule: out.addAttribute(.foregroundColor, value: active ? Theme.muted : NSColor.clear, range: line.range)
             default: break
             }
             if hiddenPrefix && !active {
                 switch line.kind {
-                case .task, .bullet, .numbered, .quote:
+                case .task:
+                    // Monospaced so "[ ]" and "[x]" take the same width and checked text lines up.
+                    out.addAttributes([.foregroundColor: NSColor.clear, .font: NSFont.monospacedSystemFont(ofSize: 16, weight: .regular)], range: line.prefix)
+                case .bullet, .numbered, .quote:
                     out.addAttribute(.foregroundColor, value: NSColor.clear, range: line.prefix)
                 default: hide(line.prefix)
                 }
@@ -74,11 +86,14 @@ struct DocumentLayoutLine: Equatable {
                 case .italic: out.addAttribute(.font, value: NSFontManager.shared.convert(.systemFont(ofSize: bodySize), toHaveTrait: .italicFontMask), range: span.range)
                 case .strike: out.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: span.range)
                 case .highlight: out.addAttribute(.backgroundColor, value: NSColor.systemYellow.withAlphaComponent(0.25), range: span.range)
-                case .code: out.addAttributes([.font: NSFont.monospacedSystemFont(ofSize: 44, weight: .regular), .backgroundColor: NSColor.quaternaryLabelColor], range: span.range)
-                case .link(let url): out.addAttributes([.link: url, .foregroundColor: NSColor.linkColor], range: span.range)
+                case .code: out.addAttributes([.font: NSFont.monospacedSystemFont(ofSize: 44 * AppPreferences.shared.textScale, weight: .regular), .backgroundColor: NSColor.quaternaryLabelColor], range: span.range)
+                // Colour means state only: links and tags are ink with an underline.
+                case .link(let url): out.addAttributes([.link: url, .foregroundColor: Theme.ink, .underlineStyle: NSUnderlineStyle.single.rawValue, .underlineColor: Theme.muted], range: span.range)
                 case .wiki(let title):
-                    out.addAttributes([.link: "syncr-wiki:" + title, .foregroundColor: NSColor.systemBlue.withAlphaComponent(resolving?(title) == false ? 0.45 : 1)], range: span.range)
-                case .tag: out.addAttribute(.foregroundColor, value: NSColor.systemPurple, range: span.range)
+                    let missing = resolving?(title) == false
+                    out.addAttributes([.link: "syncr-wiki:" + title, .foregroundColor: missing ? Theme.muted : Theme.ink,
+                                       .underlineStyle: NSUnderlineStyle.single.rawValue | (missing ? NSUnderlineStyle.patternDot.rawValue : 0), .underlineColor: Theme.muted], range: span.range)
+                case .tag: out.addAttributes([.foregroundColor: Theme.ink, .underlineStyle: NSUnderlineStyle.single.rawValue, .underlineColor: Theme.hairlineStrong], range: span.range)
                 }
                 if !active { span.syntax.forEach(hide) }
             }
@@ -99,17 +114,19 @@ struct DocumentLayoutLine: Equatable {
             let active = caret.map { $0 >= line.range.location && $0 <= NSMaxRange(line.range) } ?? false
             let indent = CGFloat(line.text.prefix(while: { $0 == " " || $0 == "\t" }).count) * 12
             func label(_ text: String, size: CGFloat = 48, x: CGFloat = 0) {
-                (text as NSString).draw(at: CGPoint(x: origin.x + x, y: rect.minY), withAttributes: [.font: NSFont.systemFont(ofSize: size), .foregroundColor: NSColor.secondaryLabelColor])
+                (text as NSString).draw(at: CGPoint(x: origin.x + x, y: rect.minY), withAttributes: [.font: NSFont.systemFont(ofSize: size), .foregroundColor: Theme.muted])
             }
             switch line.kind {
-            case .fence(let language) where !language.isEmpty && !active: label(language, size: 30, x: max(0, width - 240))
+            case .fence(let language) where !language.isEmpty && !active:
+                let size = (language as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 30)])
+                label(language, size: 30, x: max(0, width - size.width))
             case .bullet where !active: label("•", x: indent)
             case .numbered(let n) where !active: label("\(n).", x: indent)
             case .quote: NSColor.separatorColor.setFill(); CGRect(x: origin.x, y: rect.minY + 4, width: 5, height: rect.height - 8).fill()
             case .task(let checked) where !active:
                 let box = CGRect(x: origin.x + indent, y: rect.minY + 10, width: 34, height: 34)
-                NSColor.secondaryLabelColor.setStroke(); NSBezierPath(rect: box).stroke()
-                if checked { ("✓" as NSString).draw(in: box, withAttributes: [.font: NSFont.systemFont(ofSize: 30), .foregroundColor: NSColor.systemBlue]) }
+                Theme.muted.setStroke(); NSBezierPath(roundedRect: box, xRadius: 6, yRadius: 6).stroke()
+                if checked { ("✓" as NSString).draw(in: box.offsetBy(dx: 5, dy: -2), withAttributes: [.font: NSFont.systemFont(ofSize: 30, weight: .medium), .foregroundColor: Theme.ink]) }
             case .rule(let type) where !active:
                 let path = NSBezierPath(); path.move(to: CGPoint(x: origin.x, y: rect.midY)); path.line(to: CGPoint(x: origin.x + width, y: rect.midY)); path.lineWidth = 3
                 if type != "---" { path.setLineDash(type == "..." ? [3, 10] : [24, 15], count: 2, phase: 0) }
@@ -117,6 +134,29 @@ struct DocumentLayoutLine: Equatable {
             default: break
             }
         }
+    }
+    /// Code block fills, drawn behind the glyphs: one rounded block per fence, slightly wider than the text column.
+    static func backgrounds(text: String, manager: NSLayoutManager, origin: CGPoint = .zero, width: CGFloat) {
+        var block: CGRect?
+        func flush() {
+            guard let rect = block else { return }
+            NSColor.quaternaryLabelColor.withAlphaComponent(0.12).setFill()
+            NSBezierPath(roundedRect: CGRect(x: origin.x - 24, y: rect.minY, width: width + 48, height: rect.height), xRadius: 14, yRadius: 14).fill()
+            block = nil
+        }
+        for line in Markdown.lines(text) {
+            switch line.kind {
+            case .code, .fence:
+                let glyphs = manager.glyphRange(forCharacterRange: NSRange(location: line.range.location, length: max(1, line.range.length)), actualCharacterRange: nil)
+                guard glyphs.location < manager.numberOfGlyphs else { continue }
+                let rect = manager.lineFragmentRect(forGlyphAt: glyphs.location, effectiveRange: nil).offsetBy(dx: origin.x, dy: origin.y)
+                let last = manager.lineFragmentRect(forGlyphAt: max(glyphs.location, NSMaxRange(glyphs) - 1), effectiveRange: nil).offsetBy(dx: origin.x, dy: origin.y)
+                block = (block ?? rect).union(rect).union(last)
+                if case .fence = line.kind, block != rect.union(last) { flush() }
+            default: flush()
+            }
+        }
+        flush()
     }
     private static func engine(_ page: DocumentPage, width: CGFloat) -> (NSTextStorage, NSLayoutManager, NSTextContainer) {
         let storage = NSTextStorage(attributedString: attributed(page.text, drawingHeights: page.drawingHeights))
@@ -145,12 +185,17 @@ struct DocumentLayoutLine: Equatable {
         image.lockFocusFlipped(true)
         NSColor.textBackgroundColor.setFill(); CGRect(origin: .zero, size: image.size).fill()
         let transform = NSAffineTransform(); transform.scale(by: scale); transform.translateX(by:-crop.minX,yBy:-crop.minY); transform.concat()
-        (note.title as NSString).draw(at: CGPoint(x: note.x, y: 80), withAttributes: [.font: NSFont.boldSystemFont(ofSize: 76), .foregroundColor: NSColor.labelColor])
+        (note.title as NSString).draw(at: CGPoint(x: note.x, y: 80), withAttributes: [.font: titleFont, .kern: -1.5, .foregroundColor: Theme.ink])
         let range = NSRange(location: 0, length: manager.numberOfGlyphs)
+        backgrounds(text: note.text, manager: manager, origin: CGPoint(x: note.x, y: note.y), width: width)
         manager.drawBackground(forGlyphRange: range, at: CGPoint(x: note.x, y: note.y))
         manager.drawGlyphs(forGlyphRange: range, at: CGPoint(x: note.x, y: note.y))
         decorations(text: note.text, manager: manager, origin: CGPoint(x: note.x, y: note.y), width: width)
         image.unlockFocus()
         return image
     }
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
 }

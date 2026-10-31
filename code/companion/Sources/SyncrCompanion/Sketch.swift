@@ -4,18 +4,37 @@ import ImageIO
 import UniformTypeIdentifiers
 
 public enum SketchRenderer {
-    public static func image(_ drawing: Drawing, through step: Int, scale: Double = 1) -> CGImage? {
+    /// How a drawing is set. The default is the trial's paper look; the Mac sets drawings on its own page.
+    public struct Style: @unchecked Sendable {
+        public var background: CGColor?
+        public var ink: CGColor
+        /// Labels of at least `serifLabelSize` use `labelFont`; smaller ones are secondary, in `secondary`.
+        public var secondary: CGColor
+        public var lineWidth: Double
+        public var labelFont: (CGFloat) -> NSFont
+        public var serifLabelSize: CGFloat
+        public init(background: CGColor?, ink: CGColor, secondary: CGColor, lineWidth: Double, labelFont: @escaping (CGFloat) -> NSFont, serifLabelSize: CGFloat) {
+            self.background = background; self.ink = ink; self.secondary = secondary; self.lineWidth = lineWidth
+            self.labelFont = labelFont; self.serifLabelSize = serifLabelSize
+        }
+        public static let paper = Style(background: CGColor(red: 0.985, green: 0.975, blue: 0.95, alpha: 1),
+                                        ink: CGColor(red: 0.24, green: 0.28, blue: 0.42, alpha: 1),
+                                        secondary: CGColor(red: 0.24, green: 0.28, blue: 0.42, alpha: 1),
+                                        lineWidth: 1.8, labelFont: { NSFont.systemFont(ofSize: $0) }, serifLabelSize: 0)
+    }
+
+    public static func image(_ drawing: Drawing, through step: Int, scale: Double = 1, style: Style = .paper) -> CGImage? {
         let width = Int(drawing.width * scale), height = Int(drawing.height * scale)
         guard width > 0, height > 0, width <= 3200, height <= 3200,
               let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        context.setFillColor(CGColor(red: 0.985, green: 0.975, blue: 0.95, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        if let background = style.background { context.setFillColor(background); context.fill(CGRect(x: 0, y: 0, width: width, height: height)) }
         context.translateBy(x: 0, y: CGFloat(height)); context.scaleBy(x: scale, y: -scale)
-        context.setStrokeColor(CGColor(red: 0.24, green: 0.28, blue: 0.42, alpha: 1)); context.setFillColor(CGColor(red: 0.24, green: 0.28, blue: 0.42, alpha: 1))
+        context.setStrokeColor(style.ink); context.setFillColor(style.ink)
         context.setLineCap(.round); context.setLineJoin(.round)
         var index = 0
         for s in drawing.steps.prefix(max(0, min(step, drawing.steps.count))) {
             for p in s.primitives {
-                index += 1; context.setLineWidth(1.8 + Double(index % 4) * 0.12)
+                index += 1; context.setLineWidth(style.lineWidth + Double(index % 4) * style.lineWidth / 15)
                 if let points = p.points, let first = points.first {
                     context.beginPath(); context.move(to: CGPoint(x: first.x, y: first.y))
                     for (i, point) in points.dropFirst().enumerated() {
@@ -39,7 +58,7 @@ public enum SketchRenderer {
                     case "label":
                         let graphics = NSGraphicsContext(cgContext: context, flipped: true)
                         NSGraphicsContext.saveGraphicsState(); NSGraphicsContext.current = graphics
-                        (p.text ?? "").draw(in: CGRect(x: x, y: y, width: max(0, drawing.width - x), height: max(0, drawing.height - y)), withAttributes: [.font: NSFont.systemFont(ofSize: p.size ?? 14), .foregroundColor: NSColor(calibratedRed: 0.24, green: 0.28, blue: 0.42, alpha: 1)])
+                        (p.text ?? "").draw(in: CGRect(x: x, y: y, width: max(0, drawing.width - x), height: max(0, drawing.height - y)), withAttributes: label(p.size ?? 14, style))
                         NSGraphicsContext.restoreGraphicsState()
                     default: break
                     }
@@ -47,6 +66,10 @@ public enum SketchRenderer {
             }
         }
         return context.makeImage()
+    }
+    private static func label(_ size: CGFloat, _ style: Style) -> [NSAttributedString.Key: Any] {
+        let primary = size >= style.serifLabelSize
+        return [.font: primary ? style.labelFont(size) : NSFont.systemFont(ofSize: size), .foregroundColor: NSColor(cgColor: primary ? style.ink : style.secondary) ?? .black]
     }
     public static func savePNG(_ image: CGImage, to url: URL) throws {
         guard let output = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil) else { throw CompanionError.invalid("image destination") }
