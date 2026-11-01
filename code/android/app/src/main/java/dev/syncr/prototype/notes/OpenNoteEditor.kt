@@ -72,13 +72,29 @@ internal class OpenNoteEditor(
         return true
     }
 
+    /** Operation IDs of eraser commands, by gesture, so history can take a whole gesture as one step. */
+    private val gestures = HashMap<String, String>()
+
+    /** The gesture an operation belongs to, if it was one of several eraser commands. */
+    fun gestureOf(operationId: String): String? = gestures[operationId]
+
+    /** The operation undo (or redo) would target now, or null when there is none. */
+    fun historyTarget(redo: Boolean): String? {
+        val snapshot = session.current.snapshot ?: return null
+        if (!handwritingHistoryAvailable(snapshot, redo)) return null
+        return if (redo) snapshot.redoTarget else snapshot.undoTarget
+    }
+
     /**
-     * Stages one atomic Marks command for a whole gesture. Each target's base is its current head and
-     * the dependencies are those heads, sorted. Only saved ink can be edited, so bases are never pending.
+     * Stages one atomic Marks command. Each target's base is its current head and the dependencies are
+     * those heads, sorted. A delete may run while earlier edits are still saving: a stroke whose latest
+     * change is still pending is based on that pending operation, which the queue submits first. Moves
+     * and restyles still edit saved ink only.
      */
     fun stageMarks(edit: MarkEdit): Boolean {
         if (edit.ids.isEmpty()) return false
         val state = session.current
+        if (edit is MarkEdit.Delete) return stageDelete(edit)
         if (state.unsaved) {
             message("Wait a moment. Your last changes are still saving.")
             return false
@@ -126,6 +142,38 @@ internal class OpenNoteEditor(
         stage(PendingEdit(command.operationId, command, hidden = hidden, transforms = transforms, restyles = restyles))
         return true
     }
+
+    private fun stageDelete(edit: MarkEdit.Delete): Boolean {
+        val state = session.current
+        val snapshot = state.snapshot ?: return false
+        if (state.closing) return false
+        if (edit.ids.size > MAX_GESTURE_STROKES) {
+            message("That's too many strokes at once (1,024 at most). Nothing changed.")
+            return false
+        }
+        val saved = snapshot.strokes.associateBy { it.id }
+        // Never delete twice: skip strokes a pending edit already hides or the core already tombstoned.
+        val targets = edit.ids.filterNot { id -> state.pending.any { id in it.hidden } || saved[id]?.tombstone == true }
+        if (targets.isEmpty()) return true
+        val mutations = mutableListOf<MarkMutation>()
+        val dependencies = sortedSetOf<String>()
+        for (id in targets) {
+            val head = state.pending.lastOrNull { it.touches(id) }?.id ?: saved[id]?.head?.operationId ?: return false
+            mutations += MarkMutation.DeleteStroke(id, Base.Operation(head))
+            dependencies += head
+        }
+        if (state.pending.size >= MAX_PENDING_EDITS) {
+            message("Too many unsaved changes. Retry saving, export a copy or discard them before writing more.")
+            return false
+        }
+        val command = Command(newId(), dependencies.toList(), CommandBody.Marks(mutations))
+        edit.gesture?.let { gestures[command.operationId] = it }
+        stage(PendingEdit(command.operationId, command, hidden = targets.toSet()))
+        return true
+    }
+
+    /** Whether this pending edit is the stroke's latest change: it adds, moves or restyles it. */
+    private fun PendingEdit.touches(id: String) = preview?.id == id || id in transforms || id in restyles
 
     /**
      * Stages a rename, move or archive of the open note against its current metadata head. Like

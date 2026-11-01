@@ -32,11 +32,14 @@ data class PendingEdit(
     val restyles: Map<String, Brush> = emptyMap(),
 )
 
-/** One selection/eraser gesture = one atomic Marks command = one undo step. */
+/**
+ * One selection gesture = one atomic Marks command = one undo step. The eraser commits as it moves, so one
+ * eraser gesture is several Delete commands sharing a [Delete.gesture]; undo and redo take them as one step.
+ */
 sealed interface MarkEdit {
     val ids: Set<String>
 
-    data class Delete(override val ids: Set<String>) : MarkEdit
+    data class Delete(override val ids: Set<String>, val gesture: String? = null) : MarkEdit
 
     /** Canvas-space [gesture], converted to each sheet's local space before composing with existing ink. */
     data class Transform(override val ids: Set<String>, val gesture: Affine) : MarkEdit

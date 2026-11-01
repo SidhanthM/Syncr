@@ -170,7 +170,7 @@ private fun NoteBubble(state: NotesState, tools: ToolState, actions: NoteActions
         onOpen = { onTools(tools.copy(barOpen = true, optionsOpen = false)) },
         ring = { BubbleRing(status.ring.kind(), pip) },
         glyph = { ToolGlyph(tools.brush, tools.eraser, tools.lasso) },
-        bar = { drag, release -> NoteToolBar(tools.brush, tools.eraser, eraserEnabled = !state.unsaved,
+        bar = { drag, release -> NoteToolBar(tools.brush, tools.eraser,
             canUndo = canUndo, canRedo = canRedo,
             onPen = { if (tools.pen) onTools(tools.copy(optionsOpen = !tools.optionsOpen))
                 else choose(tools.copy(eraser = false, lasso = false, brush = tools.brush.copy(family = BrushFamily.PEN))) },

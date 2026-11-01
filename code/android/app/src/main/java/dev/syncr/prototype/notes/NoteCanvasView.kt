@@ -125,6 +125,9 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     /** An ink stroke is being sent to [mirror]. */
     private var mirroring = false
     private var lastPenUp = Long.MIN_VALUE / 2
+    /** The eraser gesture in progress (its commands undo as one step) and when it last committed. */
+    private var eraseGesture: String? = null
+    private var lastEraseCommit = 0L
 
     /** Fingers are ignored until they all lift (palm rule, pen contact, cancel). */
     private var palmBlocked = false
@@ -195,8 +198,13 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         invalidate()
     }
 
-    /** Ends any gesture without committing it (pause, undo, leaving). Fingers stay blocked until they lift. */
+    /**
+     * Ends any gesture without committing it (pause, undo, leaving). Fingers stay blocked until they lift.
+     * The eraser is the exception: what it already swept has visibly gone, so that is committed too.
+     */
     fun cancelGesture() {
+        if (pen.mode == PenMode.ERASE && !pen.rejected) commitErase(android.os.SystemClock.uptimeMillis(), force = true)
+        eraseGesture = null
         wet.cancel()
         pen.cancel()
         cancelMirror()
@@ -429,6 +437,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
                 sample(event, index, CURRENT)
                 if (action == MotionEvent.ACTION_MOVE) wet.add(event)
                 if (mirroring) mirror?.flush() // one frame per input batch, after the local ink has drawn
+                if (pen.mode == PenMode.ERASE && action == MotionEvent.ACTION_MOVE) commitErase(event.eventTime, force = false)
             }
             if (penLifted) {
                 penUp(event, index)
@@ -481,9 +490,9 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
             hasTilt = device?.getMotionRange(MotionEvent.AXIS_TILT) != null,
             hasOrientation = device?.getMotionRange(MotionEvent.AXIS_ORIENTATION) != null,
         )
-        if (mode == PenMode.ERASE && scene.unsaved) {
-            pen.refuse()
-            onError("Erasing waits until your last strokes are saved.")
+        if (mode == PenMode.ERASE) {
+            eraseGesture = java.util.UUID.randomUUID().toString()
+            lastEraseCommit = event.eventTime
         }
         sample(event, index, CURRENT)
         if (mode == PenMode.INK && !pen.rejected) {
@@ -537,10 +546,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
                     }
                     wet.finish(event, preview)
                 }
-                PenMode.ERASE -> {
-                    val erased = pen.erased.toSet()
-                    if (erased.isNotEmpty() && onMarks(MarkEdit.Delete(erased))) scene.handOffErase(erased)
-                }
+                PenMode.ERASE -> commitErase(event.eventTime, force = true)
                 PenMode.LASSO -> selection.selectLasso(pen.lassoPoints.toList())
                 PenMode.SELECTION -> selection.commitGesture()
                 PenMode.NONE, PenMode.IGNORED -> Unit
@@ -551,10 +557,28 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
             mirroring = false
         }
         mirroredStrokeId = null
+        eraseGesture = null
         wet.cancel()
         pen.finish()
         activePointer = -1
         selection.cancelGesture()
+    }
+
+    /**
+     * Deletes what the eraser has swept so far, without waiting for the pen to lift: at most every
+     * [ERASE_COMMIT_MS] while it moves, and once more at pen-up. Each commit is one Marks command in the
+     * gesture's group. A refused commit keeps its strokes hidden and is retried on the next one.
+     */
+    private fun commitErase(now: Long, force: Boolean) {
+        val ids = pen.uncommitted
+        if (ids.isEmpty() || (!force && now - lastEraseCommit < ERASE_COMMIT_MS)) return
+        val batch = ids.take(MAX_ERASE_BATCH).toSet()
+        lastEraseCommit = now
+        if (onMarks(MarkEdit.Delete(batch, eraseGesture))) {
+            scene.handOffErase(batch)
+            pen.committed(batch)
+            if (force && pen.uncommitted.isNotEmpty()) commitErase(now, force = true)
+        }
     }
 
     /** Feeds one pen sample, historical ([history] ≥ 0) or [CURRENT], oldest first. */
@@ -742,6 +766,12 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
 
         /** [sample]'s history index for the event's current position. */
         private const val CURRENT = -1
+
+        /** How often a moving eraser commits what it has swept. */
+        private const val ERASE_COMMIT_MS = 40L
+
+        /** Strokes per eraser command; the core's batch limit is 1,024. */
+        private const val MAX_ERASE_BATCH = 1024
 
         /** Hover ring for the whole-stroke eraser, in canvas units. */
         private const val ERASER_HOVER_UNITS = 24f

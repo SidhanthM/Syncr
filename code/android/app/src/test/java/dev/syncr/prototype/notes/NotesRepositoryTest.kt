@@ -196,6 +196,44 @@ class NotesRepositoryTest {
         assertFalse(repo.stageErase((1..1025).map { "mark-$it" }.toSet()))
         assertEquals(1, fake.commands.size)
     }
+    @Test fun eraserDeletesInkThatIsStillSavingBasedOnItsPendingOperation() = runTest {
+        val fake = Fake(); fake.current = snapshot(strokes = listOf(stroke("a", "a-head")))
+        val repo = repo(fake, StandardTestDispatcher(testScheduler)); repo.open("note")
+        assertTrue(repo.stageStroke(preview("new")))
+        val added = repo.state.value.pending.single().id
+        // No waiting for the save: the delete is based on the stroke's own pending operation.
+        assertTrue(repo.stageErase(setOf("new", "a")))
+        val delete = repo.state.value.pending.last().command!!
+        assertEquals(listOf("a-head", added).sorted(), delete.dependencies)
+        assertEquals(setOf(MarkMutation.DeleteStroke("new", Base.Operation(added)), MarkMutation.DeleteStroke("a", Base.Operation("a-head"))),
+            (delete.body as CommandBody.Marks).mutations.toSet())
+        // Sweeping the same strokes again stages nothing more.
+        assertTrue(repo.stageErase(setOf("new")))
+        assertEquals(2, repo.state.value.pending.size)
+        fake.afterSubmit = { fake.current = snapshot(2u) }; repo.retry()
+        assertEquals(listOf(added, delete.operationId), fake.commands.map { it.operationId })
+    }
+    @Test fun oneEraserGestureIsOneUndoAndRedoStepAcrossItsCommands() = runTest {
+        for (redo in listOf(false, true)) {
+            val fake = Fake(); fake.current = snapshot(strokes = listOf(stroke("a", "a-head"), stroke("b", "b-head"), stroke("c", "c-head")))
+            val repo = repo(fake, StandardTestDispatcher(testScheduler)); repo.open("note")
+            assertTrue(repo.stageMarks(MarkEdit.Delete(setOf("a"), gesture = "g")))
+            assertTrue(repo.stageMarks(MarkEdit.Delete(setOf("b"), gesture = "g")))
+            assertTrue(repo.stageMarks(MarkEdit.Delete(setOf("c"))))
+            val (first, second, other) = repo.state.value.pending.map { it.id }
+            fake.afterSubmit = { fake.current = snapshot(2u) }; repo.retry()
+            fake.commands.clear()
+            // History walks back through the gesture's commands, saving each before the next.
+            val targets = ArrayDeque(listOf(second, first, other))
+            fun history() = snapshot(3u, undo = if (redo) null else targets.first(), redo = if (redo) targets.first() else null)
+            fake.current = history(); repo.refresh()
+            fake.afterSubmit = { targets.removeFirst(); fake.current = history() }
+            repo.history(redo)
+            val expected = listOf(second, first).map { if (redo) CommandBody.Redo(it) else CommandBody.Undo(it) }
+            assertEquals(expected, fake.commands.map { it.body })
+            assertFalse(repo.state.value.unsaved)
+        }
+    }
     @Test fun undoRedoCaptureOnlyMatchingExactDependenciesAndNeverRebaseStaleRetryOrExport() = runTest {
         for (redo in listOf(false, true)) {
             val fake = Fake()

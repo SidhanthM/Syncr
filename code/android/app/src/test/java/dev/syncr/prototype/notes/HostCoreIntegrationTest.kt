@@ -157,6 +157,33 @@ class HostCoreIntegrationTest {
             }
         } finally { repo.leave(discard = true); repo.releaseLibrary(); root.deleteRecursively() }
     }
+    @Test fun eraserCommitsDuringTheGestureOverUnsavedInkAndUndoesAsOneStepAgainstRealCore() = runBlocking {
+        val root = Files.createTempDirectory("syncr-android-host-").toFile()
+        val channels = SampleChannels(listOf(10f, 20f), listOf(20f, 30f), listOf(.5f, 1f), listOf(0u, 10u), null, null)
+        val brush = Brush(BrushFamily.PEN, BrushSize.MEDIUM, InkColour.INK)
+        val repo = NotesRepository(root.absolutePath)
+        fun assertHealthy() { assertNull(repo.state.value.error) }
+        try {
+            repo.loadLibrary(); assertHealthy(); repo.create("Erase as you go"); assertHealthy()
+            val sheet = repo.state.value.snapshot!!.sheets.first().id
+            val saved = newId()
+            assertTrue(repo.stageStroke(InkPreview(saved, sheet, channels, brush))); repo.retry(); assertHealthy()
+            // A stroke written and erased before it was saved, in two commands of one gesture, all queued at once.
+            val fresh = newId()
+            assertTrue(repo.stageStroke(InkPreview(fresh, sheet, channels, brush)))
+            assertTrue(repo.stageMarks(MarkEdit.Delete(setOf(fresh), gesture = "g")))
+            assertTrue(repo.stageMarks(MarkEdit.Delete(setOf(saved), gesture = "g")))
+            assertEquals(3, repo.state.value.pending.size)
+            repo.retry(); assertHealthy(); assertFalse(repo.state.value.unsaved)
+            assertTrue(repo.state.value.snapshot!!.strokes.all { it.tombstone })
+            repo.history(false); assertHealthy()
+            assertTrue("one undo restores the whole gesture", repo.state.value.snapshot!!.strokes.none { it.tombstone })
+            repo.history(true); assertHealthy()
+            assertTrue("one redo erases it again", repo.state.value.snapshot!!.strokes.all { it.tombstone })
+            assertTrue(repo.leave()); repo.releaseLibrary()
+        } finally { root.deleteRecursively() }
+    }
+
     @Test fun productionRepositoryCreateInkAtomicEraseHistorySheetsRenameExportAndReopen() = runBlocking {
         val root = Files.createTempDirectory("syncr-android-host-").toFile()
         val channels = SampleChannels(listOf(10f, 20f), listOf(20f, 30f), listOf(.5f, 1f), listOf(0u, 10u), null, null)

@@ -96,22 +96,39 @@ fun hitsStroke(x: Float, y: Float, radius: Float, samples: SampleChannels, affin
     return false
 }
 /** Whether the eraser's sweep from [a] to [b], with [radius], touches the stroke. */
+/**
+ * Whether the eraser's sweep from [a] to [b] passes within [radius] of the stroke's polyline, placed by
+ * [affine]. On the pen's path, once per sample per nearby stroke, so it allocates nothing.
+ */
 fun hitsSweep(a: Pair<Float, Float>, b: Pair<Float, Float>, radius: Float, samples: SampleChannels, affine: Affine): Boolean {
-    var previous: Pair<Float, Float>? = null
-    samples.x.indices.forEach { i ->
-        val d = transformedPoint(samples.x[i], samples.y[i], affine)
-        val c = previous ?: d
-        val intersects = cross(a, b, c) * cross(a, b, d) < 0 && cross(c, d, a) * cross(c, d, b) < 0
-        val nearest = minOf(
-            distanceToSegment(a.first, a.second, c, d),
-            distanceToSegment(b.first, b.second, c, d),
-            distanceToSegment(c.first, c.second, a, b),
-            distanceToSegment(d.first, d.second, a, b),
-        )
-        if (intersects || nearest <= radius) return true
-        previous = d
+    val ax = a.first; val ay = a.second; val bx = b.first; val by = b.second
+    val ma = affine.a.toFloat(); val mb = affine.b.toFloat(); val mc = affine.c.toFloat()
+    val md = affine.d.toFloat(); val tx = affine.tx.toFloat(); val ty = affine.ty.toFloat()
+    val xs = samples.x; val ys = samples.y
+    val r2 = radius * radius
+    var cx = 0f; var cy = 0f
+    for (i in xs.indices) {
+        val sx = xs[i]; val sy = ys[i]
+        val dx = ma * sx + mc * sy + tx
+        val dy = mb * sx + md * sy + ty
+        if (i == 0) { cx = dx; cy = dy }
+        val crosses = crossOf(ax, ay, bx, by, cx, cy) * crossOf(ax, ay, bx, by, dx, dy) < 0 &&
+            crossOf(cx, cy, dx, dy, ax, ay) * crossOf(cx, cy, dx, dy, bx, by) < 0
+        if (crosses || squaredDistanceToSegment(ax, ay, cx, cy, dx, dy) <= r2 || squaredDistanceToSegment(bx, by, cx, cy, dx, dy) <= r2 ||
+            squaredDistanceToSegment(cx, cy, ax, ay, bx, by) <= r2 || squaredDistanceToSegment(dx, dy, ax, ay, bx, by) <= r2) return true
+        cx = dx; cy = dy
     }
     return false
+}
+
+private fun crossOf(px: Float, py: Float, qx: Float, qy: Float, rx: Float, ry: Float) = (qx - px) * (ry - py) - (qy - py) * (rx - px)
+
+private fun squaredDistanceToSegment(x: Float, y: Float, ax: Float, ay: Float, bx: Float, by: Float): Float {
+    val dx = bx - ax; val dy = by - ay
+    val length = dx * dx + dy * dy
+    val t = if (length == 0f) 0f else (((x - ax) * dx + (y - ay) * dy) / length).coerceIn(0f, 1f)
+    val ex = x - ax - t * dx; val ey = y - ay - t * dy
+    return ex * ex + ey * ey
 }
 
 private fun cross(p: Pair<Float, Float>, q: Pair<Float, Float>, r: Pair<Float, Float>) =

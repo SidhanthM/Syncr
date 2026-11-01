@@ -183,24 +183,29 @@ class SyncSenderTest {
 
     // ---- change notices ----
 
-    @Test fun anOpenNotesSaveIsAnnouncedOnlyAfterAQuietOneAndAHalfSeconds() {
+    @Test fun anOpenNotesSavesAreAnnouncedWithin400MsOfTheFirstEvenWhileTheyKeepComing() {
         val a1 = NoteMeta("a", 1, "A")
         val h = SessionHarness().connected(a1, open = "a")
         h.sync.update(listOf(NoteMeta("a", 2, "A")), "a")
-        h.clock.now += 1_000
+        h.clock.now += 300
         h.sync.tick()
         assertTrue(h.controls().isEmpty())
-        // Another save restarts the wait.
+        // Another save rides along instead of restarting the wait.
         h.sync.update(listOf(NoteMeta("a", 3, "A")), "a")
-        h.clock.now += 1_000
-        h.sync.tick()
-        assertTrue(h.controls().isEmpty())
-        h.clock.now += 500
+        h.clock.now += 100
         h.sync.tick()
         assertEquals(Control.Notes(listOf(NoteMeta("a", 3, "A"))), h.controls().single())
         h.clock.now += 5_000
         h.sync.tick()
         assertTrue(h.controls().isEmpty()) // announced once
+        // The next save starts a new window.
+        h.sync.update(listOf(NoteMeta("a", 4, "A")), "a")
+        h.clock.now += 399
+        h.sync.tick()
+        assertTrue(h.controls().isEmpty())
+        h.clock.now += 1
+        h.sync.tick()
+        assertEquals(Control.Notes(listOf(NoteMeta("a", 4, "A"))), h.controls().single())
         h.cleanup()
     }
 

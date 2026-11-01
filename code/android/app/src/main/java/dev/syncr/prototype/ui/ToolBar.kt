@@ -100,7 +100,7 @@ private fun BarSeparator(modifier: Modifier = Modifier) {
  * and More. Drawn inside [MorphingBubble]'s shape, so it has no background of its own.
  */
 @Composable
-fun BubbleBarScope.NoteToolBar(brush: Brush, eraser: Boolean, eraserEnabled: Boolean, canUndo: Boolean, canRedo: Boolean,
+fun BubbleBarScope.NoteToolBar(brush: Brush, eraser: Boolean, canUndo: Boolean, canRedo: Boolean,
     onPen: () -> Unit, onHighlighter: () -> Unit, onEraser: () -> Unit, onUndo: () -> Unit, onRedo: () -> Unit,
     onFit: () -> Unit, onMore: () -> Unit, lasso: Boolean, onLasso: () -> Unit,
     onPenOptions: () -> Unit, onHighlighterOptions: () -> Unit,
@@ -116,8 +116,8 @@ fun BubbleBarScope.NoteToolBar(brush: Brush, eraser: Boolean, eraserEnabled: Boo
             onLongClick = onPenOptions, onClick = onPen)
         BarItem(SyncrIcons.Highlighter, if (highlighter) "Highlighter. Tap for sizes and colours" else "Highlighter",
             Modifier.morphItem(1, n, active), highlighter, onLongClick = onHighlighterOptions, onClick = onHighlighter)
-        BarItem(SyncrIcons.Eraser, if (eraserEnabled) "Eraser, removes whole strokes" else "Eraser, available once your changes are saved",
-            Modifier.morphItem(2, n, active), eraser && !lasso, eraserEnabled, onClick = onEraser)
+        BarItem(SyncrIcons.Eraser, "Eraser, removes whole strokes", Modifier.morphItem(2, n, active), eraser && !lasso,
+            onClick = onEraser)
         BarItem(SyncrIcons.Lasso, "Lasso: circle strokes with the pen to select them", Modifier.morphItem(3, n, active), lasso,
             onClick = onLasso)
         Box(Modifier.morphItem(4, n, active).size(32.dp, TouchTarget).floatingDrag(onDrag, onRelease)

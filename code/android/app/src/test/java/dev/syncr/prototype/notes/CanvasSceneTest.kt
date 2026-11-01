@@ -129,6 +129,18 @@ class CanvasSceneTest {
         assertTrue(scene.strokesSwept(35f to 50f, 35f to 60f, exclude = emptySet()).isEmpty())
     }
 
+    @Test fun eraserAlsoHitsInkStillSavingButNeverInkAlreadyErased() {
+        val vertical = line(50f to 0f, 50f to 100f)
+        val brush = Brush(pen.family, pen.size, pen.colour)
+        val saving = PendingEdit("add", null, InkPreview("saving", "sheet", vertical, brush))
+        val erasing = PendingEdit("del", null, hidden = setOf("b"))
+        val scene = scene(state(listOf(stroke("a"), stroke("b")), mapOf("a" to vertical, "b" to vertical), pending = listOf(saving, erasing)))
+        scene.handOffStroke(InkPreview("handed", "sheet", vertical, brush))
+        assertEquals(listOf("a", "saving", "handed"), scene.strokesSwept(0f to 50f, 100f to 50f, exclude = emptySet()))
+        scene.handOffErase(setOf("a"))
+        assertEquals(listOf("saving", "handed"), scene.strokesSwept(0f to 50f, 100f to 50f, exclude = emptySet()))
+    }
+
     @Test fun clearingHandoffsForgetsEveryKind() {
         val strokes = listOf(stroke("a"))
         val scene = scene(state(strokes, mapOf("a" to line(0f to 0f))))

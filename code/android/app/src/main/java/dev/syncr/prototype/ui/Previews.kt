@@ -108,7 +108,7 @@ private fun ToolBarPreview() = SyncrTheme(dark = isPreviewDark()) {
     Box(Modifier.size(360.dp, 260.dp).background(Syncr.colors.paper)) {
         MorphingBubble(expanded = true, center = Offset(60f, 400f), description = "", stateDescription = "", onOpen = {},
             ring = {}, glyph = { PenGlyph() }, optionsOpen = true,
-            bar = { NoteToolBar(Brush(BrushFamily.PEN, BrushSize.MEDIUM, InkColour.INK), eraser = false, eraserEnabled = true,
+            bar = { NoteToolBar(Brush(BrushFamily.PEN, BrushSize.MEDIUM, InkColour.INK), eraser = false,
                 canUndo = true, canRedo = false, onPen = {}, onHighlighter = {}, onEraser = {}, onUndo = {}, onRedo = {},
                 onFit = {}, onMore = {}, lasso = false, onLasso = {}, onPenOptions = {}, onHighlighterOptions = {},
                 onDrag = {}, onRelease = {}) },

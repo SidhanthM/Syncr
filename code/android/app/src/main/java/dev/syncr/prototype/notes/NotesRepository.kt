@@ -149,8 +149,16 @@ class NotesRepository(
         if (editor.stageMetadata { base -> CommandBody.RenameNote(title, base) }) retry()
     }
 
+    /**
+     * Undoes or redoes one step. An eraser gesture is several commands, one per stretch of the sweep, so
+     * its commands are undone (or redone) together, each saved before the next is staged.
+     */
     suspend fun history(redo: Boolean) {
-        if (editor.stageHistory(redo)) retry()
+        val gesture = editor.historyTarget(redo)?.let(editor::gestureOf)
+        do {
+            if (!editor.stageHistory(redo)) return
+            retry()
+        } while (gesture != null && editor.historyTarget(redo)?.let(editor::gestureOf) == gesture)
     }
 
     // ---- Delivery, recovery and closure ----

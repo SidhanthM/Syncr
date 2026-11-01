@@ -96,19 +96,24 @@ class PenCaptureTest {
         // Sparse events: the sweep between them still hits the strokes in the gap.
         assertNull(capture.addErasePoint(100f, 50f))
         assertEquals(listOf("a", "b"), capture.erased.toList())
+        // The canvas commits as the pen moves; committed strokes stay hidden for the rest of the gesture.
+        assertEquals(listOf("a", "b"), capture.uncommitted.toList())
+        capture.committed(setOf("a"))
+        assertEquals(listOf("b"), capture.uncommitted.toList())
+        assertEquals(listOf("a", "b"), capture.erased.toList())
         capture.finish()
         assertTrue(capture.erased.isEmpty())
         assertEquals(PenMode.NONE, capture.mode)
     }
 
-    @Test fun erasingMoreThan1024StrokesRejectsTheWholeGesture() {
+    @Test fun sweepingMoreThan1024UncommittedStrokesStopsTheGesture() {
         val ids = (0..1024).map { "s$it" }
         val samples = ids.withIndex().associate { (i, id) -> id to line(i.toFloat() to 0f, i.toFloat() to 100f) }
         val capture = PenCapture(scene(state(ids.map { stroke(it) }, samples)), lassoStepPx = 2f)
         capture.begin(pen)
         capture.start(PenMode.ERASE, SheetMapping(1f, 0f, 0f), hasTilt = false, hasOrientation = false)
         assertNull(capture.addErasePoint(-20f, 50f))
-        assertEquals("That erase covered too much and was cancelled. Lift the pen and try a smaller area.", capture.addErasePoint(1100f, 50f))
+        assertEquals("That erase covered too much at once and stopped. Lift the pen and try a smaller area.", capture.addErasePoint(1100f, 50f))
         assertTrue(capture.erased.isEmpty())
         assertTrue(capture.requireLift)
     }

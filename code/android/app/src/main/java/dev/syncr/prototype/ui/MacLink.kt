@@ -33,6 +33,8 @@ import dev.syncr.prototype.ui.theme.Space
 import dev.syncr.prototype.ui.theme.Syncr
 
 /** One line for the Mac link's state, in sentence case. */
+internal fun forgettableMac(ui: LinkUi): String? = ui.pairedMac
+
 internal fun linkSummary(ui: LinkUi): String = when {
     !ui.enabled -> "Off"
     ui.status.phase == Phase.CONNECTED -> "Connected to ${ui.status.macName ?: "your Mac"}"
@@ -80,6 +82,11 @@ fun MacLinkSection() {
     Text("Copies your notes to the Syncr Mac app on this Wi-Fi network and shows your writing there as you write. " +
         "The link is not encrypted: use it on a network you trust.", style = Syncr.type.caption, color = c.muted)
     SettingsSwitch("Link to Mac", linkSummary(ui), ui.enabled) { link.setEnabled(it) }
+    // Forget is local storage cleanup: it must work even if the link is off or the Mac is unreachable.
+    forgettableMac(ui)?.let { mac ->
+        MenuRow("Forget $mac", "Remove this phone's saved pairing so you can pair again. Notes stay on both devices.",
+            tone = ActionTone.DESTRUCTIVE, onClick = { link.forget() })
+    }
     if (!ui.enabled) return
 
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.s)) {
@@ -123,8 +130,4 @@ fun MacLinkSection() {
         }
     }
 
-    if (ui.pairedMac != null) {
-        MenuRow("Forget ${ui.pairedMac}", "This phone stops using its saved pairing. Notes on the Mac stay there.",
-            tone = ActionTone.DESTRUCTIVE, onClick = { link.forget() })
-    }
 }

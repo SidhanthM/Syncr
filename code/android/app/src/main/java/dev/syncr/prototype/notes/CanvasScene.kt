@@ -60,6 +60,11 @@ internal class CanvasScene {
                 if (none { it.id == preview.id }) add(preview)
             }
         }
+        // Keep eraser bounds only for ink that is still shown.
+        val live = IdentityHashMap<SampleChannels, Bounds?>()
+        for (preview in previews) if (hitBounds.containsKey(preview.channels)) live[preview.channels] = hitBounds[preview.channels]
+        for (preview in handedOffStrokes) if (hitBounds.containsKey(preview.channels)) live[preview.channels] = hitBounds[preview.channels]
+        hitBounds = live
         // Drop each handoff once the new state represents it.
         handedOffStrokes.removeAll { handoff -> previews.any { it.id == handoff.id } }
         val tombstoned = snapshot?.strokes.orEmpty().filter { it.tombstone }.map { it.id }
@@ -110,6 +115,10 @@ internal class CanvasScene {
         return sheets[sheetId]?.let { canvasTransform(it, local) } ?: local
     }
 
+    /** Sample bounds per stroke for the eraser's cull, by samples identity; pruned on [load]. */
+    private var hitBounds = IdentityHashMap<SampleChannels, Bounds?>()
+    private val sweepRect = CullRect()
+
     /** Sample bounds per stroke (by samples identity), so [lowestInk] never rescans samples it has seen. */
     private var sampleBounds = IdentityHashMap<SampleChannels, Bounds?>()
 
@@ -149,13 +158,28 @@ internal class CanvasScene {
         }.map { it.id }.toSet()
     }
 
-    /** Saved strokes, other than [exclude], that the eraser's sweep from [from] to [to] touches. */
-    fun strokesSwept(from: Pt, to: Pt, exclude: Set<String>): List<String> =
-        state.snapshot?.strokes.orEmpty().filter { stroke ->
-            !stroke.tombstone && stroke.id !in exclude && hits(stroke) { samples, affine ->
-                hitsSweep(from, to, ERASER_RADIUS + brushWidth(stroke.brush) / 2, samples, affine)
-            }
-        }.map { it.id }
+    /**
+     * Visible strokes, other than [exclude], that the eraser's sweep from [from] to [to] touches: saved ink
+     * in snapshot order, then strokes still saving, then strokes just handed off. Ink an earlier edit already
+     * erased is skipped, so no stroke is ever deleted twice.
+     */
+    fun strokesSwept(from: Pt, to: Pt, exclude: Set<String>): List<String> {
+        val hit = ArrayList<String>()
+        fun test(ink: InkPreview) {
+            if (ink.id in exclude || isHidden(ink.id) || ink.id in hit) return
+            val reach = ERASER_RADIUS + brushWidth(ink.brush) / 2
+            // Cheap first: most strokes lie nowhere near the sweep, so only their placed bounds are compared.
+            val bounds = hitBounds.getOrPut(ink.channels) { StrokeBounds.of(ink.channels, 0f) } ?: return
+            val affine = canvasTransformOf(ink.id, ink.sheetId)
+            sweepRect.set(minOf(from.first, to.first) - reach, minOf(from.second, to.second) - reach,
+                maxOf(from.first, to.first) + reach, maxOf(from.second, to.second) + reach)
+            if (!StrokeBounds.intersects(bounds, affine, sweepRect)) return
+            if (hitsSweep(from, to, reach, ink.channels, affine)) hit += ink.id
+        }
+        previews.forEach(::test)
+        handedOffStrokes.forEach(::test)
+        return hit
+    }
 
     private fun storedTransform(id: String): Affine = pendingTransforms[id] ?: strokes[id]?.transform ?: IDENTITY
 

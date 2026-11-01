@@ -187,8 +187,12 @@ class TabletPadView(
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                 val i = e.actionIndex
                 if (isPen(e, i)) {
-                    if (penId == -1) penDown(e.getPointerId(i), e.getX(i), e.getY(i), e, i)
-                    else if (stream != null) releaseAll() // A second pen cancels, never completes the first stroke.
+                    if (penId == -1) {
+                        // Stream only: deliver pen samples as they are measured, not once per display frame.
+                        // Pointer keeps frame batching: Bluetooth HID cannot carry more reports than that.
+                        if (stream != null) requestUnbufferedDispatch(e)
+                        penDown(e.getPointerId(i), e.getX(i), e.getY(i), e, i)
+                    } else if (stream != null) releaseAll() // A second pen cancels, never completes the first stroke.
                     dragging = false
                 } else updateDrag(e, excludeIndex = -1)
             }

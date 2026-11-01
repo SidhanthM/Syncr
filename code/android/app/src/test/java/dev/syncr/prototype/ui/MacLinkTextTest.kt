@@ -19,6 +19,12 @@ class MacLinkTextTest {
         assertFalse(listOf(LinkUi(), connected, looking).any { "later version" in macSectionText(it) || "not available" in macSectionText(it) })
     }
 
+    @Test fun forgetRemainsAvailableWhenLinkIsOffOrDisconnected() {
+        assertEquals("Studio Mac", forgettableMac(LinkUi(enabled = false, pairedMac = "Studio Mac")))
+        assertEquals("Studio Mac", forgettableMac(LinkUi(enabled = true, pairedMac = "Studio Mac")))
+        assertEquals(null, forgettableMac(LinkUi(enabled = false)))
+    }
+
     @Test fun linkIsOffByDefaultAndTouchesNothingWhileOff() {
         assertFalse(LinkPolicy.ENABLED_BY_DEFAULT)
         assertFalse(LinkUi().enabled)

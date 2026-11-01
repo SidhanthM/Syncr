@@ -40,8 +40,9 @@ internal fun penModeFor(
 
 /**
  * One pen contact, in canvas units under the mapping frozen at pen-down: measured ink samples, the
- * eraser's swept strokes, or lasso points. Reaching a limit rejects the WHOLE gesture (never a
- * truncated one) and input stays ignored until every pointer lifts. Pure, so it is unit tested.
+ * eraser's swept strokes, or lasso points. Reaching a limit rejects the rest of the gesture and input
+ * stays ignored until every pointer lifts; strokes the eraser already committed stay erased. Pure, so
+ * it is unit tested.
  */
 internal class PenCapture(
     private val scene: CanvasScene,
@@ -69,10 +70,19 @@ internal class PenCapture(
     private var ink: MeasuredGesture? = null
     private var eraseLast: Pt? = null
     private val erasedIds = linkedSetOf<String>()
+    private val uncommittedIds = linkedSetOf<String>()
     private val lasso = mutableListOf<Pt>()
 
-    /** Strokes the eraser has swept so far; hidden while the pen is down. */
+    /** Strokes the eraser has swept so far in this gesture; hidden while the pen is down. */
     val erased: Set<String> get() = erasedIds
+
+    /** Swept strokes not yet handed to the repository. The canvas commits them while the pen moves. */
+    val uncommitted: Set<String> get() = uncommittedIds
+
+    /** These swept strokes were staged for deletion. */
+    fun committed(ids: Set<String>) {
+        uncommittedIds -= ids
+    }
 
     val lassoPoints: List<Pt> get() = lasso
 
@@ -80,6 +90,7 @@ internal class PenCapture(
     fun begin(brush: Brush) {
         rejected = false
         erasedIds.clear()
+        uncommittedIds.clear()
         eraseLast = null
         lasso.clear()
         this.brush = brush
@@ -117,9 +128,12 @@ internal class PenCapture(
     /** Sweeps the eraser from the previous point; returns a message when the gesture is rejected. */
     fun addErasePoint(x: Float, y: Float): String? {
         val point = frozen.toSheet(x, y)
-        erasedIds += scene.strokesSwept(eraseLast ?: point, point, erasedIds)
+        val swept = scene.strokesSwept(eraseLast ?: point, point, erasedIds)
+        erasedIds += swept
+        uncommittedIds += swept
         eraseLast = point
-        if (erasedIds.size > MAX_ERASED) return reject("That erase covered too much and was cancelled. Lift the pen and try a smaller area.")
+        // Strokes are committed as the pen moves, so this only trips on one enormous sweep or failing saves.
+        if (uncommittedIds.size > MAX_ERASED) return reject("That erase covered too much at once and stopped. Lift the pen and try a smaller area.")
         return null
     }
 
@@ -138,6 +152,7 @@ internal class PenCapture(
     fun finish() {
         ink = null
         erasedIds.clear()
+        uncommittedIds.clear()
         eraseLast = null
         lasso.clear()
         mode = PenMode.NONE
@@ -154,6 +169,7 @@ internal class PenCapture(
         requireLift = true
         ink?.cancel()
         erasedIds.clear()
+        uncommittedIds.clear()
         lasso.clear()
         return message
     }

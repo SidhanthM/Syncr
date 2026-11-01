@@ -156,10 +156,12 @@ internal class DryInkLayer(
         job?.cancel()
         job = scope().launch {
             val built = withContext(Dispatchers.Default) {
-                val old = reusable.filter { it.dark == night && it.prefs == style }.associateBy { it.preview }
+                // By ID, then a preview comparison that is usually by identity: hashing whole previews would
+                // walk every stroke's samples on each rebuild.
+                val old = reusable.filter { it.dark == night && it.prefs == style }.associateBy { it.preview.id }
                 wanted.associate { preview ->
                     ensureActive()
-                    preview.id to (old[preview] ?: makeInk(preview, night, style))
+                    preview.id to (old[preview.id]?.takeIf { it.preview == preview } ?: makeInk(preview, night, style))
                 }
             }
             cache = built

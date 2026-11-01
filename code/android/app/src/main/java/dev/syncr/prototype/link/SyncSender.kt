@@ -7,7 +7,8 @@ import java.security.MessageDigest
  * Phone to Mac note sync (wifi-link-v0 §3.3). Link thread only, except [LinkLoop.background] blocks.
  *
  * - After `welcome`: every non-deleted note, as `notes` messages.
- * - A changed note is announced 1.5 s after its last save while it is open, and at once when it is closed.
+ * - A changed note is announced at most 400 ms after its first unannounced save while it is open (later saves in
+ *   that window ride along, so continuous writing or erasing still reaches the Mac), and at once when it is closed.
  * - On `want`: `export_copy` into [tempDir] off the link thread, SHA-256, then `file`, chunks, `file_end`, one transfer at
  *   a time; the temp file is deleted once sent. `have` completes it; `file_error` retries once per connection.
  */
@@ -76,7 +77,7 @@ class SyncSender(
         retried.clear()
     }
 
-    /** The phone's notes changed. [open] is the note on screen, whose seq is only announced after a quiet 1.5 s. */
+    /** The phone's notes changed. [open] is the note on screen, whose seq goes out within [ANNOUNCE_MS] of its first change. */
     fun update(notes: List<NoteMeta>, open: String?) {
         val now = clock.nowMs()
         val closed = openId?.takeIf { it != open }
@@ -93,7 +94,8 @@ class SyncSender(
             if (announced[n.id] == n.seq) {
                 due.remove(n.id)
             } else if (n.id == open) {
-                due[n.id] = Due(now + DEBOUNCE_MS, n)
+                // Keep the first deadline: a stream of saves must not push the Mac's copy back indefinitely.
+                due[n.id] = Due(due[n.id]?.at ?: (now + ANNOUNCE_MS), n)
             } else {
                 due.remove(n.id)
                 immediate += n
@@ -243,7 +245,7 @@ class SyncSender(
     }
 
     companion object {
-        const val DEBOUNCE_MS = 1_500L
+        const val ANNOUNCE_MS = 400L
         const val ACK_TIMEOUT_MS = 30_000L
         private const val MAX_TITLE = 200
         private const val BATCH_BYTES = 48_000
