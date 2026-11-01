@@ -40,13 +40,13 @@ private final class PalettePanel: NSPanel {
         panel.onResign = { [weak self] in self?.dismiss() }
 
         let card = ThemedView(frame: panel.contentView!.bounds)
-        card.fill = Theme.paper
+        card.fill = Theme.panel
         card.radius = 10
         card.autoresizingMask = [.width, .height]
         card.wantsLayer = true
         card.layer?.cornerRadius = 10
         card.layer?.borderWidth = 1
-        card.layer?.borderColor = NSColor.separatorColor.cgColor
+        card.layer?.borderColor = Theme.hairlineStrong.cgColor
         panel.contentView!.addSubview(card)
 
         field.isBordered = false

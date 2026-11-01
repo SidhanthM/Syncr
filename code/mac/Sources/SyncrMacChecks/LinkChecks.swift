@@ -414,6 +414,11 @@ private final class PhoneNote {
         _ = try note.submit(command: Command(operationId: newId(), dependencies: [sheetOp],
             body: .marks(mutations: [.addStroke(markId: id, sheetId: sheetId, samples: try encodeSamples(channels: channels), brush: brush)])))
     }
+    func deleteStroke(id: String) throws {
+        let head = try note.snapshot().strokes.first { $0.id == id }!.head.operationId
+        _ = try note.submit(command: Command(operationId: newId(), dependencies: [head],
+            body: .marks(mutations: [.deleteStroke(markId: id, base: .operation(operationId: head))])))
+    }
     func rename(_ title: String) throws {
         let head = try note.snapshot().metadataHead
         let base: Base = head.confirmedRevision.map { .confirmed(revision: $0) } ?? .operation(operationId: head.operationId)
@@ -711,6 +716,17 @@ private func previewSteps(_ plan: ReplayPlan) -> [ReplayStep] { plan.steps.filte
     // Late frames of the swapped stroke cannot bring it back; a Cancel for the other one drops it.
     try rig.feed(steps.suffix(4))
     try check(!rig.engine.currentFrame.strokes.contains { $0.id == strokeId }, "swap: late frames do not resurrect the stroke")
+    // The phone saves the other stroke and erases it before the next copy: the copy holds it deleted, and its
+    // preview goes with that copy instead of lingering until the hold expires.
+    try phone.addStroke(id: otherId, channels: other.channels, brush: Brush(family: .highlighter, size: .medium, colour: .ink))
+    try phone.deleteStroke(id: otherId)
+    _ = try rig.model.importCopy(from: try phone.export().file)
+    var erasedSwap = false
+    rig.model.reloadInPlace(id: phone.noteId) { ids in rig.engine.finishMirror(strokeIds: ids); erasedSwap = true }
+    try pump("erased swap") { erasedSwap }
+    rig.engine.waitIdle()
+    try check(!rig.engine.currentFrame.strokes.contains { $0.id == otherId } && rig.model.drawing?.strokes.count == 1,
+              "swap: a stroke erased on the phone before the copy leaves no preview behind")
     // Ending the link clears everything.
     rig.live.mirrorEnabled = false; rig.engine.reset(); rig.engine.waitIdle()
     try check(rig.engine.currentFrame.isEmpty, "link ended: the wet layer is cleared")

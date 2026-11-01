@@ -16,9 +16,10 @@ final class SyncrMacApp: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AppPreferences.shared.applyAppearance()
         controller = MainWindowController(model: model, workspace: workspace)
         NSApplication.shared.mainMenu = MainMenu.build(target: controller)
-        workspace.restoreSession()
+        if AppPreferences.shared.values.restoreSession { workspace.restoreSession() }
         controller.show()
         controller.debugAutoReplay()
         // Explicit local-file import, using exactly the same copy-only path as File > Import.

@@ -303,7 +303,10 @@ import AppKit
         }
     }
     override func mouseUp(with event: NSEvent) { if resizing { resizing = false; onWidth?(pageWidth) } }
-    override func scrollWheel(with event: NSEvent) { onScroll?(Float(event.scrollingDeltaX), Float(event.scrollingDeltaY)) }
+    override func scrollWheel(with event: NSEvent) {
+        let (x, y) = AppPreferences.shared.canvasScroll(event)
+        onScroll?(x, y)
+    }
 }
 
 @MainActor final class MarkdownTextView: NSTextView {
@@ -322,7 +325,10 @@ import AppKit
     }
     var onReveal: ((Int) -> Void)?
     override func scrollRangeToVisible(_ range: NSRange) { onReveal?(range.location) }
-    override func scrollWheel(with event: NSEvent) { onScroll?(Float(event.scrollingDeltaX), Float(event.scrollingDeltaY)) }
+    override func scrollWheel(with event: NSEvent) {
+        let (x, y) = AppPreferences.shared.canvasScroll(event)
+        onScroll?(x, y)
+    }
     // App shortcuts are dispatched by the window's binding registry before TextKit sees them.
     // Do not duplicate defaults here: doing so would keep old shortcuts alive after rebinding.
     @objc func undo(_ sender: Any?) { onHistory?(false) }

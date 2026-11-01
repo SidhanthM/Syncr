@@ -25,14 +25,32 @@ private final class Item: NSObject {
 
 private final class ActionItem: NSMenuItem {
     private let handler: () -> Void
-    init(_ title: String, enabled: Bool = true, _ handler: @escaping () -> Void) {
+    init(_ title: String, symbol: String, enabled: Bool = true, _ handler: @escaping () -> Void) {
         self.handler = handler
         super.init(title: title, action: #selector(fire), keyEquivalent: "")
         target = self
         isEnabled = enabled
+        image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(
+            NSImage.SymbolConfiguration(pointSize: 14, weight: .regular))
     }
     required init(coder: NSCoder) { fatalError("not used") }
     @objc private func fire() { handler() }
+}
+
+/// Selection is a quiet raised fill with ink text, never the system accent.
+private final class RowView: NSTableRowView {
+    override var isEmphasized: Bool { get { false } set {} }
+    override var isSelected: Bool { didSet { tint() } }
+    override func drawSelection(in dirtyRect: NSRect) {
+        Theme.raise.setFill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 8, dy: 1), xRadius: 6, yRadius: 6).fill()
+    }
+    override func didAddSubview(_ subview: NSView) { super.didAddSubview(subview); tint() }
+    private func tint() {
+        for case let cell as NSTableCellView in subviews where cell.identifier?.rawValue == "note" {
+            cell.textField?.textColor = isSelected ? Theme.ink : (cell.textField?.tag == 1 ? Theme.muted : Theme.soft)
+        }
+    }
 }
 
 private final class Outline: NSOutlineView {
@@ -42,7 +60,8 @@ private final class Outline: NSOutlineView {
     }
 }
 
-/// Left column: title filter, notebooks as folders with their notes, Inbox, Recently deleted.
+/// File tree: title filter, Inbox, notebooks as groups with their notes, tags, Recently deleted. Notes from
+/// the phone carry a small "phone" mark, and "phone · live" while the phone is writing in them.
 @MainActor final class SidebarView: ThemedView, NSOutlineViewDataSource, NSOutlineViewDelegate, NSTextFieldDelegate {
     weak var delegate: SidebarDelegate?
     private let outline = Outline()
@@ -50,10 +69,14 @@ private final class Outline: NSOutlineView {
     private var items: [Item] = []
     private var children: [ObjectIdentifier: [Item]] = [:]
     private var quiet = false // programmatic reloads must not look like clicks
+    private var liveNote: String?
+    private var newNoteButton: NSButton?
+    private var newNotebookButton: NSButton?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        fill = Theme.desk
+        fill = Theme.well
+        rightLine = true
         search.placeholderString = "Filter notes"
         search.sendsSearchStringImmediately = true
         search.target = self
@@ -64,8 +87,7 @@ private final class Outline: NSOutlineView {
         let newNotebook = NSButton(image: NSImage(systemSymbolName: "folder.badge.plus", accessibilityDescription: "New notebook")!,
                                    target: self, action: #selector(newNotebook))
         for button in [newNote, newNotebook] { button.isBordered = false; button.contentTintColor = Theme.muted }
-        newNote.toolTip = "New note (⌘N)"
-        newNotebook.toolTip = "New notebook (⇧⌘N)"
+        newNoteButton = newNote; newNotebookButton = newNotebook
         let header = NSStackView(views: [search, newNote, newNotebook])
         header.spacing = 6
         header.edgeInsets = NSEdgeInsets(top: 0, left: 10, bottom: 0, right: 10)
@@ -77,8 +99,9 @@ private final class Outline: NSOutlineView {
         outline.headerView = nil
         outline.style = .plain
         outline.backgroundColor = .clear
-        outline.rowHeight = 26
-        outline.indentationPerLevel = 14
+        outline.rowHeight = 24
+        outline.indentationPerLevel = 0
+        outline.intercellSpacing = NSSize(width: 0, height: 2)
         outline.floatsGroupRows = false
         outline.dataSource = self
         outline.delegate = self
@@ -101,8 +124,14 @@ private final class Outline: NSOutlineView {
 
     func focusFilter() { window?.makeFirstResponder(search) }
 
+    func updateHotkeys(_ store: HotkeyStore) {
+        newNoteButton?.toolTip = store.hint(.newNote)
+        newNotebookButton?.toolTip = store.hint(.newNotebook)
+    }
+
     /// Rebuild from the workspace's sections and show `active` selected.
-    func update(_ sections: [SidebarSection], active: String?) {
+    func update(_ sections: [SidebarSection], active: String?, live: String? = nil) {
+        liveNote = live
         quiet = true
         defer { quiet = false }
         children = [:]
@@ -140,39 +169,51 @@ private final class Outline: NSOutlineView {
     }
     func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool { (item as? Item)?.note == nil }
 
+    func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? { RowView() }
+
+    func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
+        (item as? Item)?.note == nil ? 30 : 24
+    }
+
     func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
         guard let item = item as? Item else { return nil }
         let cell = NSTableCellView()
-        let symbol: String, text: String
-        if let note = item.note {
-            symbol = item.section.kind == .trash ? "trash" : (note.readOnly ? "lock" : "doc.text")
-            text = note.title
-        } else {
-            switch item.section.kind {
-            case .inbox: symbol = "tray"
-            case .notebook: symbol = "folder"
-            case .tags: symbol = "number"
-            case .trash: symbol = "trash"
-            }
-            text = item.section.title
-        }
-        let image = NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: nil)!)
-        image.contentTintColor = Theme.muted
-        let field = NSTextField(labelWithString: text)
-        field.font = item.note == nil ? .systemFont(ofSize: 13, weight: .medium) : Theme.font
-        field.textColor = item.note?.readOnly == true ? Theme.muted : Theme.ink
+        let field = NSTextField(labelWithString: "")
         field.lineBreakMode = .byTruncatingTail
         field.delegate = self
-        field.identifier = NSUserInterfaceItemIdentifier(item.note?.id ?? "")
-        image.translatesAutoresizingMaskIntoConstraints = false
         field.translatesAutoresizingMaskIntoConstraints = false
-        cell.addSubview(image); cell.addSubview(field)
+        cell.addSubview(field)
         cell.textField = field
+        guard let note = item.note else {
+            // Group label: small caps style, aligned with the notes' text.
+            field.attributedStringValue = Theme.groupLabel(item.section.title)
+            field.identifier = NSUserInterfaceItemIdentifier("")
+            NSLayoutConstraint.activate([
+                field.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 18),
+                field.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -8),
+                field.bottomAnchor.constraint(equalTo: cell.bottomAnchor, constant: -3)
+            ])
+            return cell
+        }
+        cell.identifier = NSUserInterfaceItemIdentifier("note")
+        field.stringValue = note.title
+        field.font = Theme.font
+        let quiet = item.section.kind == .trash
+        field.tag = quiet ? 1 : 0
+        field.textColor = quiet ? Theme.muted : Theme.soft
+        field.identifier = NSUserInterfaceItemIdentifier(note.id)
+        let mark = NSTextField(labelWithString: note.readOnly ? (note.id == liveNote ? "phone · live" : "phone") : (note.detail ?? (note.id == liveNote ? "live" : "")))
+        mark.font = .systemFont(ofSize: 10)
+        mark.textColor = note.id == liveNote ? Theme.connected : Theme.muted
+        mark.setContentCompressionResistancePriority(.required, for: .horizontal)
+        mark.translatesAutoresizingMaskIntoConstraints = false
+        cell.addSubview(mark)
         NSLayoutConstraint.activate([
-            image.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2), image.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-            image.widthAnchor.constraint(equalToConstant: 16),
-            field.leadingAnchor.constraint(equalTo: image.trailingAnchor, constant: 6),
-            field.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -6), field.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
+            field.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 18),
+            field.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+            mark.leadingAnchor.constraint(greaterThanOrEqualTo: field.trailingAnchor, constant: 6),
+            mark.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -16),
+            mark.firstBaselineAnchor.constraint(equalTo: field.firstBaselineAnchor)
         ])
         return cell
     }
@@ -246,44 +287,45 @@ private final class Outline: NSOutlineView {
         guard let d = delegate else { return nil }
         let menu = NSMenu()
         guard row >= 0, let item = outline.item(atRow: row) as? Item else {
-            menu.addItem(ActionItem("New Notebook") { d.sidebarNewNotebook() })
+            menu.addItem(ActionItem("New Notebook", symbol: "folder.badge.plus") { d.sidebarNewNotebook() })
             return menu
         }
         if let note = item.note {
             if item.section.kind == .tags { return nil }
             if item.section.kind == .trash {
-                menu.addItem(ActionItem("Restore") { d.sidebarRestore(note: note.id) })
-                menu.addItem(ActionItem("Delete Permanently") { d.sidebarPurge(note: note.id) })
+                menu.addItem(ActionItem("Restore", symbol: "arrow.uturn.backward") { d.sidebarRestore(note: note.id) })
+                menu.addItem(ActionItem("Delete Permanently", symbol: "trash.slash") { d.sidebarPurge(note: note.id) })
                 return menu
             }
-            menu.addItem(ActionItem("Open") { d.sidebarOpen(note: note.id, newTab: false) })
-            menu.addItem(ActionItem("Open in New Tab") { d.sidebarOpen(note: note.id, newTab: true) })
+            menu.addItem(ActionItem("Open", symbol: "doc.text") { d.sidebarOpen(note: note.id, newTab: false) })
+            menu.addItem(ActionItem("Open in New Tab", symbol: "plus.square.on.square") { d.sidebarOpen(note: note.id, newTab: true) })
             menu.addItem(.separator())
-            menu.addItem(ActionItem("Rename", enabled: !note.readOnly) { [weak self] in self?.beginRename(note: note.id) })
+            menu.addItem(ActionItem("Rename", symbol: "pencil", enabled: !note.readOnly) { [weak self] in self?.beginRename(note: note.id) })
             let move = NSMenuItem(title: "Move to", action: nil, keyEquivalent: "")
+            move.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
             let submenu = NSMenu()
-            submenu.addItem(ActionItem("Inbox", enabled: !note.readOnly && item.section.kind != .inbox) { d.sidebarMove(note: note.id, to: nil) })
+            submenu.addItem(ActionItem("Inbox", symbol: "tray", enabled: !note.readOnly && item.section.kind != .inbox) { d.sidebarMove(note: note.id, to: nil) })
             for name in d.sidebarNotebookNames() {
-                submenu.addItem(ActionItem(name, enabled: !note.readOnly && item.section.kind != .notebook(name)) { d.sidebarMove(note: note.id, to: name) })
+                submenu.addItem(ActionItem(name, symbol: "folder", enabled: !note.readOnly && item.section.kind != .notebook(name)) { d.sidebarMove(note: note.id, to: name) })
             }
             move.submenu = submenu
             move.isEnabled = !note.readOnly
             menu.addItem(move)
             menu.addItem(.separator())
-            menu.addItem(ActionItem("Delete") { d.sidebarDelete(note: note.id) })
+            menu.addItem(ActionItem("Delete", symbol: "trash") { d.sidebarDelete(note: note.id) })
             return menu
         }
         switch item.section.kind {
         case .inbox:
-            menu.addItem(ActionItem("New Note Here") { d.sidebarSelectNotebook(nil); d.sidebarNewNote() })
+            menu.addItem(ActionItem("New Note Here", symbol: "square.and.pencil") { d.sidebarSelectNotebook(nil); d.sidebarNewNote() })
         case .notebook(let name):
-            menu.addItem(ActionItem("New Note Here") { d.sidebarSelectNotebook(name); d.sidebarNewNote() })
-            menu.addItem(ActionItem("Rename Notebook") { [weak self] in self?.beginRename(notebook: name) })
-            menu.addItem(ActionItem("Delete Notebook") { d.sidebarDelete(notebook: name) })
+            menu.addItem(ActionItem("New Note Here", symbol: "square.and.pencil") { d.sidebarSelectNotebook(name); d.sidebarNewNote() })
+            menu.addItem(ActionItem("Rename Notebook", symbol: "pencil") { [weak self] in self?.beginRename(notebook: name) })
+            menu.addItem(ActionItem("Delete Notebook", symbol: "trash") { d.sidebarDelete(notebook: name) })
         case .tags, .trash: return nil
         }
         menu.addItem(.separator())
-        menu.addItem(ActionItem("New Notebook") { d.sidebarNewNotebook() })
+        menu.addItem(ActionItem("New Notebook", symbol: "folder.badge.plus") { d.sidebarNewNotebook() })
         return menu
     }
 }

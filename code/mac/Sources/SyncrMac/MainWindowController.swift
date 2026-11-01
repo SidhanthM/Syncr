@@ -6,6 +6,9 @@ import UniformTypeIdentifiers
 @MainActor final class MainWindowController: NSObject, SidebarDelegate, NSMenuItemValidation, NSWindowDelegate {
     let model: LibraryModel
     let workspace: Workspace
+    let hotkeys = HotkeyStore()
+    private lazy var settingsWindow = SettingsWindow(store: hotkeys)
+    private var hotkeyMonitor: Any?
     let window: NSWindow
     private let sidebar = SidebarView()
     let notebook: NotebookController
@@ -18,9 +21,11 @@ import UniformTypeIdentifiers
     private let palette = PaletteController()
     private var live: LiveInkCoordinator?
     private var link: LinkController?
-    private let linkLabel = NSTextField(labelWithString: "")
-    /// Title-bar height holder so the link status sits on the title's centre line rather than the bar's top edge.
-    private let linkAccessory = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 28))
+    private let ribbon = RibbonView()
+    private let statusBar = StatusBarView()
+    private lazy var leftSidebarToggle = SidebarToggle(right: false) { [weak self] in self?.run(.toggleSidebar) }
+    private lazy var rightSidebarToggle = SidebarToggle(right: true) { [weak self] in self?.run(.toggleBacklinks) }
+    private var sidebarObservation: NSKeyValueObservation?
 
     init(model: LibraryModel, workspace: Workspace) {
         self.model = model
@@ -35,16 +40,61 @@ import UniformTypeIdentifiers
         sidebarItem.minimumThickness = 200
         sidebarItem.maximumThickness = 420
         sidebarItem.canCollapse = true
+        sidebarItem.allowsFullHeightLayout = false
         let split = NSSplitViewController()
         split.addSplitViewItem(sidebarItem)
         split.addSplitViewItem(NSSplitViewItem(viewController: detailVC))
+        // Ribbon | file tree and note | right pane, with one status bar under all of it.
+        let root = NSViewController()
+        root.view = NSView()
+        root.addChild(split)
+        for view in [ribbon, split.view, statusBar] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            root.view.addSubview(view)
+        }
+        NSLayoutConstraint.activate([
+            ribbon.leadingAnchor.constraint(equalTo: root.view.leadingAnchor), ribbon.topAnchor.constraint(equalTo: root.view.topAnchor),
+            ribbon.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
+            split.view.leadingAnchor.constraint(equalTo: ribbon.trailingAnchor), split.view.trailingAnchor.constraint(equalTo: root.view.trailingAnchor),
+            split.view.topAnchor.constraint(equalTo: root.view.topAnchor), split.view.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
+            statusBar.leadingAnchor.constraint(equalTo: root.view.leadingAnchor), statusBar.trailingAnchor.constraint(equalTo: root.view.trailingAnchor),
+            statusBar.bottomAnchor.constraint(equalTo: root.view.bottomAnchor)
+        ])
         super.init()
-        window.contentViewController = split
+        window.contentViewController = root
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.backgroundColor = Theme.panel
         window.setContentSize(NSSize(width: 1280, height: 820))
         window.minSize = NSSize(width: 720, height: 480)
         window.center()
         window.delegate = self
         window.setFrameAutosaveName("SyncrMainWindow")
+        window.addTitlebarAccessoryViewController(leftSidebarToggle)
+        window.addTitlebarAccessoryViewController(rightSidebarToggle)
+        sidebarObservation = sidebarItem.observe(\.isCollapsed, options: [.initial, .new]) { [weak self] _, _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.leftSidebarToggle.show(collapsed: self.sidebarItem.isCollapsed)
+            }
+        }
+        detail.onRightPaneVisibility = { [weak self] visible in self?.rightSidebarToggle.show(collapsed: !visible) }
+        settingsWindow.onCommand = { [weak self] in self?.run($0) }
+        settingsWindow.libraryFolder = { [weak self] in self?.model.folder ?? FileManager.default.homeDirectoryForCurrentUser }
+        ribbon.onSettings = { [weak self] in self?.run(.settings) }
+        hotkeys.onChange = { [weak self] in self?.hotkeysChanged() }
+        hotkeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let handled = MainActor.assumeIsolated {
+                guard let self, event.window === self.window, self.window.isKeyWindow,
+                      self.window.attachedSheet == nil,
+                      let command = self.hotkeys.command(for: event), self.workspace.availableCommands().contains(command) else { return false }
+                if !event.isARepeat || [.zoomIn, .zoomOut].contains(command) { self.run(command) }
+                return true
+            }
+            return handled ? nil : event
+        }
+        hotkeysChanged()
+        NotificationCenter.default.addObserver(self, selector: #selector(presentationChanged), name: AppPreferences.didChange, object: AppPreferences.shared)
 
         if let device = detail.device {
             let live = LiveInkCoordinator(model: model, workspace: workspace, device: device)
@@ -54,19 +104,14 @@ import UniformTypeIdentifiers
             self.link = link
             link.onStatus = { [weak self] in self?.linkChanged() }
             link.onPairing = { [weak self] in self?.detail.showPairing($0) }
-            linkLabel.font = Theme.smallFont
-            linkLabel.textColor = Theme.muted
-            let accessory = NSTitlebarAccessoryViewController()
-            linkLabel.translatesAutoresizingMaskIntoConstraints = false
-            linkAccessory.addSubview(linkLabel)
-            NSLayoutConstraint.activate([
-                linkLabel.centerYAnchor.constraint(equalTo: linkAccessory.centerYAnchor),
-                linkLabel.trailingAnchor.constraint(equalTo: linkAccessory.trailingAnchor, constant: -12)
-            ])
-            accessory.view = linkAccessory
-            accessory.layoutAttribute = .trailing
-            window.addTitlebarAccessoryViewController(accessory)
         }
+        ribbon.onFiles = { [weak self] in self?.run(.toggleSidebar) }
+        ribbon.onSearch = { [weak self] in self?.run(.searchNotes) }
+        ribbon.onDaily = { [weak self] in self?.run(.dailyNote) }
+        ribbon.onPhone = { [weak self] in self?.phoneMenu(at: $0) }
+        statusBar.onPhone = { [weak self] in self?.phoneMenu(at: $0) }
+        detail.onLiveStatus = { [weak self] in self?.statusBar.show(live: $0) }
+        detail.companionStrip.onBudget = { [weak self] text, tip, paused in self?.statusBar.show(budget: text, tooltip: tip, paused: paused) }
         sidebar.delegate = self
         detail.onError = { [weak self] in self?.fail($0) }
         detail.tabBar.onSelect = { [weak self] in self?.workspace.activate($0) }
@@ -89,11 +134,11 @@ import UniformTypeIdentifiers
         notebook.onChange = { [weak self] in
             guard let self else { return }
             self.syncNotebook(); self.detail.refreshTextPreview()
-            self.sidebar.update(self.workspace.sidebar, active: self.workspace.active)
+            self.sidebar.update(self.workspace.sidebar, active: self.workspace.active, live: self.link?.liveNote)
         }
         notebook.onState = { [weak self] id in
             guard let self, self.workspace.active == id else { return }
-            self.detail.showSaveState(self.notebook.status(note: id))
+            self.showSaveState(self.notebook.status(note: id))
         }
         notebook.onError = { [weak self] in self?.fail($0) }
         detail.documentEditor.onFind = { [weak self] in self?.findInNote() }
@@ -129,7 +174,7 @@ import UniformTypeIdentifiers
         let opening = displayedDocument != id
         displayedDocument = id
         detail.showDocument(show ? notebook.document(note: id, block: block) : nil, title: workspace.title(of: id), width: CGFloat(block?.width ?? 1600), opening: opening)
-        detail.showSaveState(notebook.status(note: id))
+        showSaveState(notebook.status(note: id))
         if opening && model.isWritable(id) && show { window.makeFirstResponder(detail.documentEditor.textView) }
         let free = drawing.textBlocks.filter { $0.role == .free && !$0.tombstone }
         let revision = id + free.map { $0.id + $0.head.operationId }.joined()
@@ -149,18 +194,80 @@ import UniformTypeIdentifiers
         if model.shownNote == id, !model.loading { syncNotebook() }
     }
 
-    private func linkChanged() {
-        guard let link else { return }
-        linkLabel.stringValue = link.statusText
-        linkAccessory.setFrameSize(NSSize(width: linkLabel.intrinsicContentSize.width + 24, height: linkAccessory.frame.height))
-        workspace.hasPairedPhones = link.hasPairedPhones
+    private func showSaveState(_ text: String) {
+        let words = detail.documentEditor.isHidden ? nil : detail.documentEditor.textView.string.split(whereSeparator: { $0.isWhitespace }).count
+        statusBar.show(save: text, words: words)
     }
 
-    func quit() { link?.stop() }
+    private func linkChanged() {
+        guard let link else {
+            statusBar.show(phone: "No phone link", state: .off)
+            return
+        }
+        workspace.hasPairedPhones = link.hasPairedPhones
+        let (text, state): (String, StatusBarView.Phone) = switch link.status {
+        case .off: ("Phone link off", .off)
+        case .starting: ("Phone link starting", .waiting)
+        case .waiting: (link.hasPairedPhones ? "Phone not connected" : "No phone paired", .waiting)
+        case .pairing(let phone): ("Pairing with \(phone)", .needsYou)
+        case .connected(let phone): (link.padOn ? "\(phone) · pen ready" : "\(phone) · connected", .connected)
+        case .failed: ("Phone link could not listen", .needsYou)
+        }
+        statusBar.show(phone: text, state: state)
+        let colour: NSColor = switch state { case .connected: Theme.connected; case .needsYou: Theme.needsYou; default: Theme.muted }
+        ribbon.showPhone(colour: colour, tip: link.statusText)
+        sidebar.update(workspace.sidebar, active: workspace.active, live: link.liveNote)
+    }
+
+    /// The phone's controls, from the ribbon or the status bar's pill.
+    private func phoneMenu(at view: NSView) {
+        let menu = NSMenu()
+        for command in [AppCommand.phoneLink, .followPhone, .forgetPhone] {
+            let item = NSMenuItem(title: command.title, action: #selector(runMenu(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = command.rawValue
+            menu.addItem(item)
+        }
+        if let link {
+            menu.insertItem(.separator(), at: 0)
+            let state = NSMenuItem(title: link.statusText, action: nil, keyEquivalent: "")
+            state.isEnabled = false
+            menu.insertItem(state, at: 0)
+        }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: view.isFlipped ? view.bounds.height + 4 : -4), in: view)
+    }
+
+    func quit() {
+        link?.stop()
+        if let hotkeyMonitor { NSEvent.removeMonitor(hotkeyMonitor); self.hotkeyMonitor = nil }
+    }
+
+    @objc private func presentationChanged() {
+        detail.refreshTextPreview()
+        companion.refreshPresentation()
+    }
+
+    private func setSidebarCollapsed(_ collapsed: Bool) {
+        if AppPreferences.shared.reducedMotion { sidebarItem.isCollapsed = collapsed }
+        else { sidebarItem.animator().isCollapsed = collapsed }
+    }
+
+    private func hotkeysChanged() {
+        // Menus and hints reflect the same effective registry used by keyboard dispatch.
+        NSApplication.shared.mainMenu = MainMenu.build(target: self)
+        leftSidebarToggle.shortcut = hotkeys.binding(for: .toggleSidebar)?.compact ?? ""
+        rightSidebarToggle.shortcut = hotkeys.binding(for: .toggleBacklinks)?.compact ?? ""
+        leftSidebarToggle.show(collapsed: sidebarItem.isCollapsed)
+        rightSidebarToggle.show(collapsed: detail.notebookSidebar.isHidden)
+        ribbon.updateHotkeys(hotkeys)
+        sidebar.updateHotkeys(hotkeys)
+        detail.updateHotkeys(hotkeys)
+        settingsWindow.reload()
+    }
     func flushBeforeQuit(_ done: @escaping @MainActor (Bool) -> Void) {
         detail.flushText()
         notebook.flushAll { [weak self] ok in
-            if !ok { self?.detail.showSaveState("Not saved: edits retained; fix the write error before closing") }
+            if !ok { self?.showSaveState("Not saved: edits retained; fix the write error before closing") }
             guard let self else { done(ok); return }
             self.model.drainNotebookWork { done(ok) }
         }
@@ -190,15 +297,18 @@ import UniformTypeIdentifiers
         notebook.refreshIndex()
         live?.syncTarget()
         link?.stateChanged()
-        sidebar.update(workspace.sidebar, active: workspace.active)
+        sidebar.update(workspace.sidebar, active: workspace.active, live: link?.liveNote)
         detail.tabBar.update(workspace.tabs.map { TabInfo(id: $0, title: workspace.title(of: $0), readOnly: workspace.isReadOnly($0)) },
                              active: workspace.active)
         if let id = workspace.active {
             window.title = workspace.title(of: id)
             detail.show(title: workspace.title(of: id), readOnly: workspace.isReadOnly(id))
+            statusBar.show(note: workspace.isReadOnly(id) ? "From the phone · read-only until sync" : nil)
         } else {
             window.title = "Syncr"
             detail.show(title: nil, readOnly: false)
+            statusBar.show(note: nil)
+            statusBar.show(save: "", words: nil)
         }
     }
 
@@ -208,11 +318,19 @@ import UniformTypeIdentifiers
     // MARK: Commands
 
     @objc func runMenu(_ sender: NSMenuItem) {
-        if let raw = sender.representedObject as? String, let command = AppCommand(rawValue: raw) { run(command) }
+        if let raw = sender.representedObject as? String, let command = AppCommand(rawValue: raw) {
+            if command == .closeTab, let keyWindow = NSApplication.shared.keyWindow, keyWindow !== window {
+                keyWindow.performClose(nil)
+            } else { run(command) }
+        }
     }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         guard let raw = item.representedObject as? String, let command = AppCommand(rawValue: raw) else { return true }
+        if command == .closeTab, let keyWindow = NSApplication.shared.keyWindow, keyWindow !== window { return keyWindow.styleMask.contains(.closable) }
+        if [.undo, .redo].contains(command), let field = NSApplication.shared.keyWindow?.firstResponder as? NSTextView, field.isFieldEditor {
+            return command == .undo ? field.undoManager?.canUndo == true : field.undoManager?.canRedo == true
+        }
         if let link {
             if command == .phoneLink { item.state = link.enabled ? .on : .off }
             if command == .followPhone { item.state = link.follow ? .on : .off }
@@ -222,6 +340,13 @@ import UniformTypeIdentifiers
 
     func run(_ command: AppCommand) {
         switch command {
+        case .settings: settingsWindow.show()
+        case .hotkeys: settingsWindow.show(page: .hotkeys)
+        case .commandPalette: openCommandPalette()
+        case .showLeftSidebar: setSidebarCollapsed(false)
+        case .hideLeftSidebar: setSidebarCollapsed(true)
+        case .showRightSidebar: detail.setRightPane(visible: true)
+        case .hideRightSidebar: detail.setRightPane(visible: false)
         case .askSyncr: companion.ask()
         case .drawSelection: companion.ask(draw: true)
         case .askAllReaders: companion.ask(all: true)
@@ -230,7 +355,7 @@ import UniformTypeIdentifiers
         case .undoCompanion: companion.undoAgent()
         case .redoCompanion: companion.undoAgent(redo: true)
         case .undo, .redo:
-            if let field = window.firstResponder as? NSTextView, field.isFieldEditor {
+            if let field = NSApplication.shared.keyWindow?.firstResponder as? NSTextView, field.isFieldEditor {
                 if command == .redo { field.undoManager?.redo() } else { field.undoManager?.undo() }
             } else if let id = workspace.active {
                 detail.flushText(); notebook.document(note: id).history(redo: command == .redo)
@@ -266,7 +391,7 @@ import UniformTypeIdentifiers
         case .closeTab: if let id = workspace.active { workspace.closeTab(id) }
         case .nextTab: workspace.cycleTab(1)
         case .previousTab: workspace.cycleTab(-1)
-        case .toggleSidebar: sidebarItem.animator().isCollapsed.toggle()
+        case .toggleSidebar: setSidebarCollapsed(!sidebarItem.isCollapsed)
         case .zoomIn: detail.zoomIn()
         case .zoomOut: detail.zoomOut()
         case .fit: detail.fit()
@@ -315,7 +440,7 @@ import UniformTypeIdentifiers
         switch command {
         case .phoneLink: link.map { $0.enabled ? "on" : "off" } ?? ""
         case .followPhone: link.map { $0.follow ? "on" : "off" } ?? ""
-        default: command.shortcut
+        default: hotkeys.binding(for: command)?.compact ?? ""
         }
     }
 

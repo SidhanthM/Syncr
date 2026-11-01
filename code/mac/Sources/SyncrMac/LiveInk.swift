@@ -360,7 +360,8 @@ final class LiveInk: @unchecked Sendable {
 
     /// Drops previews whose strokes are now part of the shown note, because its newer copy was just swapped
     /// in. Call in the same main-thread block that swaps the drawing, so no draw sees a stroke twice or
-    /// in neither place. Strokes not in `ids` (still live, or saved after that copy) stay.
+    /// in neither place. `ids` includes strokes the copy holds as deleted, so an erased stroke's preview goes
+    /// too. Strokes not in `ids` (still being written, or saved after that copy) stay.
     func finishMirror(strokeIds ids: Set<String>) {
         lock.lock()
         let published = frame.strokes.map(\.id).filter(ids.contains)

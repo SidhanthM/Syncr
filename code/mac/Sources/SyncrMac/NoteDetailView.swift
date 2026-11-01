@@ -11,6 +11,8 @@ import SyncrCore
     private let renderer: MeshRenderer?
     let device: MTLDevice?
     private var viewport = Viewport() { didSet { live?.viewChanged(viewport); positionText() } }
+    private var pinchStart: Viewport?
+    private var pinchAnchor = SIMD2<Float>(0.5, 0.5)
     let documentEditor = DocumentEditor()
     let notebookSidebar = NotebookSidebar()
     let companionStrip = CompanionStrip()
@@ -65,6 +67,8 @@ import SyncrCore
         canvas.enableSetNeedsDisplay = true
         canvas.delegate = self
         canvas.onScroll = { [weak self] x, y in self?.scroll(x: x, y: y) }
+        let pinch = NSMagnificationGestureRecognizer(target: self, action: #selector(magnifyNote(_:)))
+        addGestureRecognizer(pinch)
         documentEditor.onScroll = canvas.onScroll
         documentEditor.onWidthPreview = { [weak self] in self?.positionText() }
         documentEditor.onReveal = { [weak self] in self?.ensureTextVisible($0) }
@@ -465,9 +469,24 @@ import SyncrCore
         requestRedraw()
     }
     private func scroll(x: Float, y: Float) {
-        let fit = min(Float(canvas.drawableSize.width) / canvasSize().width,
-                      Float(canvas.drawableSize.height) / canvasSize().viewHeight)
-        move(-x / max(0.001, fit * viewport.zoom), y / max(0.001, fit * viewport.zoom))
+        let offset = viewport.scrollOffset(x: x, y: y, pixels: canvas.drawableSize)
+        move(offset.x, offset.y)
+    }
+    @objc private func magnifyNote(_ gesture: NSMagnificationGestureRecognizer) {
+        if gesture.state == .began {
+            guard !canvas.isHidden, canvas.bounds.width > 0, canvas.bounds.height > 0 else { return }
+            let point = gesture.location(in: canvas)
+            guard canvas.bounds.contains(point) else { return }
+            pinchStart = viewport
+            pinchAnchor = SIMD2(Float(point.x / canvas.bounds.width),
+                                Float(1 - point.y / canvas.bounds.height))
+        } else if gesture.state == .changed, let start = pinchStart {
+            viewport = start.zoomed(to: start.zoom * Float(max(0.01, 1 + gesture.magnification)),
+                                    around: pinchAnchor, pixels: canvas.bounds.size)
+            move(0, 0)
+        } else if gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed {
+            pinchStart = nil
+        }
     }
     @objc func zoomIn() { viewport.zoom = min(8, viewport.zoom * 1.25); move(0, 0) }
     @objc func zoomOut() { viewport.zoom = max(1, viewport.zoom / 1.25); move(0, 0) }
@@ -500,7 +519,8 @@ private final class CanvasView: MTKView {
         }
     }
     override func scrollWheel(with event: NSEvent) {
-        onScroll?(Float(event.scrollingDeltaX), Float(event.scrollingDeltaY))
+        let (x, y) = AppPreferences.shared.canvasScroll(event)
+        onScroll?(x, y)
     }
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()

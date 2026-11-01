@@ -454,8 +454,8 @@ private final class LoadToken: @unchecked Sendable {
 
     /// Reads the note again (after a newer copy was installed) on the tessellation queue and swaps the
     /// new drawing in at once, with no empty frame in between; the old drawing stays visible until then.
-    /// `swapped` runs on the main thread in the same block as the swap, with the IDs of the strokes the
-    /// copy contains, so the caller can drop their previews before the next draw. Nothing happens if the
+    /// `swapped` runs on the main thread in the same block as the swap, with the IDs of every stroke the
+    /// copy contains, live or deleted, so the caller can drop their previews before the next draw. Nothing happens if the
     /// shown note changed meanwhile. The caller keeps the viewport: this does not touch it.
     func reloadInPlace(id: String, swapped: @escaping @MainActor (Set<String>) -> Void = { _ in }) {
         guard let library, shownNote == id else { return }
@@ -469,8 +469,10 @@ private final class LoadToken: @unchecked Sendable {
                 let snapshot = try note.snapshot()
                 let sheets = Dictionary(uniqueKeysWithValues: snapshot.sheets.map { ($0.id, $0) })
                 let marks = snapshot.strokes.filter { !$0.tombstone }
+                // Every stroke the copy knows, deleted ones included: a stroke the phone wrote and then erased
+                // before this copy is tombstoned here, and its live preview must go too.
                 return (try marks.map { try Self.stroke($0, note: note, sheets: sheets) }, snapshot.title,
-                        snapshot.sheets.first?.id, Set(marks.map(\.id)), snapshot.textBlocks)
+                        snapshot.sheets.first?.id, Set(snapshot.strokes.map(\.id)), snapshot.textBlocks)
             }
             DispatchQueue.main.async { MainActor.assumeIsolated {
                 guard let self, !token.cancelled, self.generation == started, self.shownNote == id else { return }

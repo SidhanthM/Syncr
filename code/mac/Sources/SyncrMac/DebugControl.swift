@@ -167,6 +167,9 @@ import SyncrCore
             if words.count == 4, let l = Float(words[1]), let t = Float(words[2]), let z = Float(words[3]) {
                 detail.debugViewport = Viewport(left: l, top: t, zoom: z); say("ack view \(l),\(t),\(z)")
             }
+        case "import":
+            do { let added = try model.importCopy(from: URL(fileURLWithPath: String(line.dropFirst(7)))); workspace.libraryChanged(); say("ack import \(added.id)") }
+            catch { say("error \(error.localizedDescription)") }
         case "newnote": do { let id = try workspace.newNote(); say("ack newnote \(id)") } catch { say("newnote-failed \(error.localizedDescription)") }
         case "forget-phones": forgetPhones(); say("ack forget-phones")
         case "link": if words.count == 2 { link.setEnabled(words[1] == "on"); say("ack link \(words[1])") }

@@ -111,6 +111,18 @@ func viewportAndOffscreenMeshPixels() throws {
     var viewport = Viewport(left: 9000, top: 500, zoom: 2)
     viewport.clamp(pixels: CGSize(width: 480, height: 300), bottom: 400)
     try check(viewport.left == 2400 && viewport.top == 400, "viewport clamp")
+    let original = Viewport(left: 500, top: 300, zoom: 2)
+    let anchor = SIMD2<Float>(0.25, 0.75)
+    let pixels = CGSize(width: 480, height: 300)
+    let before = original.visibleSize(pixels)
+    let enlarged = original.zoomed(to: 4, around: anchor, pixels: pixels)
+    let after = enlarged.visibleSize(pixels)
+    try check(abs((original.left + anchor.x * before.x) - (enlarged.left + anchor.x * after.x)) < 0.01 &&
+              abs((original.top + anchor.y * before.y) - (enlarged.top + anchor.y * after.y)) < 0.01,
+              "pinch keeps its anchor stationary")
+    try check(original.zoomed(to: 0, around: anchor, pixels: pixels).zoom == 1 &&
+              original.zoomed(to: 100, around: anchor, pixels: pixels).zoom == 8,
+              "pinch respects zoom limits")
     guard let device = MTLCreateSystemDefaultDevice() else { throw CheckFailure(description: "Metal device unavailable") }
     let renderer = try MeshRenderer(device: device)
     let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm,

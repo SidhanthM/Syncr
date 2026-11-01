@@ -12,6 +12,23 @@ struct Viewport: Equatable, Sendable {
         let fit = min(Float(pixels.width) / canvas.width, Float(pixels.height) / canvas.viewHeight)
         return SIMD2(Float(pixels.width), Float(pixels.height)) / max(0.001, fit * zoom)
     }
+    /// Convert preference-normalized scrolling into viewport coordinates. Both axes
+    /// increase toward the bottom-right; neither needs an additional direction flip.
+    func scrollOffset(x: Float, y: Float, pixels: CGSize) -> SIMD2<Float> {
+        let canvas = canvasSize()
+        let fit = min(Float(pixels.width) / canvas.width, Float(pixels.height) / canvas.viewHeight)
+        return SIMD2(x, y) / max(0.001, fit * zoom)
+    }
+    /// Keep the canvas point under a pinch stationary as the visible area changes.
+    func zoomed(to newZoom: Float, around fraction: SIMD2<Float>, pixels: CGSize) -> Viewport {
+        let before = visibleSize(pixels)
+        var result = self
+        result.zoom = min(8, max(1, newZoom))
+        let after = result.visibleSize(pixels)
+        result.left += fraction.x * (before.x - after.x)
+        result.top += fraction.y * (before.y - after.y)
+        return result
+    }
     mutating func clamp(pixels: CGSize, bottom: Float) {
         let size = visibleSize(pixels)
         left = min(max(0, left), max(0, canvasSize().width - size.x))
