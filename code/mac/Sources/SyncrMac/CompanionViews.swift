@@ -304,10 +304,9 @@ import SyncrCompanion
     private let actions: NSStackView
     override var isFlipped: Bool { true }
 
-    init(text: String, caption: String, sources: [CompanionSource], colour: NSColor, open: @escaping () -> Void, pin: @escaping () -> Void,
+    init(text: String, caption: String, sources: [CompanionSource], colour: NSColor, pin: @escaping () -> Void,
          pinned: Bool, dismiss: @escaping () -> Void, add: @escaping () -> Void) {
         actions = NSStackView(views: [
-            ActionButton(link: "Reply", size: 34, action: open),
             ActionButton(link: pinned ? "Unpin" : "Pin", size: 34, action: pin),
             ActionButton(link: "Add to note", size: 34, action: add),
             ActionButton(link: "Dismiss", size: 34, action: dismiss)
@@ -371,109 +370,6 @@ import SyncrCompanion
     override func mouseExited(with event: NSEvent) {
         if AppPreferences.shared.reducedMotion { actions.alphaValue = 0 } else { actions.animator().alphaValue = 0 }
         hover?(false)
-    }
-}
-
-/// Open and pinned margin threads, shown at the bottom of the right pane. Sized by its content.
-@MainActor final class CompanionThreads: NSView {
-    private let stack = FlippedStack()
-    var onReply: ((String, String) -> Void)?
-    var onState: ((String, MarginState) -> Void)?
-    var onResize: (() -> Void)?
-    override var isFlipped: Bool { true }
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 6
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor), stack.trailingAnchor.constraint(equalTo: trailingAnchor),
-            stack.topAnchor.constraint(equalTo: topAnchor), stack.bottomAnchor.constraint(equalTo: bottomAnchor)
-        ])
-    }
-    required init?(coder: NSCoder) { fatalError("not used") }
-
-    func show(_ items: [CompanionItemView], open: Set<String>) {
-        stack.arrangedSubviews.forEach { stack.removeArrangedSubview($0); $0.removeFromSuperview() }
-        defer { onResize?() }
-        let margins = items.filter { item in
-            guard !item.tombstone, case .marginNote(_, _, _, _, let state, _) = item.body else { return false }
-            return state == .pinned || (state == .open && open.contains(item.id))
-        }
-        guard !margins.isEmpty else { return }
-        let allPinned = margins.allSatisfy { if case .marginNote(_, _, _, _, .pinned, _) = $0.body { return true }; return false }
-        add(NSTextField(labelWithAttributedString: Theme.groupLabel(allPinned ? (margins.count == 1 ? "Pinned thread" : "Pinned threads") : "Threads")), spacing: 10)
-        for margin in margins {
-            guard case .marginNote(_, _, let text, let reader, let state, let sources) = margin.body else { continue }
-            let pinned = state == .pinned
-            add(wrapping(text, font: Theme.serif(14), colour: Theme.ink), spacing: 6)
-            for (who, reply, urls) in Self.replies(to: margin.id, in: items) {
-                let line = NSMutableAttributedString()
-                if who == .you {
-                    line.append(NSAttributedString(string: "You · " + reply, attributes: [.font: Theme.font, .foregroundColor: Theme.muted]))
-                } else {
-                    line.append(NSAttributedString(string: reply, attributes: [.font: Theme.serif(13.5), .foregroundColor: Theme.ink]))
-                }
-                for url in urls { line.append(NSAttributedString(string: "\n↗ \(url.title)", attributes: [.font: Theme.smallFont, .foregroundColor: Theme.muted, .link: url.url])) }
-                let label = wrapping("", font: Theme.font, colour: Theme.ink)
-                label.attributedStringValue = line
-                add(label, spacing: 6)
-            }
-            if !sources.isEmpty {
-                add(wrapping(sources.map { "↗ \($0.title)" }.joined(separator: "\n"), font: Theme.smallFont, colour: Theme.muted), spacing: 6)
-            }
-            let field = NSTextField(string: "")
-            field.placeholderString = "Ask why, push back…"
-            field.font = Theme.font
-            field.bezelStyle = .roundedBezel
-            field.controlSize = .small
-            let send = { [weak self, weak field] in
-                guard let field, !field.stringValue.isEmpty else { return }
-                self?.onReply?(margin.id, field.stringValue)
-                field.stringValue = ""
-            }
-            field.target = ClosureTarget.attach(to: field, send)
-            field.action = #selector(ClosureTarget.fire)
-            add(field, spacing: 4)
-            field.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-            let who = NSTextField(labelWithString: reader)
-            who.font = Theme.smallFont
-            who.textColor = Theme.muted
-            let spacer = NSView()
-            spacer.setContentHuggingPriority(.init(1), for: .horizontal)
-            let row = NSStackView(views: [
-                who, spacer,
-                ActionButton(link: pinned ? "Unpin" : "Pin", size: 11.5) { [weak self] in self?.onState?(margin.id, pinned ? .open : .pinned) },
-                ActionButton(link: "Dismiss", size: 11.5) { [weak self] in self?.onState?(margin.id, .dismissed) }
-            ])
-            row.spacing = 10
-            add(row, spacing: 18)
-            row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        }
-    }
-
-    private func add(_ view: NSView, spacing: CGFloat) {
-        stack.addArrangedSubview(view)
-        stack.setCustomSpacing(spacing, after: view)
-    }
-    private func wrapping(_ text: String, font: NSFont, colour: NSColor) -> NSTextField {
-        let label = NSTextField(wrappingLabelWithString: text)
-        label.font = font
-        label.textColor = colour
-        label.isSelectable = true
-        label.preferredMaxLayoutWidth = NotebookSidebar.inner
-        return label
-    }
-    private static func replies(to id: String, in items: [CompanionItemView]) -> [(MessageWho, String, [CompanionSource])] {
-        items.compactMap { item -> (UInt32, MessageWho, String, [CompanionSource])? in
-            guard !item.tombstone, case .threadMessage(let parent, let order, let who, let text, let urls) = item.body, parent == id else { return nil }
-            return (order, who, text, urls)
-        }
-        .sorted { $0.0 < $1.0 }
-        .map { ($0.1, $0.2, $0.3) }
     }
 }
 

@@ -4,13 +4,13 @@ import Foundation
 /// filtering live here so they can be checked without a window.
 enum AppCommand: String, CaseIterable, Sendable {
     case settings, hotkeys, commandPalette
-    case showLeftSidebar, hideLeftSidebar, showRightSidebar, hideRightSidebar
+    case showLeftSidebar, hideLeftSidebar
     case newNote, newNotebook, quickSwitcher, renameNote, moveNote, deleteNote, restoreNote
     case closeTab, nextTab, previousTab, toggleSidebar, zoomIn, zoomOut, fit
     case importExport, chooseFolder
     case askSyncr, drawSelection, askAllReaders, companionSettings, lastCompanionRequest, undoCompanion, redoCompanion
     case undo, redo, browseTags, outline
-    case bold, italic, insertLink, toggleTask, findInNote, searchNotes, dailyNote, toggleBacklinks, documentView
+    case bold, italic, insertLink, toggleTask, findInNote, searchNotes, dailyNote, documentView
     case importMarkdown, exportMarkdown, slashMenu, freeText
     /// The phone link: on/off, Follow phone, and forgetting a paired phone.
     case phoneLink, followPhone, forgetPhone
@@ -24,8 +24,6 @@ enum AppCommand: String, CaseIterable, Sendable {
         case .commandPalette: "Command Palette…"
         case .showLeftSidebar: "Show Left Sidebar"
         case .hideLeftSidebar: "Hide Left Sidebar"
-        case .showRightSidebar: "Show Right Sidebar"
-        case .hideRightSidebar: "Hide Right Sidebar"
         case .askSyncr: "Ask Syncr"
         case .drawSelection: "Draw This Selection (Experimental)"
         case .askAllReaders: "Ask All Readers"
@@ -44,7 +42,6 @@ enum AppCommand: String, CaseIterable, Sendable {
         case .findInNote: "Find in Note"
         case .searchNotes: "Search All Notes"
         case .dailyNote: "Open Daily Note"
-        case .toggleBacklinks: "Toggle Right Pane (Outline, Backlinks, Threads)"
         case .documentView: "Document View"
         case .importMarkdown: "Import Markdown File or Vault…"
         case .exportMarkdown: "Export Markdown…"
@@ -90,8 +87,8 @@ enum AppCommand: String, CaseIterable, Sendable {
     var category: String {
         switch self {
         case .settings, .hotkeys, .commandPalette: "Application"
-        case .showLeftSidebar, .hideLeftSidebar, .showRightSidebar, .hideRightSidebar,
-             .toggleSidebar, .toggleBacklinks, .nextTab, .previousTab, .zoomIn, .zoomOut, .fit, .documentView: "Workspace"
+        case .showLeftSidebar, .hideLeftSidebar,
+             .toggleSidebar, .nextTab, .previousTab, .zoomIn, .zoomOut, .fit, .documentView: "Workspace"
         case .askSyncr, .drawSelection, .askAllReaders, .companionSettings, .lastCompanionRequest, .undoCompanion, .redoCompanion: "Companion"
         case .phoneLink, .followPhone, .forgetPhone: "Phone"
         case .undo, .redo, .bold, .italic, .insertLink, .toggleTask, .slashMenu, .freeText: "Editor"

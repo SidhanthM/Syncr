@@ -39,18 +39,15 @@ import AppKit
     @objc private func clicked() { onClick?() }
 }
 
-/// Lives outside the collapsible panes, so the expand control can never disappear with its pane.
+/// Lives outside the left sidebar, so its expand control remains visible when collapsed.
 @MainActor final class SidebarToggle: NSTitlebarAccessoryViewController {
     private let button: ChromeIconButton
-    private let side: String
-    var shortcut: String
+    var shortcut = "⌘\\"
 
-    init(right: Bool, action: @escaping () -> Void) {
-        side = right ? "right" : "left"
-        shortcut = right ? "⌥⌘B" : "⌘\\"
-        button = ChromeIconButton(symbol: right ? "sidebar.right" : "sidebar.left", label: "")
+    init(action: @escaping () -> Void) {
+        button = ChromeIconButton(symbol: "sidebar.left", label: "")
         super.init(nibName: nil, bundle: nil)
-        layoutAttribute = right ? .right : .left
+        layoutAttribute = .left
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 44, height: 30))
         button.frame = NSRect(x: 6, y: 1, width: 32, height: 28)
         button.autoresizingMask = [.minYMargin, .maxYMargin]
@@ -62,7 +59,7 @@ import AppKit
     required init?(coder: NSCoder) { fatalError("not used") }
 
     func show(collapsed: Bool) {
-        let label = "\(collapsed ? "Expand" : "Collapse") \(side) sidebar"
+        let label = "\(collapsed ? "Expand" : "Collapse") left sidebar"
         button.toolTip = shortcut.isEmpty ? label : "\(label) (\(shortcut))"
         button.setAccessibilityLabel(label)
         button.setAccessibilityValue(collapsed ? "Collapsed" : "Expanded")

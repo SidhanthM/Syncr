@@ -122,8 +122,8 @@ struct SessionState: Codable, Equatable {
 
     func availableCommands() -> Set<AppCommand> {
         var set: Set<AppCommand> = [.companionSettings, .lastCompanionRequest, .newNote, .newNotebook, .quickSwitcher, .toggleSidebar, .importExport, .chooseFolder, .phoneLink, .followPhone]
-        set.formUnion([.settings, .hotkeys, .commandPalette, .showLeftSidebar, .hideLeftSidebar, .showRightSidebar, .hideRightSidebar,
-                       .searchNotes, .dailyNote, .toggleBacklinks, .importMarkdown, .browseTags])
+        set.formUnion([.settings, .hotkeys, .commandPalette, .showLeftSidebar, .hideLeftSidebar,
+                       .searchNotes, .dailyNote, .importMarkdown, .browseTags])
         if active != nil { set.formUnion([.findInNote, .exportMarkdown, .documentView, .outline]) }
         if activeIsWritable { set.formUnion([.askSyncr, .drawSelection, .askAllReaders, .undoCompanion, .redoCompanion, .undo, .redo, .bold, .italic, .insertLink, .toggleTask, .slashMenu, .freeText]) }
         if hasPairedPhones { set.insert(.forgetPhone) }

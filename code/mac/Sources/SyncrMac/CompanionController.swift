@@ -19,12 +19,11 @@ struct CompanionPreferences: Codable {
     private var session: CompanionSession
     private var revision = ""; private var noteID: String?; private var requestGeneration = 0
     private var timer: Timer?; private var prefsWindow: CompanionSettingsWindow?
-    private var openThreads = Set<String>()
     private var previousPassText = ""
     private var lastActivity = -TimeInterval.infinity; private var pendingChange = false
     private var folder: URL
     private var renderItems: [CompanionItemView] = []; private var renderText = ""
-    private var renderColour: InkColour?; private var renderOpen = Set<String>(); private var renderDrawings = false
+    private var renderColour: InkColour?; private var renderDrawings = false
     private var savedBudget: Data?
     private var shownMeter = BudgetMeter(day: BudgetMeter.dayKey())
     private var busy = false; private var catalog: [ProviderModel] = []
@@ -46,8 +45,6 @@ struct CompanionPreferences: Codable {
         detail.companionStrip.draw = { [weak self] in self?.ask(draw: true) }
         detail.companionStrip.lastRequest = { [weak self] in self?.lastRequest() }
         detail.companionStrip.changed = { [weak self] in self?.stripChanged() }
-        detail.companionThreads.onReply = { [weak self] id, text in self?.reply(id, text: text) }
-        detail.companionThreads.onState = { [weak self] id, state in self?.setState(id, state) }
         detail.onCompanionActivity = { [weak self] ink in self?.activity(ink: ink) }
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in MainActor.assumeIsolated { self?.readAlong() } }
     }
@@ -81,14 +78,14 @@ struct CompanionPreferences: Codable {
         guard let id = workspace.active, model.shownNote == id, model.isWritable(id) else {
             if noteID != nil { noteID = nil; snapshot = nil; revision = ""; requestGeneration += 1; Task { await session.reset() } }
             detail.companionStrip.isHidden = true
-            detail.showCompanion(items: [], open: [], colour: .systemBlue, controller: self)
+            detail.showCompanion(items: [], colour: .systemBlue, controller: self)
             return
         }
         if noteID != id {
             noteID = id; requestGeneration += 1; snapshot = nil; revision = ""
-            openThreads = []; previousPassText = detail.documentEditor.textView.string; pendingChange = false
+            previousPassText = detail.documentEditor.textView.string; pendingChange = false
             renderText = ""; renderItems = []; renderColour = nil
-            detail.showCompanion(items: [], open: [], colour: .systemBlue, controller: self)
+            detail.showCompanion(items: [], colour: .systemBlue, controller: self)
             Task { await session.reset() }
         }
         let key = model.folder.path + id + String(model.notes.first { $0.id == id }?.localSequence ?? 0)
@@ -106,7 +103,7 @@ struct CompanionPreferences: Codable {
     func refreshPresentation() {
         guard let s = snapshot, noteID == workspace.active else { return }
         let settings = CompanionStore.settings(s)
-        detail.showCompanion(items: s.companionItems, open: openThreads,
+        detail.showCompanion(items: s.companionItems,
                              colour: CompanionStrip.colour(settings.colour), controller: self, drawings: preferences.drawings)
     }
 
@@ -115,9 +112,9 @@ struct CompanionPreferences: Codable {
         let settings = CompanionStore.settings(s)
         detail.companionStrip.isHidden = false; detail.companionStrip.show(settings,readers:readers,writable:true)
         let text = detail.documentEditor.textView.string
-        if renderItems != s.companionItems || renderText != text || renderColour != settings.colour || renderOpen != openThreads || renderDrawings != preferences.drawings {
-            renderItems = s.companionItems; renderText = text; renderColour = settings.colour; renderOpen = openThreads; renderDrawings = preferences.drawings
-            detail.showCompanion(items: s.companionItems, open: openThreads, colour: CompanionStrip.colour(settings.colour), controller: self, drawings: preferences.drawings)
+        if renderItems != s.companionItems || renderText != text || renderColour != settings.colour || renderDrawings != preferences.drawings {
+            renderItems = s.companionItems; renderText = text; renderColour = settings.colour; renderDrawings = preferences.drawings
+            detail.showCompanion(items: s.companionItems, colour: CompanionStrip.colour(settings.colour), controller: self, drawings: preferences.drawings)
         }
         Task {
             await session.configure(mode: CompanionStore.mode(settings.mode), notes: CompanionStore.unpinned(s))
@@ -286,7 +283,6 @@ struct CompanionPreferences: Codable {
         }
     }
     func setState(_ id:String,_ state:MarginState) { guard let note = noteID else { return }; edit(note) { try CompanionStore.setState(id,state,note:$0) } }
-    func openThread(_ id:String) { openThreads.insert(id); updateUI() }
     func addToNote(_ text:String) { detail.documentEditor.textView.insertText(text,replacementRange:detail.documentEditor.textView.selectedRange()); detail.documentEditor.flush() }
     func reply(_ id:String,text:String) {
         guard let note = noteID, snapshot.map({CompanionStore.settings($0).mode != .off}) == true else { return }

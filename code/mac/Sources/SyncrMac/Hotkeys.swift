@@ -93,7 +93,6 @@ struct KeyBinding: Codable, Hashable, Sendable {
         case .findInNote: KeyBinding("f")
         case .searchNotes: KeyBinding("f", [.command, .shift])
         case .dailyNote: KeyBinding("d")
-        case .toggleBacklinks: KeyBinding("b", [.command, .option])
         case .documentView: KeyBinding("0", [.command, .option])
         case .newNote: KeyBinding("n")
         case .newNotebook: KeyBinding("n", [.command, .shift])

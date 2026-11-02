@@ -23,8 +23,7 @@ import UniformTypeIdentifiers
     private var link: LinkController?
     private let ribbon = RibbonView()
     private let statusBar = StatusBarView()
-    private lazy var leftSidebarToggle = SidebarToggle(right: false) { [weak self] in self?.run(.toggleSidebar) }
-    private lazy var rightSidebarToggle = SidebarToggle(right: true) { [weak self] in self?.run(.toggleBacklinks) }
+    private lazy var leftSidebarToggle = SidebarToggle { [weak self] in self?.run(.toggleSidebar) }
     private var sidebarObservation: NSKeyValueObservation?
 
     init(model: LibraryModel, workspace: Workspace) {
@@ -44,7 +43,7 @@ import UniformTypeIdentifiers
         let split = NSSplitViewController()
         split.addSplitViewItem(sidebarItem)
         split.addSplitViewItem(NSSplitViewItem(viewController: detailVC))
-        // Ribbon | file tree and note | right pane, with one status bar under all of it.
+        // Ribbon | file tree | note, with one status bar under all of it.
         let root = NSViewController()
         root.view = NSView()
         root.addChild(split)
@@ -71,14 +70,12 @@ import UniformTypeIdentifiers
         window.delegate = self
         window.setFrameAutosaveName("SyncrMainWindow")
         window.addTitlebarAccessoryViewController(leftSidebarToggle)
-        window.addTitlebarAccessoryViewController(rightSidebarToggle)
         sidebarObservation = sidebarItem.observe(\.isCollapsed, options: [.initial, .new]) { [weak self] _, _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.leftSidebarToggle.show(collapsed: self.sidebarItem.isCollapsed)
             }
         }
-        detail.onRightPaneVisibility = { [weak self] visible in self?.rightSidebarToggle.show(collapsed: !visible) }
         settingsWindow.onCommand = { [weak self] in self?.run($0) }
         settingsWindow.libraryFolder = { [weak self] in self?.model.folder ?? FileManager.default.homeDirectoryForCurrentUser }
         ribbon.onSettings = { [weak self] in self?.run(.settings) }
@@ -160,8 +157,6 @@ import UniformTypeIdentifiers
             let blocks = self.model.drawing?.textBlocks.filter { $0.role == .free && !$0.tombstone } ?? []
             if index < blocks.count { self.notebook.moveFree(note: id, block: blocks[index], x: x, y: y) }
         }
-        detail.notebookSidebar.onOutline = { [weak self] in self?.detail.revealText($0) }
-        detail.notebookSidebar.onOpen = { [weak self] id, offset in self?.openMatch(id, offset: offset) }
         _ = companion
     }
 
@@ -185,7 +180,6 @@ import UniformTypeIdentifiers
                 if index < free.count { self?.notebook.deleteEmptyFree(note: id, block: free[index]) }
             }
         }
-        detail.notebookSidebar.update(title: workspace.title(of: id), text: detail.documentEditor.textView.string, index: model.notebookIndex)
         if let reveal = pendingReveal, reveal.0 == id { pendingReveal = nil; detail.revealText(reveal.1) }
         companion.observe()
     }
@@ -256,9 +250,7 @@ import UniformTypeIdentifiers
         // Menus and hints reflect the same effective registry used by keyboard dispatch.
         NSApplication.shared.mainMenu = MainMenu.build(target: self)
         leftSidebarToggle.shortcut = hotkeys.binding(for: .toggleSidebar)?.compact ?? ""
-        rightSidebarToggle.shortcut = hotkeys.binding(for: .toggleBacklinks)?.compact ?? ""
         leftSidebarToggle.show(collapsed: sidebarItem.isCollapsed)
-        rightSidebarToggle.show(collapsed: detail.notebookSidebar.isHidden)
         ribbon.updateHotkeys(hotkeys)
         sidebar.updateHotkeys(hotkeys)
         detail.updateHotkeys(hotkeys)
@@ -345,8 +337,6 @@ import UniformTypeIdentifiers
         case .commandPalette: openCommandPalette()
         case .showLeftSidebar: setSidebarCollapsed(false)
         case .hideLeftSidebar: setSidebarCollapsed(true)
-        case .showRightSidebar: detail.setRightPane(visible: true)
-        case .hideRightSidebar: detail.setRightPane(visible: false)
         case .askSyncr: companion.ask()
         case .drawSelection: companion.ask(draw: true)
         case .askAllReaders: companion.ask(all: true)
@@ -375,7 +365,6 @@ import UniformTypeIdentifiers
         case .findInNote: activeEditor.find()
         case .searchNotes: searchNotes()
         case .dailyNote: attempt { try notebook.daily() }
-        case .toggleBacklinks: detail.toggleNotebookSidebar()
         case .documentView: detail.documentView()
         case .importMarkdown: importMarkdown()
         case .exportMarkdown: exportMarkdown()

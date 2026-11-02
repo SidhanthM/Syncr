@@ -66,5 +66,24 @@ import AppKit
     let duplicates = HotkeyStore.File(overrides: [AppCommand.toggleSidebar.rawValue: [KeyBinding("n")]])
     try JSONEncoder().encode(duplicates).write(to: url)
     try check(HotkeyStore(url: url).loadWarning != nil, "hand-edited conflicting settings rejected")
-    print("Hotkey checks: OK (defaults, keycaps, recording, dispatch, conflicts, reserved keys, clear/reset, persistence, failed saves)")
+
+    let retired = ["toggleBacklinks", "showRightSidebar", "hideRightSidebar"]
+    try check(retired.allSatisfy { AppCommand(rawValue: $0) == nil }, "right sidebar commands removed from hotkey discovery")
+    let legacyURL = temp.appendingPathComponent("legacy-hotkeys.json")
+    let legacy = HotkeyStore.File(overrides: [
+        "toggleBacklinks": [KeyBinding("b", [.command, .option])],
+        "showRightSidebar": [custom], "hideRightSidebar": [],
+        AppCommand.bold.rawValue: [KeyBinding("b", [.control, .shift])]
+    ])
+    try JSONEncoder().encode(legacy).write(to: legacyURL)
+    let upgraded = HotkeyStore(url: legacyURL)
+    try check(upgraded.loadWarning == nil && upgraded.binding(for: .bold) == KeyBinding("b", [.control, .shift]),
+              "old right sidebar overrides do not invalidate other saved hotkeys")
+    let removedShortcut = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .option], timestamp: 0,
+                                          windowNumber: 0, context: nil, characters: "b", charactersIgnoringModifiers: "b", isARepeat: false, keyCode: 11)!
+    try check(upgraded.command(for: removedShortcut) == nil, "old right pane shortcut no longer dispatches")
+    try check(upgraded.conflict(for: custom, excluding: .showLeftSidebar) == nil, "retired commands do not reserve their bindings")
+    try upgraded.set(custom, for: .showLeftSidebar)
+    try check(HotkeyStore(url: legacyURL).binding(for: .showLeftSidebar) == custom, "retired binding can be reassigned and persisted")
+    print("Hotkey checks: OK (defaults, keycaps, recording, dispatch, conflicts, reserved keys, clear/reset, persistence, failed saves, retired commands)")
 }

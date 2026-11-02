@@ -2,8 +2,8 @@ import AppKit
 import MetalKit
 import SyncrCore
 
-/// The right-hand side: tab bar, the companion's two rows, the Metal canvas for the open note, and the
-/// right pane (outline, backlinks, threads). Pan and zoom are gestures; Fit and zoom are commands.
+/// The note workspace: tab bar, the companion's two rows, and the full-width Metal canvas.
+/// Pan and zoom are gestures; Fit and zoom are commands.
 @MainActor final class NoteDetailView: NSView, MTKViewDelegate, CAMetalDisplayLinkDelegate {
     let tabBar = TabBarView()
     private let model: LibraryModel
@@ -14,26 +14,10 @@ import SyncrCore
     private var pinchStart: Viewport?
     private var pinchAnchor = SIMD2<Float>(0.5, 0.5)
     let documentEditor = DocumentEditor()
-    let notebookSidebar = NotebookSidebar()
     let companionStrip = CompanionStrip()
-    var companionThreads: CompanionThreads { notebookSidebar.threads }
     private let companionOverlay = CompanionOverlay()
     private var companionCards: [(NSView, CGFloat, CGFloat, CGFloat, CGFloat)] = []
     var onCompanionActivity: ((Bool) -> Void)?
-    private var notebookSidebarWidth: NSLayoutConstraint!
-    var onRightPaneVisibility: ((Bool) -> Void)?
-    func toggleNotebookSidebar() { setRightPane(visible: notebookSidebar.isHidden) }
-    func setRightPane(visible: Bool) {
-        // Move keyboard focus out before hiding a thread's reply field.
-        if !visible, let responder = window?.firstResponder as? NSView, responder.isDescendant(of: notebookSidebar) {
-            window?.makeFirstResponder(documentVisible ? documentEditor.textView : nil)
-        }
-        notebookSidebar.isHidden = !visible
-        notebookSidebarWidth.constant = visible ? 240 : 0
-        onRightPaneVisibility?(visible)
-        needsLayout = true
-        requestRedraw()
-    }
     private let textLayer = CanvasTextLayer()
     private var documentVisible = false
     private var freeEditors: [(x: CGFloat, y: CGFloat, width: CGFloat, editor: DocumentEditor)] = []
@@ -115,20 +99,17 @@ import SyncrCore
             cardStack.leadingAnchor.constraint(equalTo: pairingCard.leadingAnchor), cardStack.trailingAnchor.constraint(equalTo: pairingCard.trailingAnchor),
             cardStack.topAnchor.constraint(equalTo: pairingCard.topAnchor), cardStack.bottomAnchor.constraint(equalTo: pairingCard.bottomAnchor)
         ])
-        notebookSidebarWidth = notebookSidebar.widthAnchor.constraint(equalToConstant: 240)
-        for view in [tabBar, companionStrip, canvas, textLayer, notebookSidebar, empty, pairingCard] as [NSView] {
+        for view in [tabBar, companionStrip, canvas, textLayer, empty, pairingCard] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
         NSLayoutConstraint.activate([
             tabBar.topAnchor.constraint(equalTo: topAnchor), tabBar.leadingAnchor.constraint(equalTo: leadingAnchor),
-            tabBar.trailingAnchor.constraint(equalTo: notebookSidebar.leadingAnchor), tabBar.heightAnchor.constraint(equalToConstant: 32),
+            tabBar.trailingAnchor.constraint(equalTo: trailingAnchor), tabBar.heightAnchor.constraint(equalToConstant: 32),
             companionStrip.topAnchor.constraint(equalTo: tabBar.bottomAnchor), companionStrip.leadingAnchor.constraint(equalTo: leadingAnchor),
-            companionStrip.trailingAnchor.constraint(equalTo: notebookSidebar.leadingAnchor), companionStrip.height,
+            companionStrip.trailingAnchor.constraint(equalTo: trailingAnchor), companionStrip.height,
             canvas.topAnchor.constraint(equalTo: companionStrip.bottomAnchor), canvas.leadingAnchor.constraint(equalTo: leadingAnchor),
-            canvas.trailingAnchor.constraint(equalTo: notebookSidebar.leadingAnchor), canvas.bottomAnchor.constraint(equalTo: bottomAnchor),
-            notebookSidebar.trailingAnchor.constraint(equalTo: trailingAnchor), notebookSidebar.topAnchor.constraint(equalTo: topAnchor),
-            notebookSidebar.bottomAnchor.constraint(equalTo: bottomAnchor), notebookSidebarWidth,
+            canvas.trailingAnchor.constraint(equalTo: trailingAnchor), canvas.bottomAnchor.constraint(equalTo: bottomAnchor),
             textLayer.topAnchor.constraint(equalTo: canvas.topAnchor), textLayer.leadingAnchor.constraint(equalTo: canvas.leadingAnchor),
             textLayer.trailingAnchor.constraint(equalTo: canvas.trailingAnchor), textLayer.bottomAnchor.constraint(equalTo: canvas.bottomAnchor),
             empty.centerXAnchor.constraint(equalTo: canvas.centerXAnchor), empty.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -247,13 +228,11 @@ import SyncrCore
         }
     }
 
-    func showCompanion(items: [CompanionItemView], open: Set<String>, colour: NSColor, controller: CompanionController, drawings: Bool = false) {
+    func showCompanion(items: [CompanionItemView], colour: NSColor, controller: CompanionController, drawings: Bool = false) {
         companionOverlay.subviews.forEach { $0.removeFromSuperview() }; companionCards = []
         guard !items.isEmpty else {
             documentEditor.drawingHeights = [:]
             documentEditor.textView.passages = []
-            companionThreads.show([], open: [])
-            notebookSidebar.needsLayout = true
             return
         }
         let text = documentEditor.textView.string
@@ -289,7 +268,6 @@ import SyncrCore
             if range.length > 0, NSMaxRange(range) <= whole.length { passages.append(range) }
             let caption = [detached ? "Detached" : nil, state == .pinned ? "Pinned" : nil, reader, String(describing: kind).capitalized].compactMap { $0 }.joined(separator: " · ")
             let card = MarginCard(text: body, caption: caption, sources: urls, colour: colour,
-                                  open: { [weak controller] in controller?.openThread(item.id) },
                                   pin: { [weak controller] in controller?.setState(item.id, state == .pinned ? .open : .pinned) }, pinned: state == .pinned,
                                   dismiss: { [weak controller] in controller?.setState(item.id, .dismissed) },
                                   add: { [weak controller] in controller?.addToNote(body) })
@@ -309,11 +287,6 @@ import SyncrCore
             card.bounds = CGRect(x:0,y:0,width:max(1100,drawing.width),height:drawing.height+180)
             companionOverlay.addSubview(card); companionCards.append((card,170,y(text[..<range.lowerBound].utf16.count),max(1100,drawing.width)*ratio,(drawing.height+180)*ratio))
         }}
-        let hasThreads = items.contains { v in if case .marginNote(_,_,_,_,let state,_) = v.body { return !v.tombstone && state != .dismissed && (state == .pinned || open.contains(v.id)) }; return false }
-        companionThreads.show(items, open: open)
-        notebookSidebar.needsLayout = true
-        // Opening a thread shows the pane it lives in.
-        if hasThreads && notebookSidebar.isHidden && !open.isEmpty { setRightPane(visible: true) }
         positionText()
     }
 

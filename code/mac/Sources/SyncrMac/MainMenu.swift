@@ -33,8 +33,8 @@ import AppKit
             command(.bold), command(.italic), command(.insertLink), command(.toggleTask), command(.findInNote), command(.searchNotes)
         ])
         add("View", [
-            command(.toggleSidebar), command(.toggleBacklinks), command(.commandPalette), .separator(),
-            command(.showLeftSidebar), command(.hideLeftSidebar), command(.showRightSidebar), command(.hideRightSidebar), .separator(),
+            command(.toggleSidebar), command(.commandPalette), .separator(),
+            command(.showLeftSidebar), command(.hideLeftSidebar), .separator(),
             command(.nextTab), command(.previousTab), .separator(),
             command(.zoomIn), command(.zoomOut), command(.fit), command(.documentView)
         ])

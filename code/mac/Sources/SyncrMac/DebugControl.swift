@@ -72,7 +72,7 @@ import SyncrCore
         case "ai-request-file": if words.count == 2 { Task { await companion.debugRecord(at:URL(fileURLWithPath:words[1])); self.say("ack ai-request-file") } }
         case "ai-drawing": if words.count == 2 { detail.debugDrawing(words[1]); say("ack ai-drawing") }
         case "ai-report": Task { self.say("ai-report " + (await companion.debugReport())) }
-        case "ai-pin", "ai-dismiss", "ai-thread": if words.count == 2 { if words[0] == "ai-thread" { companion.openThread(words[1]) } else { companion.setState(words[1], words[0] == "ai-pin" ? .pinned : .dismissed) }; say("ack \(words[0])") }
+        case "ai-pin", "ai-dismiss": if words.count == 2 { companion.setState(words[1], words[0] == "ai-pin" ? .pinned : .dismissed); say("ack \(words[0])") }
         case "ai-undo": companion.undoAgent(); say("ack ai-undo")
         case "ai-redo": companion.undoAgent(redo: true); say("ack ai-redo")
         case "ai-settings": companion.showSettings(); say("ack ai-settings")
@@ -141,7 +141,6 @@ import SyncrCore
             if let id = workspace.active { notebook.rename(id, to: String(line.dropFirst(7))) { ok in self.say("renamed ok=\(ok)") } }
         case "wikilink": do { try notebook.openLink(String(line.dropFirst(9)), newTab: true); say("ack wikilink") } catch { say("error \(error.localizedDescription)") }
         case "daily": do { try notebook.daily(); say("ack daily") } catch { say("error \(error.localizedDescription)") }
-        case "backlinks": detail.toggleNotebookSidebar(); say("ack backlinks")
         case "search": say("search results=" + model.notebookIndex.search(String(line.dropFirst(7))).map { $0.title + ":" + $0.line }.joined(separator: "|"))
         case "tag": say("tag results=" + model.notebookIndex.tagged(String(line.dropFirst(4))).map(\.title).joined(separator: "|"))
         case "text-report":
