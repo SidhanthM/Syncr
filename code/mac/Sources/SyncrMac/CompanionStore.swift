@@ -20,7 +20,30 @@ enum CompanionStore {
         let head = s.companionSettings?.head ?? EntityHead(operationId: initial, confirmedRevision: nil)
         _ = try note.submit(command: Command(operationId: newId(), dependencies: [head.operationId], body: .setCompanionSettings(settings: settings, base: .operation(operationId: head.operationId))))
     }
-    static func apply(_ tools: [ValidatedTool], note: Note, reader: String, expectedText: String, drawings: Bool, readingAlong: Bool = false, pageRegion: CanvasRegion? = nil) throws {
+    /// A picture the engine accepted: the quote it sits under, its title and the SVG (filtered again before storage).
+    struct PictureAddition: Sendable { let quote: String; let title: String; let svg: String }
+    /// Complete engine items as the validated additions the existing write path understands. A `sources` record
+    /// belongs to the margin note or reply before it.
+    static func additions(_ items: [StreamItem]) -> (tools: [ValidatedTool], pictures: [PictureAddition]) {
+        var tools: [ValidatedTool] = [], pictures: [PictureAddition] = []
+        for item in items {
+            switch item {
+            case .quiet: break
+            case .margin(let quote, let kind, let text): tools.append(.marginNote(quote: quote, kind: kind, text: text, sources: []))
+            case .reply(let id, let text): tools.append(.reply(threadID: id, text: text, sources: []))
+            case .picture(_, let quote, let title, let svg): pictures.append(PictureAddition(quote: quote, title: title, svg: svg))
+            case .sources(let sources):
+                guard let last = tools.popLast() else { continue }
+                switch last {
+                case .marginNote(let q, let k, let t, _): tools.append(.marginNote(quote: q, kind: k, text: t, sources: sources))
+                case .reply(let id, let t, _): tools.append(.reply(threadID: id, text: t, sources: sources))
+                default: tools.append(last)
+                }
+            }
+        }
+        return (tools, pictures)
+    }
+    static func apply(_ tools: [ValidatedTool], note: Note, reader: String, expectedText: String, drawings: Bool, readingAlong: Bool = false, pageRegion: CanvasRegion? = nil, pictures: [PictureAddition] = []) throws {
         let s = try note.snapshot()
         let block = s.textBlocks.first(where: { $0.role == .document && !$0.tombstone })
         guard settings(s).mode != .off, (block?.text ?? "") == expectedText else { return }
@@ -53,6 +76,13 @@ enum CompanionStore {
                 let bytes = Array(block.text.utf8); let end = bytes[span.end...].firstIndex(of: 10) ?? bytes.count
                 embeds.append((id,end))
             }
+        }
+        // Pictures: filter first, then store exactly the filtered source (the core requires equality).
+        for picture in pictures {
+            guard let block, let span = PassageFinder.find(picture.quote, in: block.text), let clean = try? CorePictureInspector().filter(svg: picture.svg) else { continue }
+            let id = newId(), anchorID = anchor(span)
+            mutations.append(CompanionMutation(id: id, base: .absent, tombstone: false, body: .picture(anchorId: anchorID, title: String(picture.title.prefix(200)), svg: clean)))
+            let bytes = Array(block.text.utf8); embeds.append((id, bytes[span.end...].firstIndex(of: 10) ?? bytes.count))
         }
         guard !mutations.isEmpty else { return }
         _ = try note.submitAgent(command: Command(operationId: newId(), dependencies: deps.sorted(), body: .companionMarks(mutations: mutations)))

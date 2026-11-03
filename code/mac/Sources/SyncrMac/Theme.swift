@@ -24,6 +24,9 @@ import AppKit
     static let muted = dynamic(ThemeTokens.muted)
     static let hairline = dynamic { ThemeTokens.ink($0) & 0x00ffffff | 0x17000000 }
     static let hairlineStrong = dynamic { ThemeTokens.ink($0) & 0x00ffffff | 0x29000000 }
+    /// Picture fills and the companion's thinner pen share the existing quiet palette.
+    static let wash = dynamic { ThemeTokens.ink($0) & 0x00ffffff | 0x12000000 }
+    static let voice = dynamic(ThemeTokens.soft)
     static let hover = dynamic { ThemeTokens.ink($0) & 0x00ffffff | 0x0f000000 }
     /// The companion is working, and its mode mark.
     static let thinking = dynamic(ThemeTokens.thinking)

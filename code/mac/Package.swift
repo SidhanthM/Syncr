@@ -15,6 +15,7 @@ let package = Package(
         .executableTarget(name: "SyncrMac", dependencies: ["SyncrCore", .product(name: "SyncrCompanion", package: "companion")], path: "Sources/SyncrMac"),
         // CLT does not ship XCTest or TestingMacros. Compile the viewer model and renderer
         // alongside standalone checks instead; these source symlinks have a single owner.
-        .executableTarget(name: "SyncrMacChecks", dependencies: ["SyncrCore", .product(name: "SyncrCompanion", package: "companion")], path: "Sources/SyncrMacChecks")
+        .executableTarget(name: "SyncrMacChecks", dependencies: ["SyncrCore", .product(name: "SyncrCompanion", package: "companion")], path: "Sources/SyncrMacChecks"),
+        .executableTarget(name: "SyncrPictureTrial", dependencies: ["SyncrCore", .product(name: "SyncrCompanion", package: "companion")], path: "Sources/SyncrPictureTrial")
     ]
 )

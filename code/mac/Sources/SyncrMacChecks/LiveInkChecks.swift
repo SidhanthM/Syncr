@@ -243,7 +243,9 @@ private func commitStep(_ plan: ReplayPlan) -> ReplayStep { plan.steps.last! }
     rig.workspace.open(importedId, newTab: true)
     try rig.model.open(id: importedId)
     rig.live.syncTarget(); rig.engine.waitIdle()
-    try check(!rig.workspace.activeIsWritable, "imported copy is read-only")
+    try check(rig.workspace.activeIsWritable, "an imported copy is writable on the Mac (link v1)")
+    // The engine's refusal for a target the app marks non-writable still holds.
+    rig.engine.setTarget(noteId: importedId, writable: false, mirror: false)
     let sheet = rig.sheetId
     let ro = try rig.plan(.pen, noteId: importedId, sheetId: sheet)
     try rig.feed(ro.steps)

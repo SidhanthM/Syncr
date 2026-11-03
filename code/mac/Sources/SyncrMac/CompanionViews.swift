@@ -103,6 +103,8 @@ import SyncrCompanion
     let mode = QuietMenu(prefix: "")
     let reader = QuietMenu(prefix: "Reader: ")
     let web = NSSwitch()
+    let voice = NSSwitch()
+    var voiceChanged: ((Bool) -> Void)?
     private let name = NSButton(title: "", target: nil, action: nil)
     private let status = NSTextField(labelWithString: "")
     private var askLink: ActionButton!
@@ -143,6 +145,11 @@ import SyncrCompanion
         web.target = self
         web.action = #selector(change)
         web.toolTip = "Let Syncr search the web"
+        voice.controlSize = .mini
+        voice.target = self; voice.action = #selector(changeVoice)
+        voice.toolTip = "Read new companion notes and replies aloud for this note"
+        let voiceLabel = NSTextField(labelWithString: "Voice")
+        voiceLabel.font = Theme.font; voiceLabel.textColor = Theme.muted
         let webLabel = NSTextField(labelWithString: "Web")
         webLabel.font = Theme.font
         webLabel.textColor = Theme.muted
@@ -154,7 +161,7 @@ import SyncrCompanion
         askLink.toolTip = "Ask about the selection"
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
-        let top = NSStackView(views: [name, mode, NSStackView(views: [webLabel, web]), reader, spacer, status, askLink])
+        let top = NSStackView(views: [name, mode, NSStackView(views: [webLabel, web]), NSStackView(views: [voiceLabel, voice]), reader, spacer, status, askLink])
         top.spacing = 16
 
         let pen = NSTextField(labelWithString: "✎ Tell Syncr")
@@ -201,6 +208,7 @@ import SyncrCompanion
     }
 
     @objc private func change(_ sender: Any?) { changed?() }
+    @objc private func changeVoice() { voiceChanged?(voice.state == .on) }
 
     @objc private func openMenu() {
         let menu = NSMenu()
@@ -305,11 +313,13 @@ import SyncrCompanion
     override var isFlipped: Bool { true }
 
     init(text: String, caption: String, sources: [CompanionSource], colour: NSColor, pin: @escaping () -> Void,
-         pinned: Bool, dismiss: @escaping () -> Void, add: @escaping () -> Void) {
+         pinned: Bool, dismiss: @escaping () -> Void, add: @escaping () -> Void, read: @escaping () -> Void, discuss: @escaping () -> Void, footnote: String? = nil) {
         actions = NSStackView(views: [
             ActionButton(link: pinned ? "Unpin" : "Pin", size: 34, action: pin),
             ActionButton(link: "Add to note", size: 34, action: add),
-            ActionButton(link: "Dismiss", size: 34, action: dismiss)
+            ActionButton(link: "Dismiss", size: 34, action: dismiss),
+            ActionButton(link: "Read aloud", size: 34, action: read),
+            ActionButton(link: "Discuss", size: 34, action: discuss)
         ])
         super.init(frame: .zero)
         let inner = Self.width - 56
@@ -332,6 +342,11 @@ import SyncrCompanion
             list.preferredMaxLayoutWidth = inner
             list.toolTip = sources.map(\.url).joined(separator: "\n")
             views.append(list)
+        }
+        if let footnote {
+            let line = NSTextField(wrappingLabelWithString: footnote)
+            line.font = .systemFont(ofSize: 30); line.textColor = Theme.muted; line.preferredMaxLayoutWidth = inner
+            views.append(line)
         }
         if !caption.isEmpty {
             let who = NSTextField(labelWithString: caption)

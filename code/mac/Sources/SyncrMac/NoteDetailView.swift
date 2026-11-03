@@ -16,6 +16,11 @@ import SyncrCore
     let documentEditor = DocumentEditor()
     let companionStrip = CompanionStrip()
     private let companionOverlay = CompanionOverlay()
+    private let streamOverlay = CompanionOverlay()
+    private var streamPicture: PictureCard?
+    private var pictureCache: [String: MacPicture] = [:]
+    private var shownPictures = Set<String>()
+    private var streamText: NSTextField?
     private var companionCards: [(NSView, CGFloat, CGFloat, CGFloat, CGFloat)] = []
     var onCompanionActivity: ((Bool) -> Void)?
     private let textLayer = CanvasTextLayer()
@@ -66,6 +71,7 @@ import SyncrCore
         textLayer.wantsLayer = true; textLayer.layer?.masksToBounds = true
         textLayer.addSubview(documentEditor)
         textLayer.addSubview(companionOverlay)
+        textLayer.addSubview(streamOverlay)
         documentEditor.onActivity = { [weak self] in self?.onCompanionActivity?(false) }
         documentEditor.isHidden = true
 
@@ -222,26 +228,51 @@ import SyncrCore
         let overlayHeight = max(8000, documentEditor.textView.frame.maxY + 3000)
         companionOverlay.frame = CGRect(x: -CGFloat(viewport.left) * scale, y: -CGFloat(viewport.top) * scale, width: 4800 * scale, height: overlayHeight * scale)
         companionOverlay.bounds = CGRect(x: 0, y: 0, width: 4800, height: overlayHeight)
+        streamOverlay.frame = companionOverlay.frame; streamOverlay.bounds = companionOverlay.bounds
+        streamText?.frame = CGRect(x: documentEditor.pageWidth+40,y: 260,width: 1000,height: 360)
+        if let card = streamPicture {
+            card.frame = CGRect(x: documentEditor.pageWidth+40,y: streamText == nil ? 260 : 660,width: PictureCard.width,height: card.fittedHeight)
+        }
         for (view,x,y,w,h) in companionCards {
             view.frame = CGRect(x:x,y:y,width:w,height:h)
             if let card = view as? DrawingCard { card.bounds = CGRect(x:0,y:0,width:max(1100,card.drawing.width),height:card.drawing.height+180) }
+            if let card = view as? PictureCard { card.bounds = CGRect(x:0,y:0,width:PictureCard.width,height:card.fittedHeight) }
         }
     }
 
-    func showCompanion(items: [CompanionItemView], colour: NSColor, controller: CompanionController, drawings: Bool = false) {
+    func showCompanion(items: [CompanionItemView], colour: NSColor, controller: CompanionController, drawings: Bool = false, images: [ImageMarkView] = [], warnings: [String: String] = [:]) {
         companionOverlay.subviews.forEach { $0.removeFromSuperview() }; companionCards = []
-        guard !items.isEmpty else {
-            documentEditor.drawingHeights = [:]
+        guard !items.isEmpty || !images.isEmpty else {
+            documentEditor.drawingHeights = [:]; documentEditor.imageGaps = [:]
             documentEditor.textView.passages = []
             return
         }
         let text = documentEditor.textView.string
         var heights: [String: CGFloat] = [:]
-        if drawings { for item in items where !item.tombstone { if case .drawing(_,_,let width,let height,_) = item.body { heights[item.id] = (height + 180) * min(1,(documentEditor.pageWidth-200)/max(1100,width)) } } }
+        let inlineRatio = min(1,(documentEditor.pageWidth-200)/1100)
+        pictureCache = pictureCache.filter { id, _ in items.contains { $0.id == id } }
+        if drawings { for item in items where !item.tombstone {
+            if case .drawing(_,_,let width,let height,_) = item.body { heights[item.id] = (height + 180) * min(1,(documentEditor.pageWidth-200)/max(1100,width)) }
+            if case .picture(_,_,let svg) = item.body {
+                if pictureCache[item.id] == nil { pictureCache[item.id] = try? CorePictureInspector.mac(svg: svg) }
+                if let picture = pictureCache[item.id] { heights[item.id] = PictureCard.fittedHeight(picture) * inlineRatio }
+            }
+        } }
         documentEditor.drawingHeights = heights
-        var page = DocumentPage(title: "", text: text); page.drawingHeights = heights
-        let lines = DocumentLayout.lines(note: page, width: documentEditor.pageWidth-200)
         func utf16(_ byte: UInt32) -> Int { let bytes = Array(text.utf8); guard Int(byte) <= bytes.count else { return 0 }; return String(decoding: bytes[..<Int(byte)], as: UTF8.self).utf16.count }
+        // Stored images take their height as space after the paragraph they sit under.
+        let anchorEnd = Dictionary(uniqueKeysWithValues: items.compactMap { item -> (String, UInt32)? in
+            if case .anchor(.text(_,_,let end,let lost)) = item.body, !item.tombstone, !lost { return (item.id, end) }; return nil
+        })
+        var gaps: [Int: CGFloat] = [:], imageSpots: [(ImageMarkView, Int)] = []
+        for image in images where !image.tombstone {
+            guard case .text(let anchor, _, let height) = image.placement, let end = anchorEnd[anchor] else { continue }
+            let at = utf16(end > 0 ? end - 1 : 0)
+            gaps[at, default: 0] += CGFloat(height) + 40; imageSpots.append((image, at))
+        }
+        documentEditor.imageGaps = gaps
+        var page = DocumentPage(title: "", text: text); page.drawingHeights = heights; page.imageGaps = gaps
+        let lines = DocumentLayout.lines(note: page, width: documentEditor.pageWidth-200)
         func y(_ offset: Int) -> CGFloat { lines.first(where: { NSLocationInRange(offset, $0.range) || $0.range.location == offset })?.rect.minY ?? 260 }
         let byID = Dictionary(uniqueKeysWithValues: items.map { ($0.id,$0) })
         func passageTop(_ item:CompanionItemView) -> CGFloat {
@@ -270,7 +301,10 @@ import SyncrCore
             let card = MarginCard(text: body, caption: caption, sources: urls, colour: colour,
                                   pin: { [weak controller] in controller?.setState(item.id, state == .pinned ? .open : .pinned) }, pinned: state == .pinned,
                                   dismiss: { [weak controller] in controller?.setState(item.id, .dismissed) },
-                                  add: { [weak controller] in controller?.addToNote(body) })
+                                  add: { [weak controller] in controller?.addToNote(body) },
+                                  read: { [weak controller] in controller?.readAloud(item.body) },
+                                  discuss: { [weak controller] in controller?.openThread(item.id) },
+                                  footnote: warnings[item.id])
             card.hover = { [weak self] on in
                 guard let view = self?.documentEditor.textView, let layout = view.layoutManager else { return }
                 layout.removeTemporaryAttribute(.backgroundColor, forCharacterRange: NSRange(location: 0, length: view.string.utf16.count))
@@ -282,15 +316,62 @@ import SyncrCore
         }
         if drawings { for item in items where !item.tombstone {
             let embed = "![[syncr-drawing:\(item.id)]]"
-            guard let range = text.range(of:embed), let drawing = CompanionStore.drawing(item.body) else { continue }
-            let card = DrawingCard(drawing), ratio = min(1,(documentEditor.pageWidth-200)/max(1100,drawing.width))
-            card.bounds = CGRect(x:0,y:0,width:max(1100,drawing.width),height:drawing.height+180)
-            companionOverlay.addSubview(card); companionCards.append((card,170,y(text[..<range.lowerBound].utf16.count),max(1100,drawing.width)*ratio,(drawing.height+180)*ratio))
+            if let range = text.range(of:embed), let drawing = CompanionStore.drawing(item.body) {
+                let card = DrawingCard(drawing), ratio = min(1,(documentEditor.pageWidth-200)/max(1100,drawing.width))
+                card.bounds = CGRect(x:0,y:0,width:max(1100,drawing.width),height:drawing.height+180)
+                companionOverlay.addSubview(card); companionCards.append((card,170,y(text[..<range.lowerBound].utf16.count),max(1100,drawing.width)*ratio,(drawing.height+180)*ratio))
+                continue
+            }
+            guard case .picture(let anchorID,_,_) = item.body, let picture = pictureCache[item.id] else { continue }
+            let fresh = !shownPictures.contains(item.id); shownPictures.insert(item.id)
+            let card = PictureCard(picture, animate: fresh, pin: { [weak controller] in controller?.pinPicture(item.id) })
+            let height = PictureCard.fittedHeight(picture)
+            card.bounds = CGRect(x:0,y:0,width:PictureCard.width,height:height)
+            if let range = text.range(of:embed) {
+                // Inline: under the passage, on the page, where its embed line holds the space.
+                companionOverlay.addSubview(card); companionCards.append((card,170,y(text[..<range.lowerBound].utf16.count),PictureCard.width*inlineRatio,height*inlineRatio))
+            } else {
+                // Its embed line is gone: the picture waits in the margin beside the passage it explains.
+                var top = bottom + 24
+                if let end = anchorEnd[anchorID] { top = max(top, y(utf16(end > 0 ? end - 1 : 0))) }
+                let ratio = MarginCard.width / PictureCard.width
+                companionOverlay.addSubview(card); companionCards.append((card,documentEditor.pageWidth + 40,top,MarginCard.width,height*ratio)); bottom = top + height*ratio
+            }
         }}
+        for (image, at) in imageSpots {
+            guard case .text(_, let width, let height) = image.placement else { continue }
+            let paragraph = (text as NSString).paragraphRange(for: NSRange(location: min(at, max(0, (text as NSString).length - 1)), length: 0))
+            let lastLine = lines.filter { NSIntersectionRange($0.range, paragraph).length > 0 || $0.range.location == paragraph.location }.map { $0.rect.maxY }.max() ?? y(at)
+            let view = StoredImageView(image: controller.storedImage(image.id), seen: image.seenByCompanion)
+            companionOverlay.addSubview(view); companionCards.append((view,170,lastLine + 16,CGFloat(width),CGFloat(height)))
+        }
         positionText()
     }
 
-    func debugDrawing(_ action:String) { (companionOverlay.subviews.first { $0 is DrawingCard } as? DrawingCard)?.debug(action) }
+    func showStreamText(_ text: String?) {
+        streamText?.removeFromSuperview(); streamText = nil
+        if let text {
+            let label = NSTextField(wrappingLabelWithString: text)
+            label.font = Theme.serif(50); label.textColor = Theme.ink; label.preferredMaxLayoutWidth = 1000
+            streamOverlay.addSubview(label); streamText = label
+        }
+        positionText()
+    }
+    func showStreamPicture(_ picture: MacPicture?, step: Int? = nil, animate: Bool = true) {
+        streamPicture?.removeFromSuperview(); streamPicture = nil
+        if let picture {
+            let card = PictureCard(picture, animate: step == nil)
+            if let step { card.present(step: step, animating: animate) }
+            streamOverlay.addSubview(card); streamPicture = card
+        }
+        positionText()
+    }
+    func clearStream() { showStreamText(nil); showStreamPicture(nil) }
+    func debugDrawing(_ action:String) {
+        if let streamPicture { streamPicture.debug(action) }
+        else if let card = companionOverlay.subviews.first(where: { $0 is PictureCard }) as? PictureCard { card.debug(action) }
+        else { (companionOverlay.subviews.first { $0 is DrawingCard } as? DrawingCard)?.debug(action) }
+    }
 
     // MARK: Debug control (DebugControl.swift, debug flag only)
 

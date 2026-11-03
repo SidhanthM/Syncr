@@ -41,7 +41,7 @@ enum SettingsCatalog {
         .init(id: .provider, category: .companion, title: "Provider & sign-in", detail: "Connect your Codex subscription or manage your Claude API key.", keywords: "AI authentication account keychain credentials"),
         .init(id: .models, category: .companion, title: "Reading & asking models", detail: "Choose models for reading along, answering and drawing.", keywords: "AI inference model refresh"),
         .init(id: .readers, category: .companion, title: "Readers", detail: "Configure companion readers and their instructions.", keywords: "AI reader personas descriptions JSON"),
-        .init(id: .limits, category: .companion, title: "Daily usage & experiments", detail: "Manage token budgets, request limits and experimental drawings.", keywords: "AI budget tokens requests limits drawings"),
+        .init(id: .limits, category: .companion, title: "Daily usage & experiments", detail: "Manage token budgets, request limits and pictures.", keywords: "AI budget tokens requests limits drawings"),
         .init(id: .libraryFolder, category: .library, title: "Library folder", detail: "Choose which library to open. Existing notes are not moved.", keywords: "storage location directory files path"),
         .init(id: .revealLibrary, category: .library, title: "Show library in Finder", detail: "Open your current library folder in Finder.", keywords: "storage location directory files reveal path"),
         .init(id: .importNote, category: .library, title: "Import a phone export", detail: "Bring a saved .syncr export into this library using a validated copy.", keywords: "import backup saved snapshot phone"),
