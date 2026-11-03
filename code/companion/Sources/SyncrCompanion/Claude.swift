@@ -28,6 +28,7 @@ public enum ClaudeKeychain {
 }
 public protocol HTTPTransport: Sendable {
     func send(_ request: URLRequest) async throws -> (Data, Int)
+    func stream(_ request: URLRequest) -> AsyncThrowingStream<HTTPStreamChunk, Error>
 }
 public struct URLSessionTransport: HTTPTransport {
     public init() {}
@@ -69,15 +70,38 @@ public struct ClaudeProvider: CompanionProvider {
         }
         throw CompanionError.invalid("model page limit")
     }
-    public static func body(_ r: CompanionRequest) throws -> Data {
+    public static func body(_ r: CompanionRequest, preview: Bool = false) throws -> Data {
         var content: [[String: Any]] = [["type": "text", "text": r.user]]
-        if let image = r.input.pagePNG { content.append(["type": "image", "source": ["type": "base64", "media_type": "image/png", "data": image.base64EncodedString()]]) }
+        for image in r.input.attachments { content.append(["type": "image", "source": ["type": "base64", "media_type": image.mimeType, "data": preview ? image.summary : image.data.base64EncodedString()]]) }
         var tools = ToolSchemas.tools
         if r.input.web { tools.append(["type": "web_search_20260318", "name": "web_search", "max_uses": 3, "allowed_callers": ["direct"]]) }
         return try JSONSerialization.data(withJSONObject: ["model": r.model, "max_tokens": 12000, "system": r.system, "messages": [["role": "user", "content": content]], "tools": tools], options: [.sortedKeys])
     }
     public func wirePreview(_ r: CompanionRequest) throws -> String {
-        "POST https://api.anthropic.com/v1/messages\nanthropic-version: 2026-10-21\ncontent-type: application/json\nx-api-key: [Keychain credential omitted]\n\n" + String(decoding: try Self.body(r), as: UTF8.self)
+        "POST https://api.anthropic.com/v1/messages\nanthropic-version: 2026-10-21\ncontent-type: application/json\nx-api-key: [Keychain credential omitted]\n\n" + String(decoding: try Self.body(r, preview: true), as: UTF8.self)
+    }
+    public func streamPreview(_ r: StreamRequest) throws -> String {
+        "POST https://api.anthropic.com/v1/messages\nanthropic-version: 2026-10-21\ncontent-type: application/json\nx-api-key: [Keychain credential omitted]\n" + String(decoding: try Self.streamingBody(r, preview: true), as: UTF8.self)
+    }
+    public func stream(_ r: StreamRequest) -> AsyncThrowingStream<ProviderStreamEvent, Error> {
+        do { return ProviderSSE.stream(transport: transport, request: try request("messages", body: Self.streamingBody(r)), route: .claude) }
+        catch { return AsyncThrowingStream { $0.finish(throwing: error) } }
+    }
+    public static func streamingBody(_ r: StreamRequest, preview: Bool = false) throws -> Data {
+        func block(_ text: String, cached: Bool) -> [String: Any] {
+            var value: [String: Any] = ["type": "text", "text": text]
+            if cached { value["cache_control"] = ["type": "ephemeral"] }; return value
+        }
+        var content: [[String: Any]] = []
+        if !r.prefix.isEmpty { content.append(block(r.prefix, cached: true)) }
+        if !r.context.isEmpty { content.append(block(r.context, cached: true)) }
+        content.append(block(r.changed, cached: false))
+        for image in r.images {
+            content.append(["type": "image", "source": ["type": "base64", "media_type": image.mimeType, "data": preview ? image.summary : image.data.base64EncodedString()]])
+        }
+        var body: [String: Any] = ["model": r.model, "stream": true, "max_tokens": r.purpose == .gate ? 256 : 12000, "system": [block(r.system, cached: true)], "messages": [["role": "user", "content": content]]]
+        if r.input.web { body["tools"] = [["type": "web_search_20260318", "name": "web_search", "max_uses": 3]] }
+        return try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
     }
     public func send(_ r: CompanionRequest) async throws -> ProviderResponse {
         let (data, status) = try await transport.send(request("messages", body: Self.body(r)))

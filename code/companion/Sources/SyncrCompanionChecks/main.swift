@@ -152,6 +152,7 @@ actor PausedProvider: CompanionProvider {
         check((await flight.meter()).tokens == 150, "discarded in-flight response still meters reported cost")
         check(!(await flight.isInFlight()), "flight completes after discard")
         check(SketchTrial.prompts.count == 12, "fixed sketch set")
+        try await runV2Checks(tmp: tmp)
         print("PASS companion: recorded tools, hostile output, clamping, anchors, readers, renderer, triggers, budgets, Claude capture; Off 600s: 0 transport attempts; On: 1")
     }
 }

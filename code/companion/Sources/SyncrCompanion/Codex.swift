@@ -1,10 +1,23 @@
 import Foundation
+import Darwin
 
 /// No credentials are read: pi owns OAuth, refresh, and transport. The child has no tools,
 /// extensions, MCP, repository context or persisted session. JSON text is validated like native calls.
 public struct CodexProvider: CompanionProvider, Sendable {
     public let executable: String
-    public init(executable: String = CodexProvider.locatePi()) { self.executable = executable }
+    private let streamingRPC: PersistentCodexRPC
+    public init(executable: String = CodexProvider.locatePi(), trace: (@Sendable (String) -> Void)? = nil) { self.executable = executable; streamingRPC = PersistentCodexRPC(executable: executable, trace: trace) }
+    public func stream(_ request: StreamRequest) -> AsyncThrowingStream<ProviderStreamEvent, Error> {
+        if request.input.web || !FileManager.default.isExecutableFile(atPath: executable) { return CodexCLIProvider().stream(request) }
+        return streamingRPC.stream(request)
+    }
+    public func cancelStream() async { await streamingRPC.cancelCurrent() }
+    public func shutdown() async { await streamingRPC.shutdown() }
+    public func streamPreview(_ request: StreamRequest) throws -> String {
+        if request.input.web || !FileManager.default.isExecutableFile(atPath: executable) { return try CodexCLIProvider().streamPreview(request) }
+        let object: [String: Any] = ["executable": executable, "mode": "rpc", "persistent": true, "noSession": true, "tools": [], "extensions": [], "mcp": false, "systemPrompt": PersistentCodexRPC.system, "resetPerPass": "new_session", "provider": "openai-codex", "model": request.model, "thinking": "low", "autoRetry": false, "autoCompaction": false, "prompt": request.system + "\n\n" + request.prompt, "images": request.images.map(\.summary)]
+        return String(decoding: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .prettyPrinted]), as: UTF8.self)
+    }
     public static func locatePi() -> String {
         let paths = (ProcessInfo.processInfo.environment["PATH"] ?? "/usr/local/bin:/opt/homebrew/bin:/usr/bin").split(separator: ":").map(String.init) + [FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin").path]
         return paths.map { $0 + "/pi" }.first { FileManager.default.isExecutableFile(atPath: $0) } ?? "/opt/homebrew/bin/pi"
@@ -21,7 +34,9 @@ public struct CodexProvider: CompanionProvider, Sendable {
         let data = try await rpc(commands: [["id": "models", "type": "get_available_models"]], until: "models", model: nil)
         guard let result = data.last, let root = result["data"] as? [String: Any], let rows = root["models"] as? [[String: Any]] else { throw CompanionError.invalid("pi model list") }
         return rows.filter { $0["provider"] as? String == "openai-codex" }.compactMap { row in
-            guard let id = row["id"] as? String else { return nil }; return ProviderModel(id: id, name: row["name"] as? String ?? id)
+            guard let id = row["id"] as? String else { return nil }
+            let cost = row["cost"] as? [String: Any]
+            return ProviderModel(id: id, name: row["name"] as? String ?? id, inputCost: cost?["input"] as? Double, outputCost: cost?["output"] as? Double)
         }
     }
     public static func newestSol(_ models: [ProviderModel]) -> String? {
@@ -30,14 +45,14 @@ public struct CodexProvider: CompanionProvider, Sendable {
     public func wirePreview(_ r: CompanionRequest) throws -> String {
         if r.input.web || !FileManager.default.isExecutableFile(atPath: executable) { return try CodexCLIProvider().wirePreview(r) }
         var prompt: [String: Any] = ["id": "ask", "type": "prompt", "message": r.user]
-        if let image = r.input.pagePNG { prompt["images"] = [["type": "image", "mimeType": "image/png", "data": image.base64EncodedString()]] }
+        if !r.input.attachments.isEmpty { prompt["images"] = r.input.attachments.map { ["type": "image", "mimeType": $0.mimeType, "data": $0.summary] } }
         let object: [String: Any] = ["executable": executable, "provider": "openai-codex", "model": r.model, "thinking": "low", "noSession": true, "tools": [], "extensions": [], "mcp": false, "systemPrompt": r.system + "\n" + ToolSchemas.strictJSONInstruction, "stdin": [["id": "retry", "type": "set_auto_retry", "enabled": false], ["id": "compact", "type": "set_auto_compaction", "enabled": false], prompt]]
         return String(decoding: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .prettyPrinted]), as: UTF8.self)
     }
     public func send(_ r: CompanionRequest) async throws -> ProviderResponse {
         if r.input.web || !FileManager.default.isExecutableFile(atPath: executable) { return try await CodexCLIProvider().send(r) }
         var prompt: [String: Any] = ["id": "ask", "type": "prompt", "message": r.user]
-        if let image = r.input.pagePNG { prompt["images"] = [["type": "image", "mimeType": "image/png", "data": image.base64EncodedString()]] }
+        if !r.input.attachments.isEmpty { prompt["images"] = r.input.attachments.map { ["type": "image", "mimeType": $0.mimeType, "data": $0.data.base64EncodedString()] } }
         let records = try await rpc(commands: [["id": "retry", "type": "set_auto_retry", "enabled": false], ["id": "compact", "type": "set_auto_compaction", "enabled": false], prompt], until: nil, model: r.model, system: r.system + "\n" + ToolSchemas.strictJSONInstruction)
         var text = ""; var total = Usage()
         for record in records where record["type"] as? String == "message_end" {
@@ -57,6 +72,7 @@ public struct CodexProvider: CompanionProvider, Sendable {
                 do {
                     let process = Process(); process.executableURL = URL(fileURLWithPath: executable); process.arguments = arguments; process.currentDirectoryURL = cwd
                     let stdin = Pipe(); process.standardInput = stdin
+                    _ = fcntl(stdin.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
                     let output = Pipe(); process.standardOutput = output; process.standardError = FileHandle.nullDevice
                     let timer = DispatchSource.makeTimerSource(); timer.schedule(deadline: .now() + timeout)
                     timer.setEventHandler { if process.isRunning { process.terminate() } }; timer.resume(); defer { timer.cancel() }
@@ -78,6 +94,7 @@ public struct CodexProvider: CompanionProvider, Sendable {
         try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
                 let process = Process(); let stdin = Pipe(); let stdout = Pipe()
+                _ = fcntl(stdin.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
                 let cwd = FileManager.default.temporaryDirectory.appendingPathComponent("syncr-companion-" + UUID().uuidString)
                 do {
                     try FileManager.default.createDirectory(at: cwd, withIntermediateDirectories: true)

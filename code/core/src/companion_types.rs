@@ -114,6 +114,11 @@ pub enum CompanionBody {
         text: String,
         sources: Vec<CompanionSource>,
     },
+    Picture {
+        anchor_id: Id,
+        title: String,
+        svg: String,
+    },
     Drawing {
         anchor_id: Id,
         title: String,

@@ -71,7 +71,7 @@ public actor CompanionSession {
         else { try machine.ask(at: time, confirmedBudget: confirmedBudget) }
         defer { machine.finish() }
         attempts += 1
-        lastRequest = RequestRecord(model: request.model, system: request.system, user: request.user, pagePNG: request.input.pagePNG, web: request.input.web, wire: try provider.wirePreview(request), toolsJSON: String(decoding: try JSONSerialization.data(withJSONObject: ToolSchemas.tools, options: [.sortedKeys]), as: UTF8.self))
+        lastRequest = RequestRecord(model: request.model, system: request.system, user: request.user, pagePNG: nil, web: request.input.web, wire: try provider.wirePreview(request), toolsJSON: String(decoding: try JSONSerialization.data(withJSONObject: ToolSchemas.tools, options: [.sortedKeys]), as: UTF8.self))
         let response = try await provider.send(request)
         budget.record(response.usage, day: BudgetMeter.dayKey())
         guard machine.mode != .off else { return nil }

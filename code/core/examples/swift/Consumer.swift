@@ -229,6 +229,50 @@ func typedText() throws {
     print("PASS: Swift text add/splice/retry/undo/reopen/redo and snapshot default")
 }
 
+func imageSmoke() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("syncr-swift-image-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let library = try openLibrary(rootPath: root.path)
+    let r = CreateNoteRequest(operationId: newId(), noteId: newId(), firstSheetId: newId(), title: "Image", notebook: nil)
+    _ = try library.createNote(request: r)
+    let note = try library.openNote(noteId: r.noteId)
+    let bytes = try Data(contentsOf: URL(fileURLWithPath: "fixtures/image-v2/pixel.png"))
+    let id = newId(), operation = newId()
+    _ = try note.submit(command: Command(operationId: operation, dependencies: [r.operationId], body: .imageMarks(mutations: [
+        .add(imageId: id, bytes: bytes, mediaType: .png, pixelWidth: 1, pixelHeight: 1,
+             placement: .canvas(sheetId: r.firstSheetId, x: 0, y: 0, width: 100, height: 100))])))
+    _ = try note.submitAgent(command: Command(operationId: newId(), dependencies: [operation], body: .imageMarks(mutations: [
+        .markSeen(imageId: id, base: .operation(operationId: operation))])))
+    try check(try note.getImageBytes(imageId: id) == bytes, "image bytes")
+    try check(try note.snapshot().images[0].seenByCompanion, "image seen")
+    try note.closeNote()
+    print("PASS: Swift image add/read/seen")
+}
+
+func syncSmoke() throws {
+    let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("syncr-swift-sync-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: tmp) }
+    let macLib = try openLibrary(rootPath: tmp.appendingPathComponent("mac").path)
+    let phoneLib = try openLibrary(rootPath: tmp.appendingPathComponent("phone").path)
+    let r = CreateNoteRequest(operationId: newId(), noteId: newId(), firstSheetId: newId(), title: "Sync", notebook: nil)
+    _ = try macLib.createNote(request: r)
+    let mac = try macLib.openNote(noteId: r.noteId)
+    let copy = tmp.appendingPathComponent("copy.syncr").path
+    _ = try mac.exportCopy(destinationPath: copy)
+    try check(try phoneLib.installCopy(copyPath: copy).id == r.noteId, "install_copy")
+    let phone = try phoneLib.openNote(noteId: r.noteId)
+    let head = try mac.snapshot().metadataHead.operationId
+    _ = try mac.submit(command: Command(operationId: newId(), dependencies: [head], body: .renameNote(title: "Renamed on Mac", base: .operation(operationId: head))))
+    let copy2 = tmp.appendingPathComponent("copy2.syncr").path
+    _ = try mac.exportCopy(destinationPath: copy2)
+    let report = try phone.mergeCopy(copyPath: copy2)
+    try check(report.applied == 1 && report.rejected.isEmpty, "merge applied")
+    try check(try phone.snapshot().title == "Renamed on Mac", "merged title")
+    try check(try phone.syncDigest() == mac.syncDigest(), "digests equal")
+    try check(try phone.mergeCopy(copyPath: copy2).applied == 0, "merge idempotent")
+    print("PASS: Swift sync install/merge/digest")
+}
+
 @main
 struct Smoke {
     static func main() {
@@ -241,6 +285,13 @@ struct Smoke {
             try strokeMesh()
             try previewStream()
             try typedText()
+            try imageSmoke()
+            try syncSmoke()
+            let clean = try filterPicture(svg: "<svg viewBox=\"0 0 320 100\"><g data-step=\"1\" data-caption=\"A line\"><line x2=\"80\" stroke=\"var(--voice)\"/><text x=\"10\" y=\"30\">Label</text></g></svg>")
+            try check(try filterPicture(svg: clean) == clean, "picture idempotence")
+            let picture = try pictureDisplayList(svg: clean)
+            try check(picture.width == 320 && picture.steps.count == 1 && picture.steps[0].items.count == 2, "picture display list")
+            print("PASS: Swift picture filter and display list")
             print("Swift host smoke: OK")
         } catch {
             print("Swift host smoke: FAILED: \(error)")

@@ -102,6 +102,18 @@ pub(crate) fn validate(body: &CompanionBody) -> CoreResult<()> {
             bounded(text, 8192, false)?;
             sources(urls)?;
         }
+        CompanionBody::Picture {
+            anchor_id,
+            title,
+            svg,
+        } => {
+            crate::validation::id(anchor_id)?;
+            bounded(title, 256, false)?;
+            let clean = filter_picture(svg.clone()).map_err(|_| invalid("Invalid picture SVG"))?;
+            if clean != *svg {
+                return Err(invalid("Picture SVG must be filtered before submission"));
+            }
+        }
         CompanionBody::Drawing {
             anchor_id,
             title,
@@ -274,6 +286,7 @@ impl State {
                 if !matches!(m.base, Base::Absent)
                     || self.strokes.iter().any(|v| v.id == m.id)
                     || self.text_blocks.iter().any(|v| v.id == m.id)
+                    || self.images.iter().any(|v| v.id == m.id)
                 {
                     return Err(collision());
                 }
@@ -316,6 +329,8 @@ impl State {
             text_after: vec![],
             companion_before: before,
             companion_after: after,
+            image_before: vec![],
+            image_after: vec![],
         });
         history.redo.clear();
         Ok(())
@@ -359,7 +374,8 @@ impl State {
                 }
             },
             CompanionBody::MarginNote { anchor_id, .. }
-            | CompanionBody::Drawing { anchor_id, .. } => {
+            | CompanionBody::Drawing { anchor_id, .. }
+            | CompanionBody::Picture { anchor_id, .. } => {
                 let anchor = self
                     .companion_items
                     .iter()

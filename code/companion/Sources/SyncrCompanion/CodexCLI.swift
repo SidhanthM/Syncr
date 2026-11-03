@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 /// Fallback when pi is absent, and for native subscription Web search. Codex owns the login.
 /// User config, sessions, MCP/plugins/hooks, filesystem tools and agent spawning are disabled.
@@ -17,14 +18,70 @@ public struct CodexCLIProvider: CompanionProvider, Sendable {
     }
     private func prompt(_ r: CompanionRequest) -> String { r.system + "\n" + ToolSchemas.strictJSONInstruction + "\n\n" + r.user }
     public func wirePreview(_ r: CompanionRequest) throws -> String {
-        String(decoding: try JSONSerialization.data(withJSONObject: ["executable": executable, "arguments": arguments(r) + ["-"], "stdin": prompt(r), "pagePNG": r.input.pagePNG?.base64EncodedString() as Any? ?? NSNull()], options: [.sortedKeys, .prettyPrinted]), as: UTF8.self)
+        String(decoding: try JSONSerialization.data(withJSONObject: ["executable": executable, "arguments": arguments(r) + ["-"], "stdin": prompt(r), "images": r.input.attachments.map(\.summary)], options: [.sortedKeys, .prettyPrinted]), as: UTF8.self)
+    }
+    public func streamPreview(_ r: StreamRequest) throws -> String {
+        let legacy = try CompanionRequest(model: r.model, input: r.input)
+        return String(decoding: try JSONSerialization.data(withJSONObject: ["executable": executable, "arguments": arguments(legacy) + ["-"], "stdin": r.system + "\n\n" + r.prompt, "images": r.images.map(\.summary), "route": "native Codex Web fallback; item-level streaming, not pi token deltas"], options: [.sortedKeys, .prettyPrinted]), as: UTF8.self)
+    }
+    public func stream(_ r: StreamRequest) -> AsyncThrowingStream<ProviderStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            let child = CancellableCLIChild()
+            continuation.onTermination = { reason in if case .cancelled = reason { child.cancel() } }
+            DispatchQueue.global(qos: .utility).async {
+                let cwd = FileManager.default.temporaryDirectory.appendingPathComponent("syncr-web-" + UUID().uuidString)
+                let process = Process(); let stdin = Pipe(); let stdout = Pipe()
+                _ = fcntl(stdin.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
+                do {
+                    try FileManager.default.createDirectory(at: cwd, withIntermediateDirectories: true)
+                    defer { try? FileManager.default.removeItem(at: cwd) }
+                    let legacy = try CompanionRequest(model: r.model, input: r.input)
+                    var args = arguments(legacy)
+                    for (i,image) in r.images.enumerated() {
+                        let file = cwd.appendingPathComponent("image-\(i)." + (image.mimeType == "image/png" ? "png" : "jpg"))
+                        try image.data.write(to: file); args += ["--image",file.path]
+                    }
+                    process.executableURL = URL(fileURLWithPath: executable); process.arguments = args + ["-"]; process.currentDirectoryURL = cwd
+                    process.standardInput = stdin; process.standardOutput = stdout; process.standardError = FileHandle.nullDevice
+                    let timer = DispatchSource.makeTimerSource(); timer.schedule(deadline: .now()+180); timer.setEventHandler { child.cancel() }; timer.resume(); defer { timer.cancel() }
+                    try child.launch(process)
+                    defer { try? stdin.fileHandleForWriting.close(); if process.isRunning { process.terminate() }; process.waitUntilExit() }
+                    try stdin.fileHandleForWriting.write(contentsOf: Data((r.system + "\n\n" + r.prompt).utf8)); try stdin.fileHandleForWriting.close()
+                    var pending=Data(); var size=0; var emitted=""; var completed=false
+                    while true {
+                        let chunk=stdout.fileHandleForReading.availableData; if chunk.isEmpty { break }; pending.append(chunk); size += chunk.count
+                        guard size <= 2*1024*1024 else { throw CompanionError.invalid("Codex Web stream size") }
+                        while let lf=pending.firstIndex(of:10) {
+                            let line=Data(pending[..<lf]); pending.removeSubrange(...lf)
+                            guard let obj=try JSONSerialization.jsonObject(with:line) as? [String:Any], let type=obj["type"] as? String else { throw CompanionError.invalid("Codex Web record") }
+                            if type == "error" || type == "turn.failed" { throw CompanionError.unavailable("Codex native Web stream failed.") }
+                            if ["item.updated","item.completed"].contains(type), let item=obj["item"] as? [String:Any], item["type"] as? String == "agent_message", let text=item["text"] as? String {
+                                guard text.hasPrefix(emitted) else { throw CompanionError.invalid("Codex replaced streamed output") }
+                                continuation.yield(.text(String(text.dropFirst(emitted.count)))); emitted=text
+                            }
+                            if type == "turn.completed" {
+                                completed=true
+                                let u=obj["usage"] as? [String:Any] ?? [:]; let cached=u["cached_input_tokens"] as? Int ?? 0
+                                continuation.yield(.usage(Usage(input:max(0,(u["input_tokens"] as? Int ?? 0)-cached),output:u["output_tokens"] as? Int ?? 0,cacheRead:cached,reported:u["input_tokens"] != nil)))
+                            }
+                        }
+                    }
+                    process.waitUntilExit()
+                    guard completed, pending.isEmpty, process.terminationStatus == 0 else { throw CompanionError.unavailable("Codex Web stream ended early.") }
+                    continuation.finish()
+                } catch { continuation.finish(throwing:error) }
+            }
+        }
     }
     public func send(_ r: CompanionRequest) async throws -> ProviderResponse {
         let cwd = FileManager.default.temporaryDirectory.appendingPathComponent("syncr-codex-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: cwd, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: cwd) }
         var args = arguments(r)
-        if let image = r.input.pagePNG { let file = cwd.appendingPathComponent("page.png"); try image.write(to: file); args += ["--image", file.path] }
+        for (i, image) in r.input.attachments.enumerated() {
+            let file = cwd.appendingPathComponent("image-\(i)." + (image.mimeType == "image/png" ? "png" : "jpg"))
+            try image.data.write(to: file); args += ["--image", file.path]
+        }
         args.append("-")
         let data = try await CodexProvider.command(executable, args, timeout: 180, input: Data(prompt(r).utf8), cwd: cwd)
         return try Self.decode(data, web: r.input.web)
@@ -53,6 +110,7 @@ public struct CodexCLIProvider: CompanionProvider, Sendable {
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .utility).async {
                 let p = Process(); let input = Pipe(); let output = Pipe()
+                _ = fcntl(input.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
                 do {
                     p.executableURL = URL(fileURLWithPath: executable); p.arguments = ["app-server", "--stdio", "--disable", "apps", "--disable", "plugins", "--disable", "hooks"]
                     p.currentDirectoryURL = FileManager.default.temporaryDirectory; p.standardInput = input; p.standardOutput = output; p.standardError = FileHandle.nullDevice

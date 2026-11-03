@@ -1,0 +1,5 @@
+# Downloaded provider documentation; maintained docs link to the official sources.
+/Reference/
+
+# Generated evaluation outputs and live RPC traces, not authored cases or test fixtures.
+/Judgment/Results/

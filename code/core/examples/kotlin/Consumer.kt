@@ -416,7 +416,37 @@ private fun previewStream() {
     println("PASS: preview frames, sender queue, receiver events, commit, stroke chunk reassembly and typed errors")
 }
 
+private fun imageSmoke() {
+    val root = java.nio.file.Files.createTempDirectory("syncr-kotlin-image-").toFile()
+    try {
+        val library = openLibrary(root.path)
+        val request = CreateNoteRequest(newId(), newId(), newId(), "Image", null)
+        library.createNote(request)
+        val note = library.openNote(request.noteId)
+        val bytes = java.io.File("fixtures/image-v2/pixel.png").readBytes()
+        val id = newId()
+        val operation = newId()
+        note.submit(Command(operation, listOf(request.operationId), CommandBody.ImageMarks(listOf(
+            ImageMutation.Add(id, bytes, ImageMediaType.PNG, 1u, 1u,
+                ImagePlacement.Canvas(request.firstSheetId, 0.0, 0.0, 100.0, 100.0))
+        ))))
+        note.submitAgent(Command(newId(), listOf(operation), CommandBody.ImageMarks(listOf(
+            ImageMutation.MarkSeen(id, Base.Operation(operation))
+        ))))
+        check(note.getImageBytes(id).contentEquals(bytes))
+        check(note.snapshot().images[0].seenByCompanion)
+        note.closeNote()
+        println("PASS: Kotlin image add/read/seen")
+    } finally { root.deleteRecursively() }
+}
+
 fun main() {
+    imageSmoke()
+    val clean = filterPicture("""<svg viewBox="0 0 320 100"><g data-step="1" data-caption="A line"><line x2="80" stroke="var(--voice)"/><text x="10" y="30">Label</text></g></svg>""")
+    check(filterPicture(clean) == clean)
+    val picture = pictureDisplayList(clean)
+    check(picture.width == 320f && picture.steps.size == 1 && picture.steps[0].items.size == 2)
+    println("PASS: Kotlin picture filter and display list")
     val channels = SampleChannels(
         x = listOf(1f, -0.0f), y = listOf(2f, -3f),
         pressure = listOf(0f, 1f), elapsedMs = listOf(0u, 42u),
@@ -453,6 +483,7 @@ fun main() {
     val unsigned = Receipt(newId(), ULong.MAX_VALUE, EventCursor(newId(), ULong.MAX_VALUE), false)
     check(FfiConverterTypeReceipt.lift(FfiConverterTypeReceipt.lower(unsigned)) == unsigned)
 
+    syncSmoke()
     typedText()
     legacyMultiSheetCanvas()
     canvasAndNotebooks()
@@ -489,4 +520,32 @@ fun main() {
         println("PASS: Rust codec, typed errors, unsigned buffers, process lock and identity persistence")
         println("PASS: native SQLite create/add/snapshot/erase/undo/redo/export/closeNote/reopen; immutable retry and library restart")
     } finally { root.toFile().deleteRecursively() }
+}
+
+fun syncSmoke() {
+    val tmp = Files.createTempDirectory("syncr-jni-sync-")
+    try {
+        openLibrary(tmp.resolve("mac").toString()).use { macLib ->
+            openLibrary(tmp.resolve("phone").toString()).use { phoneLib ->
+                val r = CreateNoteRequest(newId(), newId(), newId(), "Sync", null)
+                macLib.createNote(r)
+                val mac = macLib.openNote(r.noteId)
+                val copy = tmp.resolve("copy.syncr").toString()
+                mac.exportCopy(copy)
+                check(phoneLib.installCopy(copy).id == r.noteId)
+                val phone = phoneLib.openNote(r.noteId)
+                val head = mac.snapshot().metadataHead.operationId
+                mac.submit(Command(newId(), listOf(head), CommandBody.RenameNote("Renamed on Mac", Base.Operation(head))))
+                val copy2 = tmp.resolve("copy2.syncr").toString()
+                mac.exportCopy(copy2)
+                val report = phone.mergeCopy(copy2)
+                check(report.applied == 1u && report.rejected.isEmpty())
+                check(phone.snapshot().title == "Renamed on Mac")
+                check(phone.syncDigest() == mac.syncDigest())
+                check(phone.mergeCopy(copy2).applied == 0u)
+                mac.closeNote(); phone.closeNote()
+            }
+        }
+        println("PASS: sync install/merge/digest")
+    } finally { tmp.toFile().deleteRecursively() }
 }
