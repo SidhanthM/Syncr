@@ -4,7 +4,11 @@ import Foundation
 // messages out, and back. No sockets, no clocks, no UI. Everything here treats its input as hostile.
 
 enum LinkLimits {
-    static let version = 0
+    /// Sent in hello and welcome. A Mac accepts a phone at version 0 or 1 (sync-v1.md).
+    static let version = 1
+    static let oldestVersion = 0
+    /// Entries per `notes` message (each is at most about 500 bytes; the message limit is 64 KiB).
+    static let notesPerMessage = 80
     static let maxMessage = 65_536
     static let maxFileChunk = 65_000
     static let maxFileBytes: UInt64 = 256 << 20
@@ -34,6 +38,9 @@ struct NoteAnnounce: Equatable, Sendable {
     var id: String
     var seq: UInt64
     var title: String
+    /// Link v1: SHA-256 hex over the note's sorted operation IDs, and how many there are.
+    var digest: String? = nil
+    var ops: UInt64? = nil
 }
 
 struct FileOffer: Equatable, Sendable {
@@ -55,7 +62,8 @@ struct TargetInfo: Equatable, Sendable {
 /// One control message (`t` field). `unknown` keeps the name so it can be logged and ignored.
 enum LinkControl: Equatable, Sendable {
     case hello(v: Int, device: String?, phoneId: String?, token: String?)
-    case welcome(mac: String, macId: String, epoch: UInt32)
+    /// `v` is the version this connection runs at: the phone's, when it is older than the Mac's (a v0 phone refuses any other).
+    case welcome(mac: String, macId: String, epoch: UInt32, v: Int = LinkLimits.version)
     case pair
     case code(String)
     case paired(token: String)
@@ -63,11 +71,13 @@ enum LinkControl: Equatable, Sendable {
     case bye(reason: String)
     case ping(id: UInt64, at: UInt64)
     case pong(id: UInt64, at: UInt64, now: UInt64)
-    case notes([NoteAnnounce])
+    /// `trash` (v1 phones): IDs in the sender's Recently deleted, never wanted from or pushed to it.
+    case notes([NoteAnnounce], trash: [String]? = nil)
     case want([String])
     case file(FileOffer)
     case fileEnd(xfer: UInt32)
-    case have(id: String, seq: UInt64)
+    /// `digest` and `ops` (v1 peers): the sender's operation set after installing.
+    case have(id: String, seq: UInt64, digest: String? = nil, ops: UInt64? = nil)
     case fileError(xfer: UInt32, id: String, reason: String)
     case viewing(String?)
     case pad(on: Bool)
@@ -80,7 +90,7 @@ enum LinkControl: Equatable, Sendable {
         switch self {
         case .hello(let v, let device, let phoneId, let token):
             return ["t": "hello", "v": v, "device": device ?? "", "phone_id": phoneId ?? "", "token": token.map { $0 as Any } ?? NSNull()]
-        case .welcome(let mac, let macId, let epoch): return ["t": "welcome", "v": LinkLimits.version, "mac": mac, "mac_id": macId, "epoch": epoch]
+        case .welcome(let mac, let macId, let epoch, let v): return ["t": "welcome", "v": v, "mac": mac, "mac_id": macId, "epoch": epoch]
         case .pair: return ["t": "pair"]
         case .code(let code): return ["t": "code", "code": code]
         case .paired(let token): return ["t": "paired", "token": token]
@@ -88,11 +98,23 @@ enum LinkControl: Equatable, Sendable {
         case .bye(let reason): return ["t": "bye", "reason": reason]
         case .ping(let id, let at): return ["t": "ping", "id": id, "at": at]
         case .pong(let id, let at, let now): return ["t": "pong", "id": id, "at": at, "now": now]
-        case .notes(let list): return ["t": "notes", "notes": list.map { ["id": $0.id, "seq": $0.seq, "title": $0.title] as [String: Any] }]
+        case .notes(let list, let trash):
+            var o: [String: Any] = ["t": "notes", "notes": list.map { n -> [String: Any] in
+                var e: [String: Any] = ["id": n.id, "seq": n.seq, "title": n.title]
+                if let d = n.digest { e["digest"] = d }
+                if let c = n.ops { e["ops"] = c }
+                return e
+            }]
+            if let trash { o["trash"] = trash }
+            return o
         case .want(let ids): return ["t": "want", "ids": ids]
         case .file(let o): return ["t": "file", "xfer": o.xfer, "id": o.id, "seq": o.seq, "size": o.size, "sha256": o.sha256, "chunks": o.chunks]
         case .fileEnd(let xfer): return ["t": "file_end", "xfer": xfer]
-        case .have(let id, let seq): return ["t": "have", "id": id, "seq": seq]
+        case .have(let id, let seq, let digest, let ops):
+            var o: [String: Any] = ["t": "have", "id": id, "seq": seq]
+            if let digest { o["digest"] = digest }
+            if let ops { o["ops"] = ops }
+            return o
         case .fileError(let xfer, let id, let reason): return ["t": "file_error", "xfer": xfer, "id": id, "reason": reason]
         case .viewing(let id): return ["t": "viewing", "id": id.map { $0 as Any } ?? NSNull()]
         case .pad(let on): return ["t": "pad", "on": on]
@@ -142,7 +164,7 @@ enum LinkControl: Equatable, Sendable {
         case "hello":
             guard let v = obj["v"].flatMap(integer), let version = Int(exactly: v) else { throw bad("v is not an integer") }
             return .hello(v: version, device: obj["device"] as? String, phoneId: obj["phone_id"] as? String, token: try optionalString("token"))
-        case "welcome": return .welcome(mac: try string("mac"), macId: try string("mac_id"), epoch: try u32("epoch"))
+        case "welcome": return .welcome(mac: try string("mac"), macId: try string("mac_id"), epoch: try u32("epoch"), v: obj["v"].flatMap(integer).flatMap { Int(exactly: $0) } ?? 0)
         case "pair": return .pair
         case "code": return .code(try string("code"))
         case "paired": return .paired(token: try string("token"))
@@ -153,11 +175,13 @@ enum LinkControl: Equatable, Sendable {
         case "notes":
             guard let list = obj["notes"] as? [Any] else { throw bad("notes is not an array") }
             // A bad entry is skipped rather than closing the link: the rest of the list is still good.
-            return .notes(list.compactMap { item -> NoteAnnounce? in
+            let entries = list.compactMap { item -> NoteAnnounce? in
                 guard let e = item as? [String: Any], let id = e["id"] as? String, LinkIds.valid(id),
                       let seq = integer(e["seq"]) else { return nil }
-                return NoteAnnounce(id: id, seq: seq, title: (e["title"] as? String) ?? "")
-            })
+                return NoteAnnounce(id: id, seq: seq, title: (e["title"] as? String) ?? "", digest: Self.digest(e["digest"]), ops: integer(e["ops"]))
+            }
+            let trash = (obj["trash"] as? [Any]).map { $0.compactMap { ($0 as? String).flatMap { LinkIds.valid($0) ? $0 : nil } } }
+            return .notes(entries, trash: trash)
         case "want":
             guard let ids = obj["ids"] as? [Any] else { throw bad("ids is not an array") }
             return .want(ids.compactMap { $0 as? String })
@@ -165,7 +189,7 @@ enum LinkControl: Equatable, Sendable {
             return .file(FileOffer(xfer: try u32("xfer"), id: try string("id"), seq: try uint("seq"), size: try uint("size"),
                                    sha256: try string("sha256"), chunks: try u32("chunks")))
         case "file_end": return .fileEnd(xfer: try u32("xfer"))
-        case "have": return .have(id: try string("id"), seq: try uint("seq"))
+        case "have": return .have(id: try string("id"), seq: try uint("seq"), digest: Self.digest(obj["digest"]), ops: integer(obj["ops"]))
         case "file_error": return .fileError(xfer: try u32("xfer"), id: try string("id"), reason: (obj["reason"] as? String) ?? "")
         case "viewing": return .viewing(try optionalString("id"))
         case "pad":
@@ -177,6 +201,12 @@ enum LinkControl: Equatable, Sendable {
             return .target(TargetInfo(note: note, sheet: try string("sheet"), writable: writable, rev: try u32("rev")))
         default: return .unknown(t)
         }
+    }
+
+    /// A SHA-256 digest as 64 hex characters, else nil (a malformed digest reads as "unknown").
+    private static func digest(_ any: Any?) -> String? {
+        guard let s = any as? String, LinkIds.validHex(s, count: 64) else { return nil }
+        return s.lowercased()
     }
 
     /// A JSON number that is a non-negative integer (not a boolean, not fractional), else nil.

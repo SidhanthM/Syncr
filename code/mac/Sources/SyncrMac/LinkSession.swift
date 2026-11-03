@@ -8,9 +8,17 @@ import Foundation
 // queue in the app, the caller's thread in checks), so none of this state is locked.
 
 enum InstallOutcome: Equatable, Sendable {
-    case installed(seq: UInt64)
+    /// `digest` and `ops` describe the Mac's operation set afterwards; they go to v1 phones only.
+    case installed(seq: UInt64, digest: String? = nil, ops: UInt64? = nil)
     /// The Mac already holds this sequence or a newer one.
     case current(seq: UInt64)
+    case refused(String)
+}
+
+/// What the Mac has ready to send when the phone wants a note (link v1).
+enum ExportOutcome: Sendable {
+    /// A staged copy. The session deletes `file` when the transfer ends.
+    case file(url: URL, size: UInt64, sha256: String, seq: UInt64, digest: String, ops: UInt64)
     case refused(String)
 }
 
@@ -20,7 +28,12 @@ protocol LinkSessionHost: AnyObject {
     func sessionCodeEnded(_ session: LinkSession)
     func sessionWelcomed(_ session: LinkSession)
     /// The phone's note list. Reply (any thread) with the IDs to fetch.
-    func sessionNotes(_ session: LinkSession, notes: [NoteAnnounce], reply: @escaping @Sendable ([String]) -> Void)
+    /// `trash` is the phone's Recently deleted (v1 phones), already stored in `session.peerTrash`.
+    func sessionNotes(_ session: LinkSession, notes: [NoteAnnounce], trash: [String]?, reply: @escaping @Sendable ([String]) -> Void)
+    /// v1: the phone wants this note. Stage a copy of it and reply (any thread).
+    func sessionExport(_ session: LinkSession, id: String, reply: @escaping @Sendable (ExportOutcome) -> Void)
+    /// v1: the phone installed a note and reports its operation set. Reply true if the Mac still differs and should ask for it.
+    func sessionHave(_ session: LinkSession, id: String, digest: String, reply: @escaping @Sendable (Bool) -> Void)
     /// A verified file is staged at `file`. Install it and reply (any thread). The session deletes the file afterwards.
     func sessionInstall(_ session: LinkSession, offer: FileOffer, file: URL, reply: @escaping @Sendable (InstallOutcome) -> Void)
     func sessionViewing(_ session: LinkSession, id: String?)
@@ -52,6 +65,22 @@ final class LinkSession: @unchecked Sendable {
         var liveReset: (UInt32) -> Void
         /// Runs a block on the session's executor (for replies from other threads).
         var run: (@escaping @Sendable () -> Void) -> Void
+        /// Sends one file chunk and calls back when it has left, so control and preview messages queue behind at most one chunk.
+        /// nil: no pacing (checks); every chunk is sent at once.
+        var sendBulk: ((Data, @escaping @Sendable () -> Void) -> Void)? = nil
+    }
+
+    /// The same note and operation set is not transferred more than this many times a minute in one direction.
+    static let transferLimit = 3
+    static let transferWindowNs: UInt64 = 60_000_000_000
+    static let outgoingTimeoutNs: UInt64 = 60_000_000_000
+
+    private struct Outgoing {
+        let offer: FileOffer
+        let file: URL
+        let handle: FileHandle
+        var nextIndex: UInt32 = 0
+        var endedNs: UInt64?
     }
 
     private struct Transfer {
@@ -83,6 +112,20 @@ final class LinkSession: @unchecked Sendable {
     private var requested: [String: UInt64] = [:]
     private var transfer: Transfer?
     private var counters = (files: 0, errors: 0)
+    private(set) var peerVersion = 0
+    /// The phone's Recently deleted, from its last `notes` message (v1).
+    private(set) var peerTrash: Set<String> = []
+    private var wantQueue: [String] = []
+    private var outgoing: Outgoing?
+    private var exporting = false
+    private var chunkInFlight = false
+    private var nextXfer: UInt32 = 1
+    private var nowNs: UInt64 = 0
+    /// Transfer times per "note|operation set", for the loop guard, in each direction.
+    private var inStamps: [String: [UInt64]] = [:]
+    private var outStamps: [String: [UInt64]] = [:]
+    /// Wants the loop guard held back, retried on tick.
+    private var deferred: [String: NoteAnnounce] = [:]
 
     init(config: Config, store: PairedPhoneStore, io: IO) {
         self.config = config; self.store = store; self.io = io
@@ -100,7 +143,7 @@ final class LinkSession: @unchecked Sendable {
 
     func receive(_ frame: LinkFrame, at ns: UInt64) {
         guard phase != .closed else { return }
-        lastInboundNs = ns
+        lastInboundNs = ns; nowNs = ns
         switch frame {
         case .preview(let bytes), .strokeCommit(let bytes):
             guard phase == .ready else { log("live frame before welcome"); shutdown(bye: nil); return }
@@ -124,7 +167,10 @@ final class LinkSession: @unchecked Sendable {
             switch control {
             case .ping(let id, let at): send(.pong(id: id, at: at, now: ns / 1_000_000))
             case .pong(let id, _, let now): receivePong(id: id, remoteNow: now, at: ns)
-            case .notes(let list): receiveNotes(list)
+            case .notes(let list, let trash): receiveNotes(list, trash: trash)
+            case .want(let ids): receiveWant(ids)
+            case .have(let id, _, let digest, _): receiveHave(id: id, digest: digest)
+            case .fileError(let xfer, let id, let reason): receiveFileError(xfer: xfer, id: id, reason: reason)
             case .file(let offer): receiveFile(offer)
             case .fileEnd(let xfer): receiveFileEnd(xfer: xfer)
             case .viewing(let id):
@@ -140,7 +186,8 @@ final class LinkSession: @unchecked Sendable {
 
     private func receiveHello(v: Int, device: String?, phoneId id: String?, token: String?, at ns: UInt64) {
         guard phase == .awaitingHello else { return }
-        guard v == LinkLimits.version else { shutdown(bye: "version"); return }
+        guard (LinkLimits.oldestVersion...LinkLimits.version).contains(v) else { shutdown(bye: "version"); return }
+        peerVersion = v
         guard let id, LinkIds.validHex(id, count: 32) else { log("hello without a valid phone_id"); shutdown(bye: nil); return }
         phoneId = id.lowercased()
         phoneName = Self.cleanName(device)
@@ -183,7 +230,7 @@ final class LinkSession: @unchecked Sendable {
     private func welcome(at ns: UInt64) {
         phase = .ready
         io.liveReset(config.epoch)
-        send(.welcome(mac: config.macName, macId: config.macId, epoch: config.epoch))
+        send(.welcome(mac: config.macName, macId: config.macId, epoch: config.epoch, v: min(peerVersion, LinkLimits.version)))
         nextPingNs = ns
         host?.sessionWelcomed(self)
         sendPing(at: ns)
@@ -205,8 +252,13 @@ final class LinkSession: @unchecked Sendable {
         case .pairing:
             if let p = pairing, ns >= p.expiresNs { endPairing(); shutdown(bye: "expired") }
         case .ready:
-            if ns &- lastInboundNs > LinkLimits.idleTimeoutNs { log("idle"); shutdown(bye: nil) }
-            else if ns >= nextPingNs { sendPing(at: ns) }
+            nowNs = ns
+            if ns &- lastInboundNs > LinkLimits.idleTimeoutNs { log("idle"); shutdown(bye: nil); return }
+            if ns >= nextPingNs { sendPing(at: ns) }
+            retryDeferred(at: ns)
+            if let out = outgoing, let ended = out.endedNs, ns &- ended > Self.outgoingTimeoutNs {
+                log("out-timeout id=\(out.offer.id)"); finishOutgoing(); pumpWanted()
+            }
         case .closed: break
         }
     }
@@ -227,20 +279,146 @@ final class LinkSession: @unchecked Sendable {
 
     // MARK: Note sync (3.3)
 
-    private func receiveNotes(_ list: [NoteAnnounce]) {
-        guard !list.isEmpty else { return }
-        host?.sessionNotes(self, notes: list) { [self] ids in
+    private func receiveNotes(_ list: [NoteAnnounce], trash: [String]?) {
+        if peerVersion >= 1, let trash { peerTrash = Set(trash) }
+        guard !list.isEmpty || peerVersion >= 1 else { return }
+        host?.sessionNotes(self, notes: list, trash: peerVersion >= 1 ? trash : nil) { [self] ids in
             io.run { [self] in
                 guard phase == .ready else { return }
-                let seqs = Dictionary(list.map { ($0.id, $0.seq) }, uniquingKeysWith: max)
-                // Do not ask twice for what is already on its way, unless a newer sequence was announced.
-                let fresh = ids.filter { id in seqs[id].map { seq in requested[id].map { seq > $0 } ?? true } ?? false }
-                for id in fresh { requested[id] = seqs[id] }
-                for start in stride(from: 0, to: fresh.count, by: 400) {
-                    send(.want(Array(fresh[start..<min(fresh.count, start + 400)])))
+                let by = Dictionary(list.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
+                for id in ids { if let n = by[id] { requestNote(n) } }
+            }
+        }
+    }
+
+    /// Asks the phone for a note unless one is on its way for this sequence, or the loop guard says this exact state
+    /// was fetched three times in the last minute (then it waits and is retried on tick).
+    private func requestNote(_ note: NoteAnnounce, force: Bool = false) {
+        if !force, let asked = requested[note.id], note.seq <= asked { return }
+        let key = "\(note.id)|\(note.digest ?? String(note.seq))"
+        guard allowed(&inStamps, key, nowNs) else {
+            if deferred[note.id] == nil { log("guard id=\(note.id) direction=in held-back") }
+            deferred[note.id] = note; return
+        }
+        deferred[note.id] = nil
+        requested[note.id] = note.seq
+        send(.want([note.id]))
+    }
+
+    private func retryDeferred(at ns: UInt64) {
+        for note in deferred.values.sorted(by: { $0.id < $1.id }) {
+            let key = "\(note.id)|\(note.digest ?? String(note.seq))"
+            if allowed(&inStamps, key, ns, record: false) { deferred[note.id] = nil; requestNote(note, force: true) }
+        }
+    }
+
+    /// True (and records the attempt) when fewer than `transferLimit` transfers of `key` happened in the last minute.
+    private func allowed(_ stamps: inout [String: [UInt64]], _ key: String, _ ns: UInt64, record: Bool = true) -> Bool {
+        var list = (stamps[key] ?? []).filter { ns &- $0 < Self.transferWindowNs }
+        guard list.count < Self.transferLimit else { stamps[key] = list; return false }
+        if record { list.append(ns) }
+        stamps[key] = list
+        return true
+    }
+
+    /// Link v1: the Mac's own notes list (split to fit the message limit). Call on the executor.
+    func announce(_ list: [NoteAnnounce]) {
+        guard phase == .ready, peerVersion >= 1 else { return }
+        for start in stride(from: 0, to: list.count, by: LinkLimits.notesPerMessage) {
+            send(.notes(Array(list[start..<min(list.count, start + LinkLimits.notesPerMessage)])))
+        }
+    }
+
+    // MARK: Mac to phone transfers (link v1)
+
+    private func receiveWant(_ ids: [String]) {
+        guard peerVersion >= 1 else { return }
+        for id in ids where LinkIds.valid(id) && !wantQueue.contains(id) && outgoing?.offer.id != id && wantQueue.count < 2000 { wantQueue.append(id) }
+        pumpWanted()
+    }
+
+    private func pumpWanted() {
+        guard phase == .ready, outgoing == nil, !exporting, !wantQueue.isEmpty, let host else { return }
+        let id = wantQueue.removeFirst()
+        exporting = true
+        host.sessionExport(self, id: id) { [self] outcome in
+            io.run { [self] in
+                exporting = false
+                guard phase == .ready else {
+                    if case .file(let url, _, _, _, _, _) = outcome { try? FileManager.default.removeItem(at: url) }
+                    return
+                }
+                switch outcome {
+                case .refused(let why): log("export-refused id=\(id) reason=\(why)"); pumpWanted()
+                case .file(let url, let size, let sha, let seq, let digest, _):
+                    let key = "\(id)|\(digest)"
+                    guard allowed(&outStamps, key, nowNs) else {
+                        log("guard id=\(id) direction=out refused")
+                        try? FileManager.default.removeItem(at: url); pumpWanted(); return
+                    }
+                    let chunks = UInt32((size + UInt64(LinkLimits.maxFileChunk) - 1) / UInt64(LinkLimits.maxFileChunk))
+                    guard size >= 1, size <= LinkLimits.maxFileBytes, let handle = try? FileHandle(forReadingFrom: url) else {
+                        log("export-unusable id=\(id)"); try? FileManager.default.removeItem(at: url); pumpWanted(); return
+                    }
+                    let offer = FileOffer(xfer: nextXfer, id: id, seq: seq, size: size, sha256: sha, chunks: chunks)
+                    nextXfer &+= 1
+                    outgoing = Outgoing(offer: offer, file: url, handle: handle)
+                    counters.files += 1
+                    log("out-file id=\(id) xfer=\(offer.xfer) size=\(size) chunks=\(chunks)")
+                    send(.file(offer))
+                    pumpChunks()
                 }
             }
         }
+    }
+
+    /// One chunk at a time when the socket can say it has sent it; then `file_end`.
+    private func pumpChunks() {
+        while phase == .ready, var out = outgoing, out.endedNs == nil, !chunkInFlight {
+            if out.nextIndex >= out.offer.chunks {
+                send(.fileEnd(xfer: out.offer.xfer))
+                out.endedNs = nowNs; outgoing = out
+                try? out.handle.close()
+                return
+            }
+            guard let data = try? out.handle.read(upToCount: LinkLimits.maxFileChunk), !data.isEmpty else {
+                log("out-read-failed id=\(out.offer.id)"); finishOutgoing(); pumpWanted(); return
+            }
+            let framed = LinkFrameDecoder.fileChunk(xfer: out.offer.xfer, index: out.nextIndex, data: data)
+            out.nextIndex += 1; outgoing = out
+            if let bulk = io.sendBulk {
+                chunkInFlight = true
+                bulk(framed) { [self] in io.run { [self] in chunkInFlight = false; pumpChunks() } }
+                return
+            }
+            io.send(framed)
+        }
+    }
+
+    private func finishOutgoing() {
+        guard let out = outgoing else { return }
+        try? out.handle.close()
+        try? FileManager.default.removeItem(at: out.file)
+        outgoing = nil
+    }
+
+    private func receiveHave(id: String, digest: String?) {
+        guard peerVersion >= 1 else { return }
+        if outgoing?.offer.id == id { finishOutgoing() }
+        guard let digest, let host else { pumpWanted(); return }
+        host.sessionHave(self, id: id, digest: digest) { [self] differs in
+            io.run { [self] in
+                guard phase == .ready, differs else { return }
+                requestNote(NoteAnnounce(id: id, seq: .max, title: "", digest: digest), force: true)
+            }
+        }
+        pumpWanted()
+    }
+
+    private func receiveFileError(xfer: UInt32, id: String, reason: String) {
+        guard peerVersion >= 1, outgoing?.offer.xfer == xfer else { return }
+        log("out-file-error id=\(id) reason=\(reason)")
+        finishOutgoing(); pumpWanted()
     }
 
     private func receiveFile(_ offer: FileOffer) {
@@ -291,7 +469,9 @@ final class LinkSession: @unchecked Sendable {
                 requested[offer.id] = nil
                 guard phase == .ready else { return }
                 switch outcome {
-                case .installed(let seq), .current(let seq): send(.have(id: offer.id, seq: seq))
+                case .installed(let seq, let digest, let ops):
+                    send(peerVersion >= 1 ? .have(id: offer.id, seq: seq, digest: digest, ops: ops) : .have(id: offer.id, seq: seq))
+                case .current(let seq): send(.have(id: offer.id, seq: seq))
                 case .refused(let why): sendFileError(offer.xfer, offer.id, why)
                 }
             }
@@ -339,6 +519,7 @@ final class LinkSession: @unchecked Sendable {
             try? t.handle.close(); try? FileManager.default.removeItem(at: t.file); transfer = nil
             log("transfer-aborted id=\(t.offer.id) received=\(t.received) of=\(t.offer.size) partial-file-removed=\(!FileManager.default.fileExists(atPath: t.file.path))")
         }
+        finishOutgoing()
         phase = .closed
         host?.sessionClosed(self)
     }
@@ -346,15 +527,25 @@ final class LinkSession: @unchecked Sendable {
     private func log(_ text: String) { host?.sessionLog("link: \(text)") }
 }
 
-/// What the Mac asks of the phone: notes it lacks, or holds at a lower sequence. A Mac-created note is
-/// never fetched (the import would refuse it) and neither is one in Recently deleted (it would come
-/// back from the trash every time the phone changed it).
+/// What the Mac asks of the phone. A v1 phone announces each note's operation-set digest: the Mac asks for any note
+/// it lacks or holds a different set of, except one in its own Recently deleted (it would come back from the trash).
+/// A v0 phone has only sequences: the Mac asks when the sequence differs from the last one it merged (or, with no
+/// record, from the one it holds, which for a note it only ever copied is the same number).
 enum LinkSync {
-    static func want(announced: [NoteAnnounce], held: [String: UInt64], refused: Set<String>) -> [String] {
+    static func want(announced: [NoteAnnounce], digests: [String: String], refused: Set<String>) -> [String] {
         var seen = Set<String>()
         return announced.compactMap { note in
-            guard !refused.contains(note.id), held[note.id].map({ $0 < note.seq }) ?? true, seen.insert(note.id).inserted else { return nil }
-            return note.id
+            guard !refused.contains(note.id), seen.insert(note.id).inserted else { return nil }
+            guard let theirs = note.digest else { return nil }
+            return digests[note.id] == theirs ? nil : note.id
+        }
+    }
+
+    static func wantV0(announced: [NoteAnnounce], merged: [String: UInt64], held: [String: UInt64], refused: Set<String>) -> [String] {
+        var seen = Set<String>()
+        return announced.compactMap { note in
+            guard !refused.contains(note.id), seen.insert(note.id).inserted else { return nil }
+            return (merged[note.id] ?? held[note.id]) == note.seq ? nil : note.id
         }
     }
 }

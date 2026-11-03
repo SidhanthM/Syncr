@@ -100,7 +100,7 @@ import SyncrCore
         workspace.restoreSession(); try model.open(id: id)
         try check(workspace.active == id && model.drawing?.textBlocks.first?.text == exact, "restart restores session and exact saved text")
     }
-    // Exported copy in another Mac's ownership domain is read-only, including the text API seam.
+    // An exported copy imported on another Mac is writable there (link v1), including the text API seam.
     let copyFolder = dir.appendingPathComponent("read-only")
     let lib = try openLibrary(rootPath: dir.path)
     let note = try lib.openNote(noteId: id), export = dir.appendingPathComponent("export.syncr")
@@ -110,12 +110,11 @@ import SyncrCore
     try copyModel.open(id: imported.id)
     let adapter = NotebookController(model: copyModel, workspace: w)
     let session = adapter.document(note: imported.id, block: copyModel.drawing?.textBlocks.first)
-    session.replace(with: "refused"); session.flush()
-    try check(!session.writable && session.text == exact, "phone copy refuses text edits")
+    try check(session.writable && session.text == exact, "a phone copy is writable on the Mac (link v1: the Mac is primary)")
     var refused = false
-    copyModel.editNote(id: imported.id, work: { _ in }) { if case .failure = $0 { refused = true } }
-    try check(refused, "read-only core adapter refuses mutation")
-    print("Notebook N1 core checks: OK (pause splice, restart, mixed ink/text undo/redo, width, free move/delete, read-only)")
+    copyModel.editNote(id: newId(), work: { _ in }) { if case .failure = $0 { refused = true } }
+    try check(refused, "the core adapter refuses a note that is not in the library")
+    print("Notebook N1 core checks: OK (pause splice, restart, mixed ink/text undo/redo, width, free move/delete, imported copy writable)")
 }
 
 @MainActor func notebookCoreN2N3Checks() throws {

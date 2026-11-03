@@ -136,9 +136,19 @@ private func vectorChecks() throws {
         controlCount += 1
     }
     try check(controlCount == vectors.count - 1, "every control vector checked")
+    // Link v1 vectors (sync-v1.md): the same rules.
+    let v1File = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../shared/link-v0/vectors-v1.json").standardizedFileURL
+    let v1 = (try JSONSerialization.jsonObject(with: Data(contentsOf: v1File)) as! [String: Any])["vectors"] as! [[String: Any]]
+    for v in v1 {
+        let name = v["name"] as! String
+        let parsedFrames = try frames(Data(hex: v["framed_hex"] as! String)!)
+        guard parsedFrames.count == 1, case .control(let c) = parsedFrames[0] else { throw CheckFailure(description: "\(name): one control frame") }
+        try check(try frames(c.framed()) == [.control(c)], "\(name): round trip")
+        try check(dictionary(c).isEqual(to: v["json"] as! [String: Any]), "\(name): produced JSON equals the vector's values")
+    }
     // Spot values, so a symmetric mistake in parse and encode cannot hide.
     let welcome = try LinkControl.parse(json: Data("{\"t\":\"welcome\",\"v\":0,\"mac\":\"MacBook Air\",\"mac_id\":\"fedcba9876543210fedcba9876543210\",\"epoch\":7}".utf8))
-    try check(welcome == .welcome(mac: "MacBook Air", macId: "fedcba9876543210fedcba9876543210", epoch: 7), "welcome values")
+    try check(welcome == .welcome(mac: "MacBook Air", macId: "fedcba9876543210fedcba9876543210", epoch: 7, v: 0), "welcome values")
     let notes = try LinkControl.parse(json: Data("{\"t\":\"notes\",\"notes\":[{\"id\":\"01JCN0TE000000000000000001\",\"seq\":42,\"title\":\"Ünïcode\"},{\"id\":5},{\"id\":\"bad id!\",\"seq\":1}]}".utf8))
     try check(notes == .notes([NoteAnnounce(id: "01JCN0TE000000000000000001", seq: 42, title: "Ünïcode")]), "notes keep good entries and skip bad ones")
     let big = try LinkControl.parse(json: Data("{\"t\":\"have\",\"id\":\"A\",\"seq\":18446744073709551615}".utf8))
@@ -209,6 +219,11 @@ private final class SessionRig: LinkSessionHost, @unchecked Sendable {
     var viewing: [String?] = []
     var pad: [Bool] = []
     var notesSeen: [[NoteAnnounce]] = []
+    var trashSeen: [[String]?] = []
+    var exportRequests: [String] = []
+    var exportAnswer: (String) -> ExportOutcome = { _ in .refused("none") }
+    var haveSeen: [(String, String)] = []
+    var haveDiffers = false
     var logs: [String] = []
     var wantAnswer: ([NoteAnnounce]) -> [String] = { $0.map(\.id) }
     var installAnswer: (FileOffer, URL) -> InstallOutcome = { _, _ in .installed(seq: 1) }
@@ -228,7 +243,7 @@ private final class SessionRig: LinkSessionHost, @unchecked Sendable {
             close: { [unowned self] in closed = true },
             liveReceive: { [unowned self] data, _ in live.append(data) },
             liveReset: { [unowned self] epoch in resetEpochs.append(epoch); events.append("reset") },
-            run: { $0() }))
+            run: { $0() }, sendBulk: nil))
         session.host = self
         session.start(atNs: now)
     }
@@ -259,7 +274,9 @@ private final class SessionRig: LinkSessionHost, @unchecked Sendable {
     func sessionNeedsCode(_ session: LinkSession, phoneName: String, code: String) { codes.append((phoneName, code)); events.append("code") }
     func sessionCodeEnded(_ session: LinkSession) { codeEnds += 1 }
     func sessionWelcomed(_ session: LinkSession) { events.append("welcomed") }
-    func sessionNotes(_ session: LinkSession, notes: [NoteAnnounce], reply: @escaping @Sendable ([String]) -> Void) { notesSeen.append(notes); reply(wantAnswer(notes)) }
+    func sessionNotes(_ session: LinkSession, notes: [NoteAnnounce], trash: [String]?, reply: @escaping @Sendable ([String]) -> Void) { notesSeen.append(notes); trashSeen.append(trash); reply(wantAnswer(notes)) }
+    func sessionExport(_ session: LinkSession, id: String, reply: @escaping @Sendable (ExportOutcome) -> Void) { exportRequests.append(id); reply(exportAnswer(id)) }
+    func sessionHave(_ session: LinkSession, id: String, digest: String, reply: @escaping @Sendable (Bool) -> Void) { haveSeen.append((id, digest)); reply(haveDiffers) }
     func sessionInstall(_ session: LinkSession, offer: FileOffer, file: URL, reply: @escaping @Sendable (InstallOutcome) -> Void) {
         installed.append((offer, (try? Data(contentsOf: file).count) ?? -1))
         reply(installAnswer(offer, file))
@@ -295,7 +312,7 @@ private func pairingChecks() throws {
     try check(kinds == ["pair", "denied", "paired", "welcome", "ping"], "right code: paired, then welcome (\(kinds))")
     guard case .paired(let token) = rig.controls[2] else { throw CheckFailure(description: "paired") }
     try check(LinkIds.validHex(token, count: 64), "token is 64 hex characters")
-    try check(rig.controls[3] == .welcome(mac: "Test Mac", macId: rig.macId, epoch: 7), "welcome carries the epoch")
+    try check(rig.controls[3] == .welcome(mac: "Test Mac", macId: rig.macId, epoch: 7, v: 0), "welcome carries the epoch (and the phone's version, 0)")
     try check(rig.resetEpochs == [7] && rig.events == ["code", "reset", "welcomed"],
               "the live-ink epoch is set before welcome is announced (\(rig.events))")
     try check(rig.codeEnds == 1 && rig.session.isReady, "code hidden once paired")
@@ -309,7 +326,7 @@ private func pairingChecks() throws {
     // The stored token welcomes the same phone straight away, on a new connection.
     let again = SessionRig(store: rig.store, epoch: 8)
     again.hello(token: token)
-    try check(again.controls.first == .welcome(mac: "Test Mac", macId: again.macId, epoch: 8) && again.codes.isEmpty, "stored token: welcome, no code")
+    try check(again.controls.first == .welcome(mac: "Test Mac", macId: again.macId, epoch: 8, v: 0) && again.codes.isEmpty, "stored token: welcome, no code")
     // Wrong, empty and other-phone tokens fall back to pairing.
     let wrongToken = SessionRig(store: rig.store); wrongToken.hello(token: String(repeating: "0", count: 64))
     try check(wrongToken.controls == [.pair], "a wrong token starts pairing")
@@ -344,7 +361,7 @@ private func pairingChecks() throws {
     try check(clockExpiry.closed && clockExpiry.controls.last == .bye(reason: "expired") && clockExpiry.codeEnds == 1, "the code expires on the clock")
 
     // Version, bad identity, silence, hostile order.
-    let version = SessionRig(); version.hello(v: 1)
+    let version = SessionRig(); version.hello(v: 2)
     try check(version.controls == [.bye(reason: "version")] && version.closed, "version mismatch: bye and close")
     let badId = SessionRig(); badId.feed(.hello(v: 0, device: "x", phoneId: "nope", token: nil))
     try check(badId.closed && badId.controls.isEmpty, "a bad phone_id closes")
@@ -448,11 +465,17 @@ private func send(_ rig: SessionRig, _ offer: FileOffer, _ pieces: [Data], end: 
 // MARK: - Sync
 
 @MainActor private func syncChecks() throws {
-    // The want computation.
+    // The want computations. v0: by sequence against the last merged one (or the held one); v1: by digest.
     let ann = [NoteAnnounce(id: "A", seq: 5, title: ""), NoteAnnounce(id: "B", seq: 5, title: ""), NoteAnnounce(id: "C", seq: 5, title: ""),
                NoteAnnounce(id: "D", seq: 5, title: ""), NoteAnnounce(id: "E", seq: 5, title: ""), NoteAnnounce(id: "A", seq: 6, title: "")]
-    try check(LinkSync.want(announced: ann, held: ["B": 5, "C": 4, "D": 9], refused: ["E"]) == ["A", "C"],
-              "want: missing and lower-sequence notes only, once, never refused ones")
+    try check(LinkSync.wantV0(announced: ann, merged: ["C": 4], held: ["B": 5, "C": 5, "D": 9], refused: ["E"]) == ["A", "C", "D"],
+              "v0 want: unknown or changed sequences, once, never refused ones; the merged record wins over the held sequence")
+    let d1 = String(repeating: "a", count: 64), d2 = String(repeating: "b", count: 64)
+    let v1ann = [NoteAnnounce(id: "A", seq: 1, title: "", digest: d1), NoteAnnounce(id: "B", seq: 1, title: "", digest: d1),
+                 NoteAnnounce(id: "C", seq: 1, title: "", digest: d1), NoteAnnounce(id: "E", seq: 1, title: "", digest: d1),
+                 NoteAnnounce(id: "N", seq: 1, title: "")]
+    try check(LinkSync.want(announced: v1ann, digests: ["B": d1, "C": d2], refused: ["E"]) == ["A", "C"],
+              "v1 want: missing notes and different digests only, never refused ones or entries without a digest")
 
     let dir = temp(); defer { try? FileManager.default.removeItem(at: dir) }
     let model = LibraryModel(folder: dir.appendingPathComponent("lib"))
@@ -466,12 +489,11 @@ private func send(_ rig: SessionRig, _ offer: FileOffer, _ pieces: [Data], end: 
     rig.installAnswer = { offer, file in
         MainActor.assumeIsolated {
             do { let s = try model.importCopy(from: file); return .installed(seq: s.localSequence) }
-            catch ViewerError.notNewer { return .current(seq: model.notes.first { $0.id == offer.id }?.localSequence ?? 0) }
             catch { return .refused("import: \(error.localizedDescription)") }
         }
     }
     rig.wantAnswer = { notes in MainActor.assumeIsolated {
-        LinkSync.want(announced: notes, held: Dictionary(model.notes.map { ($0.id, $0.localSequence) }, uniquingKeysWith: max), refused: model.owned)
+        LinkSync.wantV0(announced: notes, merged: [:], held: Dictionary(model.notes.map { ($0.id, $0.localSequence) }, uniquingKeysWith: max), refused: [])
     } }
     try rig.welcome(); rig.clearSent()
 
@@ -485,7 +507,7 @@ private func send(_ rig: SessionRig, _ offer: FileOffer, _ pieces: [Data], end: 
     rig.clearSent()
     send(rig, o1, p1)
     try check(rig.controls == [.have(id: phone.noteId, seq: v1.seq)], "transfer installs and answers have (\(rig.controls))")
-    try check(model.notes.map(\.id) == [phone.noteId] && !model.isWritable(phone.noteId), "the note is in the library, read-only")
+    try check(model.notes.map(\.id) == [phone.noteId] && model.isWritable(phone.noteId), "the note is in the library, and writable on the Mac")
     try check(rig.stagingFiles.isEmpty, "the staged file is gone after install")
     try check(rig.installed.first?.1 == Int(o1.size), "the host was handed the whole verified file")
     try check(!rig.session.transferInProgress, "no transfer left open")
@@ -533,20 +555,20 @@ private func send(_ rig: SessionRig, _ offer: FileOffer, _ pieces: [Data], end: 
     try check(rig.controls == [.fileError(xfer: 4, id: "Z", reason: "busy")] && rig.session.transferInProgress, "a second offer while busy is refused")
     for (i, p) in p2.enumerated() { rig.feed(.fileChunk(xfer: 2, index: UInt32(i), data: p)) }
     rig.clearSent(); rig.feed(.fileEnd(xfer: 2))
-    try check(rig.controls == [.have(id: phone.noteId, seq: v2.seq)] && model.notes.first?.title == "Renamed on phone", "replace-when-newer: the first transfer still completed")
+    try check(rig.controls == [.have(id: phone.noteId, seq: v2.seq)] && model.notes.first?.title == "Renamed on phone", "merge-when-newer: the first transfer still completed")
     try check(rig.stagingFiles.isEmpty, "staging empty")
     // An older copy sent anyway: have with the Mac's sequence, library unchanged.
     rig.clearSent()
     let (oOld, pOld) = try offer(for: v1.file, id: phone.noteId, seq: v1.seq, xfer: 5)
     send(rig, oOld, pOld)
-    try check(rig.controls == [.have(id: phone.noteId, seq: v2.seq)] && model.notes.first?.title == "Renamed on phone", "an older copy is answered have (already current), not installed")
+    try check(rig.controls == [.have(id: phone.noteId, seq: v2.seq)] && model.notes.first?.title == "Renamed on phone", "an older copy is merged as all duplicates and answered have with the Mac's sequence")
     // The connection dropping mid-transfer leaves nothing.
     rig.feed(.file(o2)); rig.feed(.fileChunk(xfer: 2, index: 0, data: p2[0]))
     try check(!rig.stagingFiles.isEmpty, "a partial transfer is staged while it runs")
     rig.session.connectionClosed()
     try check(rig.stagingFiles.isEmpty && rig.events.last == "closed", "a dropped connection deletes the partial file")
 
-    // A Mac-created note's ID is refused, by want and by the import.
+    // A different note under a Mac note's ID (another creation) is refused by the merge; the Mac note is untouched.
     let macId = try model.createNote(title: "Mine", notebook: nil)
     let impostor = try PhoneNote(dir: dir, title: "Impostor", noteId: macId)
     let imp = try impostor.export()
@@ -554,11 +576,10 @@ private func send(_ rig: SessionRig, _ offer: FileOffer, _ pieces: [Data], end: 
     rig2.installAnswer = rig.installAnswer; rig2.wantAnswer = rig.wantAnswer
     try rig2.welcome(); rig2.clearSent()
     rig2.feed(.notes([NoteAnnounce(id: macId, seq: imp.seq + 100, title: "")]))
-    try check(rig2.controls.isEmpty, "a Mac-created note is never wanted")
     let (oImp, pImp) = try offer(for: imp.file, id: macId, seq: imp.seq, xfer: 1)
     send(rig2, oImp, pImp)
     guard case .fileError(1, macId, let reason)? = rig2.controls.last else { throw CheckFailure(description: "Mac note offer is refused (\(rig2.controls))") }
-    try check(reason.hasPrefix("import:") && rig2.stagingFiles.isEmpty, "importing over a Mac-created note is refused: \(reason)")
+    try check(reason.hasPrefix("import:") && rig2.stagingFiles.isEmpty, "merging a different note's copy is refused: \(reason)")
     try model.open(id: macId)
     try check(model.drawing?.title == "Mine" && model.isWritable(macId), "the Mac note is untouched")
 
@@ -653,36 +674,23 @@ private func previewSteps(_ plan: ReplayPlan) -> [ReplayStep] { plan.steps.filte
     try rig.openAndWait(phone.noteId)
     let copy = rig.model.folder.appendingPathComponent("\(phone.noteId).syncr")
     let bytes = try Data(contentsOf: copy)
-    try check(!rig.workspace.activeIsWritable, "the phone copy is read-only")
-
-    // Without a link, a read-only copy refuses live ink as it always did.
-    let refused = try ReplayGenerator.plan(kind: .pen, noteId: phone.noteId, sheetId: phone.sheetId, epoch: rig.engine.epoch, view: rig.viewport)
-    try rig.feed(previewSteps(refused).prefix(10))
-    try check(rig.engine.currentFrame.strokes.isEmpty && rig.engine.stats.refusedReadOnly > 0, "no phone connected: previews for a read-only copy are refused")
+    try check(rig.workspace.activeIsWritable, "the phone copy is writable on the Mac (link v1)")
     let strokeId = newId()
     let plan = try ReplayGenerator.plan(kind: .pen, noteId: phone.noteId, sheetId: phone.sheetId, epoch: rig.engine.epoch, view: rig.viewport, strokeId: strokeId)
 
-    // Mirror mode: the preview draws, nothing is written.
+    // A phone preview still draws over the note, and nothing is written (the phone's own copy is what lands later).
     rig.live.mirrorEnabled = true; rig.engine.waitIdle()
     let steps = previewSteps(plan)
     try rig.feed(steps.prefix(steps.count / 2))
-    try check(rig.engine.currentFrame.strokes.count == 1, "mirror: the preview is drawn over the read-only copy")
+    try check(rig.engine.currentFrame.strokes.count == 1, "mirror: the preview is drawn over the note")
     let partial = inkPixels(try rig.render())
     try check(partial > 500, "mirror: there is ink on screen (\(partial))")
     try check(rig.model.drawing?.strokes.isEmpty == true, "mirror: the drawing is untouched")
     try rig.feed(steps.dropFirst(steps.count / 2))
     try check(inkPixels(try rig.render()) > partial, "mirror: the stroke grows")
-    // The stroke-commit is not written to a read-only note, even with mirror on.
-    try rig.feed([plan.steps.last!])
-    rig.engine.waitIdle()
-    try check(rig.engine.stats.commitsRefused == 1 && rig.engine.stats.commitsSaved == 0, "mirror: a stroke-commit for a read-only copy is refused")
-    try check(try Data(contentsOf: copy) == bytes, "mirror: the copy on disk is byte-identical")
+    try check(rig.engine.stats.commitsSaved == 0, "mirror: previews write nothing")
+    try check(try Data(contentsOf: copy) == bytes, "mirror: the note on disk is byte-identical")
     try check(rig.engine.currentFrame.strokes.count == 1, "mirror: the ended preview is still held, waiting for its copy")
-    // View-relative frames (Tablet Stream) never draw over a read-only note, mirror or not.
-    let rel = try ReplayGenerator.plan(kind: .viewRelative, noteId: phone.noteId, sheetId: phone.sheetId, epoch: rig.engine.epoch, view: rig.viewport)
-    let refusedBefore = rig.engine.stats.refusedReadOnly
-    try rig.feed(previewSteps(rel))
-    try check(rig.engine.currentFrame.strokes.count == 1 && rig.engine.stats.refusedReadOnly > refusedBefore, "view-relative frames are refused for a read-only copy")
     // A second, ended stroke the next copy will not contain stays through the swap.
     let otherId = newId()
     let other = try ReplayGenerator.plan(kind: .highlighter, noteId: phone.noteId, sheetId: phone.sheetId, epoch: rig.engine.epoch, view: rig.viewport, strokeId: otherId)
@@ -898,7 +906,7 @@ private func isTarget(_ c: LinkControl, note: String, writable: Bool) -> Bool {
     var token = "", epoch: UInt32 = 0
     try pump("paired and welcome") {
         if case .paired(let t)? = phone.take({ if case .paired = $0 { true } else { false } }) { token = t }
-        if case .welcome(_, _, let e)? = phone.take({ if case .welcome = $0 { true } else { false } }) { epoch = e }
+        if case .welcome(_, _, let e, _)? = phone.take({ if case .welcome = $0 { true } else { false } }) { epoch = e }
         return !token.isEmpty && epoch != 0
     }
     try check(shownCode == nil, "the code is hidden once paired")
@@ -926,7 +934,7 @@ private func isTarget(_ c: LinkControl, note: String, writable: Bool) -> Bool {
     // Follow phone: viewing opens it in a tab.
     phone.send(.viewing(source.noteId))
     try pump("follow") { workspace.active == source.noteId && model.shownNote == source.noteId && model.drawing?.sheetId != nil }
-    try pump("target for the copy") { phone.take { isTarget($0, note: source.noteId, writable: false) } != nil }
+    try pump("target for the copy") { phone.take { isTarget($0, note: source.noteId, writable: true) } != nil }
     try check(link.follow && workspace.tabs.contains(source.noteId), "Follow phone opened the note in a tab")
     // With Follow off the note is not opened; back on, it is.
     workspace.closeTab(source.noteId)
@@ -980,6 +988,8 @@ private func isTarget(_ c: LinkControl, note: String, writable: Bool) -> Bool {
     try pump("have v2") { phone.take { $0 == .have(id: source.noteId, seq: v2.seq) } != nil }
 
     // Tablet Stream: the pad opens, the Mac makes a note, the phone draws into it.
+    // A phone note is writable on the Mac now, so with it open the pad would write into it: close it so the pad makes a note.
+    workspace.closeTab(source.noteId)
     phone.send(.pad(on: true))
     var target: TargetInfo?
     try pump("stream target") {

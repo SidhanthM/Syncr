@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import os
 
 // The thin Network.framework shell around `LinkSession`: a TCP listener with Bonjour, and one
 // connection object per phone with its own high-priority serial queue. Bytes in go to the frame
@@ -14,6 +15,9 @@ final class LinkConnection: @unchecked Sendable {
     private var closing = false
     /// Set before `start()`.
     var session: LinkSession!
+    /// Called once when the connection is over (peer closed, failed or cancelled).
+    var onEnded: (@Sendable () -> Void)?
+    private var reported = false
 
     init(_ nw: NWConnection, label: String) {
         self.nw = nw
@@ -64,6 +68,13 @@ final class LinkConnection: @unchecked Sendable {
         nw.send(content: framed, completion: .contentProcessed { _ in })
     }
 
+    /// A file chunk: `done` runs on the connection's queue once the socket has taken it, so the next control or preview
+    /// message queues behind at most one chunk.
+    func sendBulk(_ framed: Data, done: @escaping @Sendable () -> Void) {
+        guard !closing else { return }
+        nw.send(content: framed, completion: .contentProcessed { [queue] _ in queue.async { done() } })
+    }
+
     func close() {
         guard !closing else { return }
         closing = true
@@ -77,6 +88,9 @@ final class LinkConnection: @unchecked Sendable {
     private func ended() {
         closing = true
         timer?.cancel(); timer = nil
+        // A connection the peer closed must still be cancelled: the listener's connection limit counts it until then.
+        nw.cancel()
+        if !reported { reported = true; onEnded?() }
         session.connectionClosed()
     }
 }
@@ -96,6 +110,8 @@ final class LinkServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "dev.syncr.mac.link.listener", qos: .userInitiated)
     private var listener: NWListener?
     private var counter = 0
+    /// Open connections; the listener's own limit is not released reliably, so this one is (16 at most).
+    private let live = OSAllocatedUnfairLock(initialState: 0)
     /// Called on the listener queue with the port once it is listening.
     var onListening: (@Sendable (UInt16) -> Void)?
     var onFailed: (@Sendable (String) -> Void)?
@@ -118,9 +134,8 @@ final class LinkServer: @unchecked Sendable {
         else { listener = try NWListener(using: params) }
         if config.advertise {
             listener.service = NWListener.Service(name: config.macName, type: "_syncr._tcp", domain: nil,
-                                                  txtRecord: NWTXTRecord(["v": "0", "name": config.macName, "id": config.macId]))
+                                                  txtRecord: NWTXTRecord(["v": "1", "name": config.macName, "id": config.macId]))
         }
-        listener.newConnectionLimit = 8
         listener.stateUpdateHandler = { [weak self, weak listener] state in
             switch state {
             case .ready:
@@ -130,9 +145,11 @@ final class LinkServer: @unchecked Sendable {
             }
         }
         listener.newConnectionHandler = { [weak self] nw in
-            guard let self, let make = self.makeSession else { nw.cancel(); return }
+            guard let self, let make = self.makeSession, self.live.withLock({ $0 < 16 }) else { nw.cancel(); return }
+            self.live.withLock { $0 += 1 }
             self.counter += 1
             let connection = LinkConnection(nw, label: "\(self.counter)")
+            connection.onEnded = { [live = self.live] in live.withLock { $0 -= 1 } }
             connection.queue.async {
                 connection.session = make(connection)
                 connection.start()

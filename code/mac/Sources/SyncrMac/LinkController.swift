@@ -102,11 +102,19 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
         let s = session
         main { $0.welcomed(s) }
     }
-    func sessionNotes(_ session: LinkSession, notes: [NoteAnnounce], reply: @escaping @Sendable ([String]) -> Void) {
-        main { reply($0.want(for: notes)) }
+    func sessionNotes(_ session: LinkSession, notes: [NoteAnnounce], trash: [String]?, reply: @escaping @Sendable ([String]) -> Void) {
+        let s = session
+        main { $0.want(for: notes, from: s, reply: reply) }
     }
     func sessionInstall(_ session: LinkSession, offer: FileOffer, file: URL, reply: @escaping @Sendable (InstallOutcome) -> Void) {
-        main { $0.install(offer, file: file, reply: reply) }
+        let s = session
+        main { $0.install(offer, file: file, from: s, reply: reply) }
+    }
+    func sessionExport(_ session: LinkSession, id: String, reply: @escaping @Sendable (ExportOutcome) -> Void) {
+        main { $0.export(id, reply: reply) }
+    }
+    func sessionHave(_ session: LinkSession, id: String, digest: String, reply: @escaping @Sendable (Bool) -> Void) {
+        main { $0.peerHave(id, digest: digest, reply: reply) }
     }
     func sessionViewing(_ session: LinkSession, id: String?) { main { $0.phoneViewing(id) } }
     func sessionPad(_ session: LinkSession, on: Bool) { main { $0.phonePad(on) } }
@@ -159,6 +167,18 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
     private var pendingFollow: String?
     private var latestClock = ClockSync()
     private var latencyLog: DispatchWorkItem?
+    /// Link v1: sessions the Mac already sent its full notes list to, and the digest it last announced per note.
+    private var announced: [ObjectIdentifier: [String: String]] = [:]
+    private var dirty: Set<String> = []
+    private var dirtySince: Double?
+    private var announceWork: DispatchWorkItem?
+    /// v0 phones: per phone, the last sequence of each note the Mac merged (they announce no digests).
+    private var seen: [String: [String: UInt64]] = [:]
+    /// v1 phones: the digest each note was last announced with, and digests whose copy merged nothing new because its
+    /// only extra operations were rejected (saved as conflicts). Asking for those again would loop forever.
+    private var phoneDigests: [String: String] = [:]
+    private var fruitless: [String: String] = [:]
+    static let seenFile = "link-seen.json"
     private let epochs = OSAllocatedUnfairLock(initialState: UInt32(0))
     private var macName: String { Host.current().localizedName ?? ProcessInfo.processInfo.hostName }
 
@@ -177,6 +197,8 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
         publisher.send = { [unowned self] in sendTarget($0) }
         publisher.recordView = { [engine = live.engine] rev, view in engine.recordView(view, rev: rev) }
         live.onViewport = { [weak self] _ in self?.publishTarget() }
+        model.onCommit = { [weak self] id in self?.noteCommitted(id) }
+        if let data = model.readState(Self.seenFile), let loaded = try? JSONDecoder().decode([String: [String: UInt64]].self, from: data) { seen = loaded }
         live.onStrokeSaved = { [weak self] note, stroke in self?.log("link: stroke-saved note=\(note) stroke=\(stroke)") }
         live.engine.onStrokeEnded = { [weak self] in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.scheduleLatencyLog() } }
@@ -226,6 +248,7 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
         guard server == nil else { return }
         failure = nil
         try? FileManager.default.removeItem(at: stagingDir)  // leftovers of a crash; no session exists yet
+        try? FileManager.default.removeItem(at: model.outgoingFolder)
         let name = macName, macId = settings.macId
         let server = LinkServer(config: .init(port: options.port, loopbackOnly: options.loopbackOnly, advertise: options.advertise,
                                               macName: name, macId: macId))
@@ -236,7 +259,8 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
                 send: { connection.send($0) }, close: { connection.close() },
                 liveReceive: { engine.receive($0, at: $1) },
                 liveReset: { engine.reset(epoch: $0, wait: true) },
-                run: { block in connection.queue.async(execute: block) })
+                run: { block in connection.queue.async(execute: block) },
+                sendBulk: { connection.sendBulk($0, done: $1) })
             let session = LinkSession(config: .init(macName: name, macId: macId, epoch: epoch, stagingDir: staging), store: store, io: io)
             session.host = bridge
             bridge.track(session)
@@ -335,12 +359,14 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
         log("link: connected phone=\"\(session.phoneName)\" id=\(id) epoch=\(session.config.epoch)")
         publisher.reset()
         publishTarget()
+        announced[ObjectIdentifier(session)] = nil
         onStatus?()
     }
 
     fileprivate func closed(_ session: LinkSession) {
         let wasRegistered = registry.phoneId(of: session) != nil
         registry.remove(session)
+        announced[ObjectIdentifier(session)] = nil
         hideCode(session)
         guard wasRegistered else { return }
         log("link: disconnected phone=\"\(session.phoneName)\"")
@@ -364,28 +390,45 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
         live.engine.setClockOffset(clock.offsetMs)
     }
 
-    // MARK: Note sync
+    // MARK: Note sync (link v1: two-way, the Mac is primary)
 
-    fileprivate func want(for notes: [NoteAnnounce]) -> [String] {
-        let held = Dictionary(model.notes.map { ($0.id, $0.localSequence) }, uniquingKeysWith: max)
-        let refused = model.owned.union(model.deleted.map(\.id))
-        return LinkSync.want(announced: notes, held: held, refused: refused)
+    /// What to ask the phone for. A v1 phone announces digests: ask for every note whose operation set differs from the
+    /// Mac's. A v0 phone announces sequences only: ask when the sequence differs from the last one merged.
+    fileprivate func want(for notes: [NoteAnnounce], from session: LinkSession, reply: @escaping @Sendable ([String]) -> Void) {
+        let refused = Set(model.deleted.map(\.id))
+        if session.peerVersion >= 1 {
+            let ids = notes.map(\.id).filter { model.liveIds.contains($0) }
+            for n in notes { phoneDigests[n.id] = n.digest }
+            let settled = notes.filter { n in n.digest != nil && fruitless[n.id] == n.digest }.map(\.id)
+            model.syncDigests(ids) { [self] digests in
+                reply(LinkSync.want(announced: notes, digests: digests.mapValues(\.digest), refused: refused.union(settled)))
+                announceAll(to: session)
+            }
+        } else {
+            let held = Dictionary(model.notes.map { ($0.id, $0.localSequence) }, uniquingKeysWith: max)
+            reply(LinkSync.wantV0(announced: notes, merged: seen[session.phoneId ?? ""] ?? [:], held: held, refused: refused))
+        }
     }
 
-    /// The copy is staged, validated and published off the main thread; only the decision and the final
-    /// swap of the model run here, so a large note arriving does not stall live ink.
-    fileprivate func install(_ offer: FileOffer, file: URL, reply: @escaping @Sendable (InstallOutcome) -> Void) {
-        model.importCopyAsync(from: file) { [self] result in
+    /// A verified copy is staged. A note the Mac lacks is installed; one it has is merged (never replaced); the heavy work
+    /// runs off the main thread, and only the library refresh and the in-place reload run here.
+    fileprivate func install(_ offer: FileOffer, file: URL, from session: LinkSession, reply: @escaping @Sendable (InstallOutcome) -> Void) {
+        let phone = session.phoneId ?? ""
+        model.syncIncoming(file: file, noteId: offer.id, phone: session.phoneName) { [self] result in
             switch result {
-            case .success(let summary):
-                workspace.libraryChanged()
-                log("link: note-installed id=\(summary.id) seq=\(summary.localSequence)")
-                installed(summary.id)
-                reply(.installed(seq: summary.localSequence))
-            case .failure(ViewerError.notNewer):
-                let seq = model.notes.first { $0.id == offer.id }?.localSequence ?? offer.seq
-                log("link: note-current id=\(offer.id) seq=\(seq)")
-                reply(.current(seq: seq))
+            case .success(let r):
+                if session.peerVersion < 1 { seen[phone, default: [:]][offer.id] = offer.seq; saveSeen() }
+                if r.installed {
+                    workspace.libraryChanged()
+                    log("link: note-installed id=\(offer.id) seq=\(r.seq)")
+                } else {
+                    log("link: note-merged id=\(offer.id) applied=\(r.applied) duplicates=\(r.duplicates) rejected=\(r.rejected) seq=\(r.seq)")
+                    log("link: note-installed id=\(offer.id) seq=\(r.seq)")  // the v0 line, kept for old readers of the log
+                }
+                if r.rejected > 0 { log("link: sync-conflict note=\(offer.id) rejected=\(r.rejected) saved-in=.mac/sync-conflicts/\(offer.id)") }
+                if !r.installed, r.applied == 0, r.rejected > 0, let digest = phoneDigests[offer.id] { fruitless[offer.id] = digest }
+                if r.installed || r.applied > 0 { installed(offer.id) }
+                reply(.installed(seq: r.seq, digest: r.digest, ops: r.ops))
             case .failure(let error):
                 log("link: note-refused id=\(offer.id) reason=\(error.localizedDescription)")
                 reply(.refused("import: \(error.localizedDescription)"))
@@ -393,9 +436,80 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
         }
     }
 
-    /// A copy of `id` is now in the library. The shown note is reloaded in place (viewport kept) and its
-    /// previews are dropped in the same main-thread block as the swap; a note the phone is viewing and
-    /// that was waiting for its first copy opens now.
+    private func saveSeen() {
+        if let data = try? JSONEncoder().encode(seen) { model.writeState(Self.seenFile, data) }
+    }
+
+    /// The phone wants a note: stage a copy of it for the session to send.
+    fileprivate func export(_ id: String, reply: @escaping @Sendable (ExportOutcome) -> Void) {
+        guard model.liveIds.contains(id) else { reply(.refused("no such note")); return }
+        model.syncExport(noteId: id) { result in
+            switch result {
+            case .success(let e): reply(.file(url: e.file, size: e.size, sha256: e.sha256, seq: e.seq, digest: e.digest, ops: e.ops))
+            case .failure(let error): reply(.refused(error.localizedDescription))
+            }
+        }
+    }
+
+    /// The phone installed a Mac copy and reports its operation set: ask for it back if it holds something the Mac lacks.
+    fileprivate func peerHave(_ id: String, digest: String, reply: @escaping @Sendable (Bool) -> Void) {
+        model.syncDigests([id]) { [self] digests in
+            phoneDigests[id] = digest
+            let differs = digests[id].map { $0.digest != digest } ?? false && fruitless[id] != digest
+            log("link: phone-have id=\(id) equal=\(!differs)")
+            reply(differs)
+        }
+    }
+
+    /// The full notes list to a v1 phone, once per connection, without the notes in its Recently deleted.
+    private func announceAll(to session: LinkSession) {
+        let key = ObjectIdentifier(session)
+        guard announced[key] == nil else { return }
+        announced[key] = [:]
+        model.syncAnnouncements(excluding: session.peerTrash) { [self] list in
+            announced[key] = Dictionary(list.compactMap { n in n.digest.map { (n.id, $0) } }, uniquingKeysWith: { $1 })
+            log("link: announce-all count=\(list.count)")
+            let s = session
+            s.onExecutor { s.announce(list) }
+        }
+    }
+
+    /// A commit on the Mac (typing, ink, companion, pad strokes, renames, merges): tell v1 phones within about 400 ms,
+    /// later commits pushing the announcement back while the note keeps changing, but never past one second.
+    private func noteCommitted(_ id: String) {
+        guard !announced.isEmpty else { return }
+        dirty.insert(id)
+        let now = Double(monotonicNs()) / 1e6
+        if dirtySince == nil { dirtySince = now }
+        announceWork?.cancel()
+        let wait = max(0, min(400, 1000 - (now - (dirtySince ?? now))))
+        let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.flushAnnouncements() } }
+        announceWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait / 1000, execute: work)
+    }
+
+    private func flushAnnouncements() {
+        let ids = dirty
+        dirty = []; dirtySince = nil; announceWork = nil
+        guard !ids.isEmpty else { return }
+        let targets = registry.sessions.filter { $0.peerVersion >= 1 && announced[ObjectIdentifier($0)] != nil }
+        guard !targets.isEmpty else { return }
+        model.syncAnnouncements(only: ids, excluding: []) { [self] list in
+            for s in targets {
+                let key = ObjectIdentifier(s)
+                let fresh = list.filter { !s.peerTrash.contains($0.id) && announced[key]?[$0.id] != $0.digest }
+                guard !fresh.isEmpty else { continue }
+                for n in fresh { announced[key]?[n.id] = n.digest }
+                log("link: announce ids=\(fresh.map(\.id).joined(separator: ","))")
+                let s = s
+                s.onExecutor { s.announce(fresh) }
+            }
+        }
+    }
+
+    /// A copy of `id` changed in the library. The shown note is reloaded in place (viewport kept) and its previews are
+    /// dropped in the same main-thread block as the swap; a note the phone is viewing and that was waiting for its first
+    /// copy opens now.
     private func installed(_ id: String) {
         if workspace.active == id {
             model.reloadInPlace(id: id) { [engine = live.engine] ids in engine.finishMirror(strokeIds: ids) }

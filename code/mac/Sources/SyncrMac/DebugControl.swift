@@ -31,6 +31,8 @@ import SyncrCore
     private var offset: UInt64 = 0
     private var partial = ""
     private var timer: Timer?
+    private var napGuard: NSObjectProtocol?
+    private lazy var sync = DebugSync(model: model, closeTabs: { [weak self] in guard let self else { return }; for tab in self.workspace.tabs { self.workspace.closeTab(tab) } }, say: { [weak self] in self?.say($0) })
 
     init(path: String, model: LibraryModel, workspace: Workspace, live: LiveInkCoordinator, link: LinkController,
          detail: NoteDetailView, notebook: NotebookController, companion: CompanionController, notebookAction: @escaping (String, String) -> Void, forgetPhones: @escaping () -> Void) {
@@ -39,6 +41,9 @@ import SyncrCore
         timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.poll() }
         }
+        // Unattended runs are timed: keep App Nap from stretching timers while the window is behind others.
+        napGuard = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleSystemSleepDisabled], reason: "debug control")
+        companion.trace = { [weak self] in self?.say("ai-out " + $0) }
         say("control ready")
     }
 
@@ -63,8 +68,38 @@ import SyncrCore
     private func run(_ line: String) {
         let words = line.split(separator: " ").map(String.init)
         switch words.first {
+        case .some(let name) where DebugSync.commands.contains(name): sync.handle(words)
+        case "picture-fixture": detail.showStreamPicture(.fixture); say("ack picture-fixture")
+        case "picture-clear": detail.clearStream(); say("ack picture-clear")
+        case "dictation-status": say(CompanionVoice.dictationAvailability)
+        case "image-file": if words.count == 2, let data = try? Data(contentsOf: URL(fileURLWithPath: words[1])) { detail.documentEditor.textView.onImage?(data, detail.documentEditor.textView.selectedRange().location); say("ack image-file") }
         case "ai-mode": if words.count == 2, let mode = Int(words[1]), (0...2).contains(mode) { companion.debugMode(mode); say("ack ai-mode") }
-        case "ai-fixture", "ai-record", "ai-all": if words.count == 2, let data = try? Data(contentsOf: URL(fileURLWithPath: words[1])) { companion.debugFixture(data,askNow:words[0] != "ai-record",all:words[0] == "ai-all"); say("ack \(words[0])") }
+        case "ai-script", "ai-record", "ai-all", "ai-draw":
+            // Recorded provider text, one pass per `-----` line, streamed in small chunks: `ai-script <file> [chunk] [delay-ms]`.
+            if words.count >= 2, let script = try? String(contentsOfFile: words[1], encoding: .utf8) {
+                companion.debugScript(script, chunk: words.count > 2 ? Int(words[2]) ?? 24 : 24, delayMs: words.count > 3 ? Int(words[3]) ?? 12 : 12, askNow: words[0] != "ai-record", all: words[0] == "ai-all", draw: words[0] == "ai-draw"); say("ack \(words[0])")
+            }
+        case "typing-latency":
+            // `typing-latency <n>`: n inserted characters, each timed through TextKit insert and the redraw that follows (ms).
+            let n = words.count > 1 ? Int(words[1]) ?? 60 : 60
+            let view = detail.documentEditor.textView
+            var insert: [Double] = [], draw: [Double] = []
+            func ms(_ a: UInt64, _ b: UInt64) -> Double { Double(b - a) / 1e6 }
+            for _ in 0..<n {
+                let t0 = DispatchTime.now().uptimeNanoseconds
+                view.insertText("a", replacementRange: view.selectedRange())
+                let t1 = DispatchTime.now().uptimeNanoseconds
+                detail.window?.displayIfNeeded()
+                let t2 = DispatchTime.now().uptimeNanoseconds
+                insert.append(ms(t0, t1)); draw.append(ms(t1, t2))
+                RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.03))
+            }
+            func q(_ v: [Double], _ p: Double) -> Double { v.sorted()[min(v.count - 1, Int(Double(v.count) * p))] }
+            say(String(format: "typing-latency n=%d insert p50 %.2f p95 %.2f max %.2f ms; redraw p50 %.2f p95 %.2f max %.2f ms", n, q(insert, 0.5), q(insert, 0.95), insert.max() ?? 0, q(draw, 0.5), q(draw, 0.95), draw.max() ?? 0))
+        case "ai-cancel": companion.debugCancel(); say("ack ai-cancel")
+        case "ai-hour": if words.count == 2, let script = try? String(contentsOfFile: words[1], encoding: .utf8) { Task { self.say("ai-hour " + (await self.companion.debugHour(script: script))) } }
+        case "ai-hand": var p = companion.preferences; p.handDrawn = words.last == "on"; companion.savePreferences(p); say("ack ai-hand")
+        case "ai-pin-picture": if words.count == 2 { companion.pinPicture(words[1]); say("ack ai-pin-picture") }
         case "ai-web": companion.debugStrip(web:words.last == "on"); say("ack ai-web")
         case "ai-preset": if words.count == 2, let index = Int(words[1]) { companion.debugStrip(preset:index); say("ack ai-preset") }
         case "ai-reader": if words.count == 2, let index = Int(words[1]) { companion.debugStrip(reader:index); say("ack ai-reader") }
@@ -190,6 +225,10 @@ import SyncrCore
         let notes = model.notes.map { "\($0.id)@\($0.localSequence)" + (model.owned.contains($0.id) ? ":mac" : "") }.joined(separator: ",")
         say("report shown=\(shown ?? "none") seq=\(seq.map(String.init) ?? "-") loading=\(model.loading) strokes=\(drawing?.strokes.count ?? 0) "
             + "wet=\(live.engine.currentFrame.strokes.count) ink-pixels=\(pixels) view=\(v.left),\(v.top),\(v.zoom) last-stroke=\(last) "
-            + "notes=\(notes.isEmpty ? "-" : notes) connected=\(link.connectedPhones.count)")
+            + "notes=\(notes.isEmpty ? "-" : notes) connected=\(link.connectedPhones.count) conflicts=\(model.conflictFiles().count)")
+        let ids = model.notes.map(\.id)
+        model.syncDigests(ids) { [self] digests in
+            say("sync-digests " + (ids.compactMap { id in digests[id].map { "\(id):\($0.digest.prefix(12)):\($0.operationCount)" } }.joined(separator: ",")))
+        }
     }
 }

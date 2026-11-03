@@ -24,8 +24,9 @@ import SyncrCore
     try check(after.localSequence > before.localSequence && model.notes.count == 1, "newer copy replaces existing ID")
     try model.open(id: id)
     try check(model.drawing?.title == "After", "replacement reopens newer content")
-    try expectError({ _ = try model.importCopy(from: old) }, "older copy rejected")
-    try expectError({ _ = try model.importCopy(from: newer) }, "identical sequence rejected")
+    // Link v1: a copy of a held note is merged, never replaced; an older or identical copy has nothing the Mac lacks.
+    _ = try model.importCopy(from: old); _ = try model.importCopy(from: newer)
+    try check(model.notes.first?.localSequence == after.localSequence && model.notes.first?.title == "After", "older and identical copies merge to no change")
     let destination = libraryFolder.appendingPathComponent("\(id).syncr")
     let committed = try Data(contentsOf: destination)
     let bad = temp.appendingPathComponent("corrupt.syncr")
@@ -33,17 +34,9 @@ import SyncrCore
     try expectError({ _ = try model.importCopy(from: bad) }, "corrupt replacement refused")
     try check(try Data(contentsOf: destination) == committed, "invalid input leaves destination byte-identical")
     try check(try Data(contentsOf: newer) == original, "incoming source byte-identical")
-    try check(try fm.contentsOfDirectory(atPath: libraryFolder.appendingPathComponent(".replaced").path).count == 1,
-              "previous standalone copy retained for recovery")
+    // A copy of a held note is merged, so nothing is replaced and no recovery copy is needed (link v1).
+    try check(!fm.fileExists(atPath: libraryFolder.appendingPathComponent(".replaced").path), "merging replaces nothing")
 
-    let blockedFolder = temp.appendingPathComponent("blocked")
-    let blocked = LibraryModel(folder: blockedFolder)
-    _ = try blocked.importCopy(from: old)
-    let blockedNote = blockedFolder.appendingPathComponent("\(id).syncr")
-    let safeBefore = try Data(contentsOf: blockedNote)
-    try Data([0]).write(to: blockedFolder.appendingPathComponent(".replaced"))
-    try expectError({ _ = try blocked.importCopy(from: newer) }, "failed recovery backup prevents replacement")
-    try check(try Data(contentsOf: blockedNote) == safeBefore, "backup failure leaves previous bytes unchanged")
     let wal = URL(fileURLWithPath: newer.path + "-wal")
     try Data([1]).write(to: wal)
     try expectError({ _ = try model.importCopy(from: newer) }, "active SQLite file is not a standalone export")

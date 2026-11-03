@@ -147,17 +147,15 @@ private func phoneExport(into dir: URL, title: String) throws -> (id: String, fi
     let added = try model.importCopy(from: phone.file)
     phoneID = phone.id
     w.libraryChanged()
-    try check(added.id == phone.id && !model.isWritable(phone.id) && model.isWritable(mac), "imported copy is read-only, Mac note writable")
-    try check(w.sidebar.first { $0.title == "Phone" }?.notes.first?.readOnly == true, "sidebar marks imported copy read-only")
-    try expectError({ try w.rename(phone.id, to: "x") }, "rename of imported copy refused")
-    try expectError({ try w.move(phone.id, to: nil) }, "move of imported copy refused")
-    try expectError({ try w.renameNotebook("Phone", to: "Elsewhere") }, "notebook of read-only copies cannot be renamed")
-    try expectError({ try w.deleteNotebook("Phone") }, "notebook of read-only copies cannot be deleted")
-    try check(model.notes.first { $0.id == phone.id }?.title == "From phone", "refused operations leave the copy untouched")
+    try check(added.id == phone.id && model.isWritable(phone.id) && model.isWritable(mac), "imported copy and Mac note are both writable (link v1)")
+    try check(w.sidebar.first { $0.title == "Phone" }?.notes.first?.readOnly == false, "sidebar no longer marks an imported copy read-only")
+    try w.rename(phone.id, to: "From phone, renamed")
+    try check(model.notes.first { $0.id == phone.id }?.title == "From phone, renamed", "an imported copy can be renamed on the Mac")
+    try w.rename(phone.id, to: "From phone")
     w.open(phone.id, newTab: true)
-    try check(!w.availableCommands().contains(.renameNote) && w.availableCommands().contains(.deleteNote), "read-only tab: no rename/move, delete allowed")
+    try check(w.availableCommands().contains(.renameNote) && w.availableCommands().contains(.deleteNote), "imported copy tab: rename, move and delete available")
 
-    // A copy of a Mac-created note's ID must not replace it.
+    // A different note under a Mac-created note's ID must not replace it (the merge refuses a different creation).
     let source = try openLibrary(rootPath: dir.appendingPathComponent("clash").path)
     _ = try source.createNote(request: CreateNoteRequest(operationId: newId(), noteId: mac, firstSheetId: newId(), title: "Impostor", notebook: nil))
     let clashNote = try source.openNote(noteId: mac)
@@ -180,7 +178,7 @@ private func phoneExport(into dir: URL, title: String) throws -> (id: String, fi
         try body(workspace, model)
     }
     try restarted { again, reopened in
-        try check(reopened.isWritable(mac) && !reopened.isWritable(phoneID), "ownership record survives restart")
+        try check(reopened.isWritable(mac) && reopened.isWritable(phoneID) && reopened.owned.contains(mac) && !reopened.owned.contains(phoneID), "ownership record survives restart")
         try check(again.tabs == beforeTabs && again.active == mac && again.selectedNotebook == "Ideas", "tabs, active tab and selected notebook restored")
         try check(again.sidebar.first { $0.title == "Ideas" }?.expanded == false && again.sidebar.first { $0.title == "Inbox" }?.expanded == true, "collapsed folders restored")
         try again.delete(phoneID)

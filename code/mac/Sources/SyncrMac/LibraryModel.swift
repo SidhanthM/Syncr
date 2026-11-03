@@ -40,6 +40,10 @@ private final class LoadToken: @unchecked Sendable {
     private(set) var deleted: [DeletedNoteSummary] = []
     /// IDs of notes created on this Mac. Anything else in the library is an imported phone copy.
     private(set) var owned: Set<String> = []
+    /// Every live note, archived ones included (`notes` leaves archived ones out). Sync and writability use this.
+    private(set) var liveIds: Set<String> = []
+    /// A note was committed on this Mac (typing, ink, companion, pad, rename, merge). Main thread.
+    var onCommit: ((String) -> Void)?
     private(set) var drawing: Drawing?
     private(set) var loading = false
     /// Bumped whenever the shown note is (re)opened or cleared; a live commit written under an older
@@ -50,10 +54,10 @@ private final class LoadToken: @unchecked Sendable {
     var onChange: (() -> Void)?
     var error: String?
     private(set) var folder: URL
-    private var library: SyncrLibrary?
-    private let worker = DispatchQueue(label: "dev.syncr.mac.tessellation", qos: .userInitiated)
+    private(set) var library: SyncrLibrary?
+    let worker = DispatchQueue(label: "dev.syncr.mac.tessellation", qos: .userInitiated)
     /// Heavy import work (copy and validate a note) that must not wait behind, or hold up, live ink.
-    private let importQueue = DispatchQueue(label: "dev.syncr.mac.import", qos: .utility)
+    let importQueue = DispatchQueue(label: "dev.syncr.mac.import", qos: .utility)
     private var loadToken: LoadToken?
 
     init(folder: URL? = nil) {
@@ -89,7 +93,9 @@ private final class LoadToken: @unchecked Sendable {
     }
 
     func refresh() throws {
-        notes = try (library?.listNotes() ?? []).filter { !$0.archived }
+        let all = try library?.listNotes() ?? []
+        liveIds = Set(all.map(\.id))
+        notes = all.filter { !$0.archived }
         notebooks = try library?.listNotebooks() ?? []
         deleted = try library?.listDeletedNotes() ?? []
         error = nil
@@ -109,7 +115,9 @@ private final class LoadToken: @unchecked Sendable {
         try FileManager.default.createDirectory(at: appFolder, withIntermediateDirectories: true)
         try JSONEncoder().encode(owned.sorted()).write(to: ownedFile, options: .atomic)
     }
-    func isWritable(_ id: String) -> Bool { owned.contains(id) }
+    /// Link v1: the Mac holds the primary copy of every note, so every live note is writable. `owned` stays as the
+    /// record of which notes were created here.
+    func isWritable(_ id: String) -> Bool { liveIds.contains(id) }
 
     /// App-owned small state (session) lives beside the owned record.
     func readState(_ name: String) -> Data? { try? Data(contentsOf: appFolder.appendingPathComponent(name)) }
@@ -136,6 +144,7 @@ private final class LoadToken: @unchecked Sendable {
                 firstSheetId: newId(), title: Self.clean(title, fallback: "Untitled"), notebook: notebook))
         } catch { owned.remove(id); try? saveOwned(); throw error }
         try refresh()
+        onCommit?(id)
         return id
     }
 
@@ -154,6 +163,7 @@ private final class LoadToken: @unchecked Sendable {
         let base: Base = head.confirmedRevision.map { .confirmed(revision: $0) } ?? .operation(operationId: head.operationId)
         _ = try note.submit(command: Command(operationId: newId(), dependencies: [head.operationId], body: body(base)))
         try refresh()
+        onCommit?(id)
     }
 
     func renameNote(id: String, title: String) throws {
@@ -178,6 +188,7 @@ private final class LoadToken: @unchecked Sendable {
     func restoreNote(id: String) throws {
         try requireLibrary().restoreNote(noteId: id)
         try refresh()
+        onCommit?(id)
     }
 
     func purgeNote(id: String) throws {
@@ -200,9 +211,11 @@ private final class LoadToken: @unchecked Sendable {
         let new = new.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !new.isEmpty else { throw ViewerError.badName }
         guard members(of: old).allSatisfy({ isWritable($0.id) }) else { throw ViewerError.readOnlyMembers }
+        let affected = members(of: old).map(\.id)
         cancelLoad(); worker.sync {}
         try requireLibrary().renameNotebook(oldName: old, newName: new)
         try refresh()
+        affected.forEach { onCommit?($0) }
     }
 
     /// Notes move to the Inbox first (core only removes an empty registry entry).
@@ -333,6 +346,11 @@ private final class LoadToken: @unchecked Sendable {
         guard library != nil else { throw ViewerError.unavailable }
         let prepared = try Self.prepareImport(from: source, in: folder)
         defer { try? FileManager.default.removeItem(at: prepared.staging) }
+        // A copy of a note the Mac already holds is merged into it by operations, never put over it.
+        if liveIds.contains(prepared.summary.id) {
+            try mergeSynchronously(copy: prepared.file, noteId: prepared.summary.id)
+            return notes.first { $0.id == prepared.summary.id } ?? prepared.summary
+        }
         let existing = try admit(prepared)
         // Stop reads of the destination and close all handles before replacing its inode.
         cancelLoad(); worker.sync {}
@@ -506,7 +524,7 @@ private final class LoadToken: @unchecked Sendable {
                 try work(note)
                 return try note.snapshot()
             }
-            DispatchQueue.main.async { MainActor.assumeIsolated { completion(result) } }
+            DispatchQueue.main.async { MainActor.assumeIsolated { if case .success = result { self.onCommit?(id) }; completion(result) } }
         }
     }
 
@@ -543,7 +561,7 @@ private final class LoadToken: @unchecked Sendable {
         }
         worker.async {
             let result = Result { try Self.write(commit, view: view, library: library) }
-            DispatchQueue.main.async { MainActor.assumeIsolated { completion(result) } }
+            DispatchQueue.main.async { MainActor.assumeIsolated { if case .success = result { self.onCommit?(commit.noteId) }; completion(result) } }
         }
     }
 
@@ -594,7 +612,7 @@ enum ViewerError: Error, LocalizedError {
         case .invalidSource: "Not a readable standalone Syncr note export"
         case .notNewer: "This note is older than or identical to the Mac's read-only copy"
         case .unmanagedDestination: "Existing note has an unmanaged filename; refusing replacement"
-        case .readOnly: "Imported copies are read-only until sync"
+        case .readOnly: "This note is not in the library"
         case .readOnlyMembers: "This notebook contains read-only imported copies"
         case .badName: "Name cannot be empty"
         case .macNote: "A note with this ID was created on this Mac; refusing to replace it with a copy"

@@ -9,6 +9,8 @@ struct DocumentPage: Equatable {
     var y: CGFloat = 260
     var width: CGFloat = 1400
     var drawingHeights: [String: CGFloat] = [:]
+    /// Space left after the paragraph holding each UTF-16 offset, for stored images placed under it.
+    var imageGaps: [Int: CGFloat] = [:]
 }
 struct DocumentLayoutLine: Equatable {
     var range: NSRange
@@ -40,12 +42,17 @@ struct DocumentLayoutLine: Equatable {
         guard let page = page(note: note, width: width) else { return nil }
         return image(note: page, width: page.width, scale: scale)
     }
-    static func attributed(_ text: String, caret: Int? = nil, resolving: ((String) -> Bool)? = nil, drawingHeights: [String: CGFloat] = [:]) -> NSAttributedString {
+    static func attributed(_ text: String, caret: Int? = nil, resolving: ((String) -> Bool)? = nil, drawingHeights: [String: CGFloat] = [:], imageGaps: [Int: CGFloat] = [:]) -> NSAttributedString {
         let out = NSMutableAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: bodySize), .foregroundColor: Theme.ink])
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = bodySize * AppPreferences.shared.values.lineSpacing.multiplier
         paragraph.paragraphSpacing = 10 * AppPreferences.shared.textScale
         out.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: out.length))
+        for (offset, gap) in imageGaps where offset >= 0 && offset <= out.length && out.length > 0 {
+            let range = (out.string as NSString).paragraphRange(for: NSRange(location: min(offset, out.length - 1), length: 0))
+            let spaced = (paragraph.mutableCopy() as! NSMutableParagraphStyle); spaced.paragraphSpacing = paragraph.paragraphSpacing + gap
+            out.addAttribute(.paragraphStyle, value: spaced, range: range)
+        }
         func hide(_ r: NSRange) { if r.length > 0 { out.addAttributes([.font: NSFont.systemFont(ofSize: 0.01), .foregroundColor: NSColor.clear], range: r) } }
         for line in Markdown.lines(text) {
             let active = caret.map { $0 >= line.range.location && $0 <= NSMaxRange(line.range) } ?? false
@@ -159,7 +166,7 @@ struct DocumentLayoutLine: Equatable {
         flush()
     }
     private static func engine(_ page: DocumentPage, width: CGFloat) -> (NSTextStorage, NSLayoutManager, NSTextContainer) {
-        let storage = NSTextStorage(attributedString: attributed(page.text, drawingHeights: page.drawingHeights))
+        let storage = NSTextStorage(attributedString: attributed(page.text, drawingHeights: page.drawingHeights, imageGaps: page.imageGaps))
         let manager = NSLayoutManager(), container = NSTextContainer(size: CGSize(width: max(1, width), height: .greatestFiniteMagnitude))
         container.lineFragmentPadding = 0
         manager.addTextContainer(container); storage.addLayoutManager(manager); manager.ensureLayout(for: container)

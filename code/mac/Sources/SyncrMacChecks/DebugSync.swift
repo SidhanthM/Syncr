@@ -1,0 +1,1 @@
+../SyncrMac/DebugSync.swift

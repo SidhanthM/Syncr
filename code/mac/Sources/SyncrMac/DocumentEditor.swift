@@ -25,6 +25,9 @@ import AppKit
     var drawingHeights: [String: CGFloat] = [:] {
         didSet { if drawingHeights != oldValue { refreshPreview() } }
     }
+    var imageGaps: [Int: CGFloat] = [:] {
+        didSet { if imageGaps != oldValue { refreshPreview() } }
+    }
     var onMove: ((CGFloat, CGFloat) -> Void)?
     var onEndEditing: (() -> Void)?
     private let suggestions = NSTextField(labelWithString: "")
@@ -70,6 +73,7 @@ import AppKit
         textView.isAutomaticTextReplacementEnabled = true
         textView.isContinuousSpellCheckingEnabled = AppPreferences.shared.values.spellCheck
         textView.delegate = self
+        textView.registerForDraggedTypes([.png, .tiff, .fileURL])
         textView.linkTextAttributes = [.cursor: NSCursor.pointingHand]
         textView.insertionPointColor = Theme.ink
         textView.onScroll = { [weak self] x, y in self?.onScroll?(x, y) }
@@ -160,7 +164,7 @@ import AppKit
         guard !styling, !textView.hasMarkedText() else { return }
         styling = true
         let selection = textView.selectedRange()
-        textView.textStorage?.setAttributedString(DocumentLayout.attributed(textView.string, caret: document?.writable == true ? selection.location : nil, resolving: resolve, drawingHeights: drawingHeights))
+        textView.textStorage?.setAttributedString(DocumentLayout.attributed(textView.string, caret: document?.writable == true ? selection.location : nil, resolving: resolve, drawingHeights: drawingHeights, imageGaps: imageGaps))
         textView.setSelectedRange(selection)
         textView.typingAttributes = [.font: NSFont.systemFont(ofSize: DocumentLayout.bodySize), .foregroundColor: Theme.ink]
         styling = false
@@ -310,6 +314,20 @@ import AppKit
 }
 
 @MainActor final class MarkdownTextView: NSTextView {
+    var onImage: ((Data, Int) -> Void)?
+    override func paste(_ sender: Any?) {
+        if isEditable, let data = NoteImages.pasted(.general), let onImage { onImage(data, selectedRange().location); return }
+        super.paste(sender)
+    }
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        isEditable && onImage != nil && sender.draggingPasteboard.canReadItem(withDataConformingToTypes: ["public.image", "public.file-url"]) ? .copy : []
+    }
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        guard isEditable, let onImage, let data = NoteImages.pasted(sender.draggingPasteboard) else { return false }
+        let point = convert(sender.draggingLocation, from: nil)
+        let offset = characterIndexForInsertion(at: point)
+        onImage(data, offset); return true
+    }
     /// Passages a margin note answers: drawn with a thin muted underline, the only link to the margin.
     var passages: [NSRange] = [] { didSet { if passages != oldValue { needsDisplay = true } } }
     var onScroll: ((Float, Float) -> Void)?

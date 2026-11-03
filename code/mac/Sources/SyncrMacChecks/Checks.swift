@@ -42,7 +42,10 @@ func expectError(_ action: () throws -> Void, _ message: String) throws {
     try check(copies.filter { $0.pathExtension == "syncr" }.count == 2, "two local copies")
     try check(try FileManager.default.contentsOfDirectory(at: root.appendingPathComponent(".backups"),
                                                            includingPropertiesForKeys: nil).count == 2, "migration backups")
-    try expectError({ _ = try model.importCopy(from: sources[0]) }, "duplicate must fail")
+    // The same copy again is merged into the note the Mac holds (link v1): every operation is a duplicate, nothing changes.
+    let beforeAgain = model.notes.map { "\($0.id)@\($0.localSequence)" }
+    _ = try model.importCopy(from: sources[0])
+    try check(model.notes.map { "\($0.id)@\($0.localSequence)" } == beforeAgain, "importing the same copy again merges to no change")
     let bad = temp.appendingPathComponent("bad.syncr")
     try Data([0, 1, 2]).write(to: bad)
     try expectError({ _ = try model.importCopy(from: bad) }, "invalid import must fail")
@@ -79,7 +82,9 @@ func expectError(_ action: () throws -> Void, _ message: String) throws {
     }
     try check(seen.onMain == false, "validation ran off the main thread")
     try check(completedOnMain, "completion runs on the main thread")
-    try check(ticks > 20 && longest < 0.2, "main run loop stayed free during the import (ticks \(ticks), longest \(longest) s)")
+    // On battery the system coalesces 5 ms waits to ~30-45 ms, so ticks only shows the loop turned;
+    // the longest gap is what proves the main thread was never held.
+    try check(ticks > 8 && longest < 0.2, "main run loop stayed free during the import (ticks \(ticks), longest \(longest) s)")
     guard case .success(let added)? = result else { throw CheckFailure(description: "async import failed: \(String(describing: result))") }
     try check(model.notes.map(\.id) == [added.id], "note installed after completion")
     try check(!FileManager.default.fileExists(atPath: temp.path + "/.incoming-" ) && (try FileManager.default.contentsOfDirectory(atPath: temp.path)).allSatisfy { !$0.hasPrefix(".incoming-") }, "staging removed")
@@ -161,12 +166,15 @@ func viewportAndOffscreenMeshPixels() throws {
             _ = NSApplication.shared
             if CommandLine.arguments.contains("--hotkeys") { try hotkeyChecks(); return }
             if CommandLine.arguments.contains("--settings") { try settingsChecks(); return }
+            if CommandLine.arguments.contains("--companion-v2") { try companionV2Checks(); return }
             try notebookLogicChecks()
             try markdownMappingChecks()
             try notebookCoreN1Checks()
             try notebookCoreN2N3Checks()
             try companionCoreChecks()
             try companionDrawingChecks()
+            try pictureSurfaceChecks()
+            try companionV2Checks()
             try importMigratesOnlyLocalCopy()
             try asyncImportKeepsMainThreadFree()
             try viewportAndOffscreenMeshPixels()
