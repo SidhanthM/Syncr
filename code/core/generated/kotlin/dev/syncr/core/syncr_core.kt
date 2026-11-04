@@ -689,6 +689,10 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_syncr_core_checksum_func_tessellate_stroke(
     ): Int
+    external fun uniffi_syncr_core_checksum_func_filter_picture(
+    ): Int
+    external fun uniffi_syncr_core_checksum_func_picture_display_list(
+    ): Int
     external fun uniffi_syncr_core_checksum_func_decode_preview_frame(
     ): Int
     external fun uniffi_syncr_core_checksum_func_encode_preview_frame(
@@ -717,15 +721,21 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_syncr_core_checksum_method_note_export_copy(
     ): Int
+    external fun uniffi_syncr_core_checksum_method_note_get_image_bytes(
+    ): Int
     external fun uniffi_syncr_core_checksum_method_note_get_samples(
     ): Int
     external fun uniffi_syncr_core_checksum_method_note_lookup_operation(
+    ): Int
+    external fun uniffi_syncr_core_checksum_method_note_merge_copy(
     ): Int
     external fun uniffi_syncr_core_checksum_method_note_snapshot(
     ): Int
     external fun uniffi_syncr_core_checksum_method_note_submit(
     ): Int
     external fun uniffi_syncr_core_checksum_method_note_submit_agent(
+    ): Int
+    external fun uniffi_syncr_core_checksum_method_note_sync_digest(
     ): Int
     external fun uniffi_syncr_core_checksum_method_syncrlibrary_author_id(
     ): Int
@@ -737,6 +747,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_syncr_core_checksum_method_syncrlibrary_delete_notebook(
     ): Int
+    external fun uniffi_syncr_core_checksum_method_syncrlibrary_install_copy(
+    ): Int
     external fun uniffi_syncr_core_checksum_method_syncrlibrary_list_deleted_notes(
     ): Int
     external fun uniffi_syncr_core_checksum_method_syncrlibrary_list_notebooks(
@@ -745,11 +757,15 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_syncr_core_checksum_method_syncrlibrary_lookup_creation(
     ): Int
+    external fun uniffi_syncr_core_checksum_method_syncrlibrary_note_sync_digest(
+    ): Int
     external fun uniffi_syncr_core_checksum_method_syncrlibrary_open_note(
     ): Int
     external fun uniffi_syncr_core_checksum_method_syncrlibrary_purge_deleted_older_than(
     ): Int
     external fun uniffi_syncr_core_checksum_method_syncrlibrary_purge_note(
+    ): Int
+    external fun uniffi_syncr_core_checksum_method_syncrlibrary_rebase_onto_copy(
     ): Int
     external fun uniffi_syncr_core_checksum_method_syncrlibrary_rename_notebook(
     ): Int
@@ -833,15 +849,21 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_syncr_core_fn_method_note_export_copy(`ptr`: Long,`destinationPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_method_note_get_image_bytes(`ptr`: Long,`imageId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_method_note_get_samples(`ptr`: Long,`markId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_method_note_lookup_operation(`ptr`: Long,`operationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_method_note_merge_copy(`ptr`: Long,`copyPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_method_note_snapshot(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_method_note_submit(`ptr`: Long,`command`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_method_note_submit_agent(`ptr`: Long,`command`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_method_note_sync_digest(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_clone_syncrlibrary(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
@@ -857,6 +879,8 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_syncr_core_fn_method_syncrlibrary_delete_notebook(`ptr`: Long,`name`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_syncr_core_fn_method_syncrlibrary_install_copy(`ptr`: Long,`copyPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_method_syncrlibrary_list_deleted_notes(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_method_syncrlibrary_list_notebooks(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -865,12 +889,16 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_method_syncrlibrary_lookup_creation(`ptr`: Long,`operationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_method_syncrlibrary_note_sync_digest(`ptr`: Long,`noteId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_method_syncrlibrary_open_note(`ptr`: Long,`noteId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
     external fun uniffi_syncr_core_fn_method_syncrlibrary_purge_deleted_older_than(`ptr`: Long,`cutoffMs`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Int
     external fun uniffi_syncr_core_fn_method_syncrlibrary_purge_note(`ptr`: Long,`noteId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
+    external fun uniffi_syncr_core_fn_method_syncrlibrary_rebase_onto_copy(`ptr`: Long,`noteId`: RustBuffer.ByValue,`copyPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_method_syncrlibrary_rename_notebook(`ptr`: Long,`oldName`: RustBuffer.ByValue,`newName`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Unit
     external fun uniffi_syncr_core_fn_method_syncrlibrary_restore_note(`ptr`: Long,`noteId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -926,6 +954,10 @@ internal object UniffiLib {
     external fun uniffi_syncr_core_fn_func_mesh_renderer_version(uniffi_out_err: UniffiRustCallStatus, 
     ): Int
     external fun uniffi_syncr_core_fn_func_tessellate_stroke(`samples`: RustBuffer.ByValue,`style`: RustBuffer.ByValue,`transform`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_func_filter_picture(`svg`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_func_picture_display_list(`svg`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_func_decode_preview_frame(`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1079,6 +1111,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_syncr_core_checksum_func_tessellate_stroke() and 0xFFFF) != 44957) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_syncr_core_checksum_func_filter_picture() and 0xFFFF) != 7943) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_func_picture_display_list() and 0xFFFF) != 52499) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_syncr_core_checksum_func_decode_preview_frame() and 0xFFFF) != 7876) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1121,10 +1159,16 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_syncr_core_checksum_method_note_export_copy() and 0xFFFF) != 16489) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_syncr_core_checksum_method_note_get_image_bytes() and 0xFFFF) != 11641) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_syncr_core_checksum_method_note_get_samples() and 0xFFFF) != 38126) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_syncr_core_checksum_method_note_lookup_operation() and 0xFFFF) != 31127) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_method_note_merge_copy() and 0xFFFF) != 35185) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_syncr_core_checksum_method_note_snapshot() and 0xFFFF) != 39615) {
@@ -1134,6 +1178,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_syncr_core_checksum_method_note_submit_agent() and 0xFFFF) != 25563) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_method_note_sync_digest() and 0xFFFF) != 51555) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_syncr_core_checksum_method_syncrlibrary_author_id() and 0xFFFF) != 11347) {
@@ -1151,6 +1198,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_syncr_core_checksum_method_syncrlibrary_delete_notebook() and 0xFFFF) != 146) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_syncr_core_checksum_method_syncrlibrary_install_copy() and 0xFFFF) != 13815) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_syncr_core_checksum_method_syncrlibrary_list_deleted_notes() and 0xFFFF) != 32976) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1163,6 +1213,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_syncr_core_checksum_method_syncrlibrary_lookup_creation() and 0xFFFF) != 2947) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_syncr_core_checksum_method_syncrlibrary_note_sync_digest() and 0xFFFF) != 61175) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_syncr_core_checksum_method_syncrlibrary_open_note() and 0xFFFF) != 18546) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1170,6 +1223,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_syncr_core_checksum_method_syncrlibrary_purge_note() and 0xFFFF) != 64) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_method_syncrlibrary_rebase_onto_copy() and 0xFFFF) != 41565) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_syncr_core_checksum_method_syncrlibrary_rename_notebook() and 0xFFFF) != 6705) {
@@ -1735,9 +1791,20 @@ public interface NoteInterface {
     
     fun `exportCopy`(`destinationPath`: kotlin.String): ExportReceipt
     
+    /**
+     * Original immutable PNG/JPEG container, also available for tombstoned marks.
+     */
+    fun `getImageBytes`(`imageId`: kotlin.String): kotlin.ByteArray
+    
     fun `getSamples`(`markId`: kotlin.String): kotlin.ByteArray
     
     fun `lookupOperation`(`operationId`: kotlin.String): OperationLookup
+    
+    /**
+     * Appends every operation of `copy_path` this note lacks, under its stored author.
+     * Rejected operations are reported, not applied. See `tasks/contracts/sync-v1.md`.
+     */
+    fun `mergeCopy`(`copyPath`: kotlin.String): MergeReport
     
     fun `snapshot`(): NoteSnapshot
     
@@ -1747,6 +1814,11 @@ public interface NoteInterface {
      * The only agent text write is insertion of an existing drawing's embed line.
      */
     fun `submitAgent`(`command`: Command): Receipt
+    
+    /**
+     * Operation count and SHA-256 over the sorted operation IDs; cached until the next commit.
+     */
+    fun `syncDigest`(): SyncDigest
     
     companion object
 }
@@ -1927,6 +1999,24 @@ open class Note: Disposable, AutoCloseable, NoteInterface
     
 
     
+    /**
+     * Original immutable PNG/JPEG container, also available for tombstoned marks.
+     */
+    @Throws(CoreException::class)override fun `getImageBytes`(`imageId`: kotlin.String): kotlin.ByteArray {
+            return FfiConverterByteArray.lift(
+    callWithHandle {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.uniffi_syncr_core_fn_method_note_get_image_bytes(
+        it,
+        
+        FfiConverterString.lower(`imageId`),_status)
+}
+    }
+    )
+    }
+    
+
+    
     @Throws(CoreException::class)override fun `getSamples`(`markId`: kotlin.String): kotlin.ByteArray {
             return FfiConverterByteArray.lift(
     callWithHandle {
@@ -1950,6 +2040,25 @@ open class Note: Disposable, AutoCloseable, NoteInterface
         it,
         
         FfiConverterString.lower(`operationId`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Appends every operation of `copy_path` this note lacks, under its stored author.
+     * Rejected operations are reported, not applied. See `tasks/contracts/sync-v1.md`.
+     */
+    @Throws(CoreException::class)override fun `mergeCopy`(`copyPath`: kotlin.String): MergeReport {
+            return FfiConverterTypeMergeReport.lift(
+    callWithHandle {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.uniffi_syncr_core_fn_method_note_merge_copy(
+        it,
+        
+        FfiConverterString.lower(`copyPath`),_status)
 }
     }
     )
@@ -1997,6 +2106,23 @@ open class Note: Disposable, AutoCloseable, NoteInterface
         it,
         
         FfiConverterTypeCommand.lower(`command`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Operation count and SHA-256 over the sorted operation IDs; cached until the next commit.
+     */
+    @Throws(CoreException::class)override fun `syncDigest`(): SyncDigest {
+            return FfiConverterTypeSyncDigest.lift(
+    callWithHandle {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.uniffi_syncr_core_fn_method_note_sync_digest(
+        it,
+        _status)
 }
     }
     )
@@ -3258,6 +3384,13 @@ public interface SyncrLibraryInterface {
     fun `deleteNotebook`(`name`: kotlin.String)
     
     /**
+     * Places a validated copy of a note this library does not have, never overwriting.
+     * `IdCollision` when the note is published, in Recently deleted or purged. The copy is
+     * not migrated; an old-format note upgrades when first opened.
+     */
+    fun `installCopy`(`copyPath`: kotlin.String): NoteSummary
+    
+    /**
      * Recently deleted, newest deletion first.
      */
     fun `listDeletedNotes`(): List<DeletedNoteSummary>
@@ -3275,6 +3408,11 @@ public interface SyncrLibraryInterface {
      */
     fun `lookupCreation`(`operationId`: kotlin.String): OperationLookup
     
+    /**
+     * `Note::sync_digest` for a note that may be closed (read-only when closed).
+     */
+    fun `noteSyncDigest`(`noteId`: kotlin.String): SyncDigest
+    
     fun `openNote`(`noteId`: kotlin.String): Note
     
     /**
@@ -3288,6 +3426,13 @@ public interface SyncrLibraryInterface {
      * deleted can be purged (`InvalidInput` for a library note). Idempotent once purged.
      */
     fun `purgeNote`(`noteId`: kotlin.String)
+    
+    /**
+     * Phone side of a conflict: rebuilds the closed note as the copy plus this file's own
+     * operations that still apply, after a backup. `rejected` holds the local operations
+     * that were dropped. `NoteLocked` while a handle is open.
+     */
+    fun `rebaseOntoCopy`(`noteId`: kotlin.String, `copyPath`: kotlin.String): MergeReport
     
     /**
      * Renames the registry entry, then submits one SetNotebook per member note,
@@ -3492,6 +3637,26 @@ open class SyncrLibrary: Disposable, AutoCloseable, SyncrLibraryInterface
 
     
     /**
+     * Places a validated copy of a note this library does not have, never overwriting.
+     * `IdCollision` when the note is published, in Recently deleted or purged. The copy is
+     * not migrated; an old-format note upgrades when first opened.
+     */
+    @Throws(CoreException::class)override fun `installCopy`(`copyPath`: kotlin.String): NoteSummary {
+            return FfiConverterTypeNoteSummary.lift(
+    callWithHandle {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.uniffi_syncr_core_fn_method_syncrlibrary_install_copy(
+        it,
+        
+        FfiConverterString.lower(`copyPath`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
      * Recently deleted, newest deletion first.
      */
     @Throws(CoreException::class)override fun `listDeletedNotes`(): List<DeletedNoteSummary> {
@@ -3558,6 +3723,24 @@ open class SyncrLibrary: Disposable, AutoCloseable, SyncrLibraryInterface
     
 
     
+    /**
+     * `Note::sync_digest` for a note that may be closed (read-only when closed).
+     */
+    @Throws(CoreException::class)override fun `noteSyncDigest`(`noteId`: kotlin.String): SyncDigest {
+            return FfiConverterTypeSyncDigest.lift(
+    callWithHandle {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.uniffi_syncr_core_fn_method_syncrlibrary_note_sync_digest(
+        it,
+        
+        FfiConverterString.lower(`noteId`),_status)
+}
+    }
+    )
+    }
+    
+
+    
     @Throws(CoreException::class)override fun `openNote`(`noteId`: kotlin.String): Note {
             return FfiConverterTypeNote.lift(
     callWithHandle {
@@ -3607,6 +3790,27 @@ open class SyncrLibrary: Disposable, AutoCloseable, SyncrLibraryInterface
 }
     }
     
+    
+
+    
+    /**
+     * Phone side of a conflict: rebuilds the closed note as the copy plus this file's own
+     * operations that still apply, after a backup. `rejected` holds the local operations
+     * that were dropped. `NoteLocked` while a handle is open.
+     */
+    @Throws(CoreException::class)override fun `rebaseOntoCopy`(`noteId`: kotlin.String, `copyPath`: kotlin.String): MergeReport {
+            return FfiConverterTypeMergeReport.lift(
+    callWithHandle {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.uniffi_syncr_core_fn_method_syncrlibrary_rebase_onto_copy(
+        it,
+        
+        FfiConverterString.lower(`noteId`),
+        FfiConverterString.lower(`copyPath`),_status)
+}
+    }
+    )
+    }
     
 
     
@@ -4460,6 +4664,122 @@ public object FfiConverterTypeExportReceipt: FfiConverterRustBuffer<ExportReceip
 
 
 
+data class ImageMarkView (
+    var `id`: kotlin.String
+    , 
+    var `authorId`: kotlin.String
+    , 
+    var `head`: EntityHead
+    , 
+    var `mediaType`: ImageMediaType
+    , 
+    var `pixelWidth`: kotlin.UInt
+    , 
+    var `pixelHeight`: kotlin.UInt
+    , 
+    var `placement`: ImagePlacement
+    , 
+    var `tombstone`: kotlin.Boolean
+    , 
+    var `seenByCompanion`: kotlin.Boolean
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeImageMarkView: FfiConverterRustBuffer<ImageMarkView> {
+    override fun read(buf: ByteBuffer): ImageMarkView {
+        return ImageMarkView(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterTypeEntityHead.read(buf),
+            FfiConverterTypeImageMediaType.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterTypeImagePlacement.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ImageMarkView) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`authorId`) +
+            FfiConverterTypeEntityHead.allocationSize(value.`head`) +
+            FfiConverterTypeImageMediaType.allocationSize(value.`mediaType`) +
+            FfiConverterUInt.allocationSize(value.`pixelWidth`) +
+            FfiConverterUInt.allocationSize(value.`pixelHeight`) +
+            FfiConverterTypeImagePlacement.allocationSize(value.`placement`) +
+            FfiConverterBoolean.allocationSize(value.`tombstone`) +
+            FfiConverterBoolean.allocationSize(value.`seenByCompanion`)
+    )
+
+    override fun write(value: ImageMarkView, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`authorId`, buf)
+            FfiConverterTypeEntityHead.write(value.`head`, buf)
+            FfiConverterTypeImageMediaType.write(value.`mediaType`, buf)
+            FfiConverterUInt.write(value.`pixelWidth`, buf)
+            FfiConverterUInt.write(value.`pixelHeight`, buf)
+            FfiConverterTypeImagePlacement.write(value.`placement`, buf)
+            FfiConverterBoolean.write(value.`tombstone`, buf)
+            FfiConverterBoolean.write(value.`seenByCompanion`, buf)
+    }
+}
+
+
+
+data class MergeReport (
+    var `applied`: kotlin.UInt
+    , 
+    var `duplicates`: kotlin.UInt
+    , 
+    var `rejected`: List<RejectedOperation>
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMergeReport: FfiConverterRustBuffer<MergeReport> {
+    override fun read(buf: ByteBuffer): MergeReport {
+        return MergeReport(
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterSequenceTypeRejectedOperation.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: MergeReport) = (
+            FfiConverterUInt.allocationSize(value.`applied`) +
+            FfiConverterUInt.allocationSize(value.`duplicates`) +
+            FfiConverterSequenceTypeRejectedOperation.allocationSize(value.`rejected`)
+    )
+
+    override fun write(value: MergeReport, buf: ByteBuffer) {
+            FfiConverterUInt.write(value.`applied`, buf)
+            FfiConverterUInt.write(value.`duplicates`, buf)
+            FfiConverterSequenceTypeRejectedOperation.write(value.`rejected`, buf)
+    }
+}
+
+
+
 data class NoteSnapshot (
     var `noteId`: kotlin.String
     , 
@@ -4497,6 +4817,8 @@ data class NoteSnapshot (
     var `companionItems`: List<CompanionItemView> = listOf() 
     , 
     var `companionSettings`: CompanionSettingsView? = null 
+    , 
+    var `images`: List<ImageMarkView> = listOf() 
     
 ){
     
@@ -4530,6 +4852,7 @@ public object FfiConverterTypeNoteSnapshot: FfiConverterRustBuffer<NoteSnapshot>
             FfiConverterSequenceTypeTextBlockView.read(buf),
             FfiConverterSequenceTypeCompanionItemView.read(buf),
             FfiConverterOptionalTypeCompanionSettingsView.read(buf),
+            FfiConverterSequenceTypeImageMarkView.read(buf),
         )
     }
 
@@ -4550,7 +4873,8 @@ public object FfiConverterTypeNoteSnapshot: FfiConverterRustBuffer<NoteSnapshot>
             FfiConverterBoolean.allocationSize(value.`archived`) +
             FfiConverterSequenceTypeTextBlockView.allocationSize(value.`textBlocks`) +
             FfiConverterSequenceTypeCompanionItemView.allocationSize(value.`companionItems`) +
-            FfiConverterOptionalTypeCompanionSettingsView.allocationSize(value.`companionSettings`)
+            FfiConverterOptionalTypeCompanionSettingsView.allocationSize(value.`companionSettings`) +
+            FfiConverterSequenceTypeImageMarkView.allocationSize(value.`images`)
     )
 
     override fun write(value: NoteSnapshot, buf: ByteBuffer) {
@@ -4571,6 +4895,7 @@ public object FfiConverterTypeNoteSnapshot: FfiConverterRustBuffer<NoteSnapshot>
             FfiConverterSequenceTypeTextBlockView.write(value.`textBlocks`, buf)
             FfiConverterSequenceTypeCompanionItemView.write(value.`companionItems`, buf)
             FfiConverterOptionalTypeCompanionSettingsView.write(value.`companionSettings`, buf)
+            FfiConverterSequenceTypeImageMarkView.write(value.`images`, buf)
     }
 }
 
@@ -4682,6 +5007,193 @@ public object FfiConverterTypeNotebookSummary: FfiConverterRustBuffer<NotebookSu
     override fun write(value: NotebookSummary, buf: ByteBuffer) {
             FfiConverterString.write(value.`name`, buf)
             FfiConverterULong.write(value.`noteCount`, buf)
+    }
+}
+
+
+
+data class PictureBounds (
+    var `minX`: kotlin.Float
+    , 
+    var `minY`: kotlin.Float
+    , 
+    var `maxX`: kotlin.Float
+    , 
+    var `maxY`: kotlin.Float
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePictureBounds: FfiConverterRustBuffer<PictureBounds> {
+    override fun read(buf: ByteBuffer): PictureBounds {
+        return PictureBounds(
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PictureBounds) = (
+            FfiConverterFloat.allocationSize(value.`minX`) +
+            FfiConverterFloat.allocationSize(value.`minY`) +
+            FfiConverterFloat.allocationSize(value.`maxX`) +
+            FfiConverterFloat.allocationSize(value.`maxY`)
+    )
+
+    override fun write(value: PictureBounds, buf: ByteBuffer) {
+            FfiConverterFloat.write(value.`minX`, buf)
+            FfiConverterFloat.write(value.`minY`, buf)
+            FfiConverterFloat.write(value.`maxX`, buf)
+            FfiConverterFloat.write(value.`maxY`, buf)
+    }
+}
+
+
+
+data class PictureDisplayList (
+    var `width`: kotlin.Float
+    , 
+    var `height`: kotlin.Float
+    , 
+    var `always`: List<PictureItem>
+    , 
+    var `steps`: List<PictureStep>
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePictureDisplayList: FfiConverterRustBuffer<PictureDisplayList> {
+    override fun read(buf: ByteBuffer): PictureDisplayList {
+        return PictureDisplayList(
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterSequenceTypePictureItem.read(buf),
+            FfiConverterSequenceTypePictureStep.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PictureDisplayList) = (
+            FfiConverterFloat.allocationSize(value.`width`) +
+            FfiConverterFloat.allocationSize(value.`height`) +
+            FfiConverterSequenceTypePictureItem.allocationSize(value.`always`) +
+            FfiConverterSequenceTypePictureStep.allocationSize(value.`steps`)
+    )
+
+    override fun write(value: PictureDisplayList, buf: ByteBuffer) {
+            FfiConverterFloat.write(value.`width`, buf)
+            FfiConverterFloat.write(value.`height`, buf)
+            FfiConverterSequenceTypePictureItem.write(value.`always`, buf)
+            FfiConverterSequenceTypePictureStep.write(value.`steps`, buf)
+    }
+}
+
+
+
+data class PicturePoint (
+    var `x`: kotlin.Float
+    , 
+    var `y`: kotlin.Float
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePicturePoint: FfiConverterRustBuffer<PicturePoint> {
+    override fun read(buf: ByteBuffer): PicturePoint {
+        return PicturePoint(
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PicturePoint) = (
+            FfiConverterFloat.allocationSize(value.`x`) +
+            FfiConverterFloat.allocationSize(value.`y`)
+    )
+
+    override fun write(value: PicturePoint, buf: ByteBuffer) {
+            FfiConverterFloat.write(value.`x`, buf)
+            FfiConverterFloat.write(value.`y`, buf)
+    }
+}
+
+
+
+data class PictureStep (
+    var `number`: kotlin.UInt
+    , 
+    var `caption`: kotlin.String
+    , 
+    var `hide`: List<kotlin.UInt>
+    , 
+    var `dim`: List<kotlin.UInt>
+    , 
+    var `items`: List<PictureItem>
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePictureStep: FfiConverterRustBuffer<PictureStep> {
+    override fun read(buf: ByteBuffer): PictureStep {
+        return PictureStep(
+            FfiConverterUInt.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterSequenceUInt.read(buf),
+            FfiConverterSequenceUInt.read(buf),
+            FfiConverterSequenceTypePictureItem.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PictureStep) = (
+            FfiConverterUInt.allocationSize(value.`number`) +
+            FfiConverterString.allocationSize(value.`caption`) +
+            FfiConverterSequenceUInt.allocationSize(value.`hide`) +
+            FfiConverterSequenceUInt.allocationSize(value.`dim`) +
+            FfiConverterSequenceTypePictureItem.allocationSize(value.`items`)
+    )
+
+    override fun write(value: PictureStep, buf: ByteBuffer) {
+            FfiConverterUInt.write(value.`number`, buf)
+            FfiConverterString.write(value.`caption`, buf)
+            FfiConverterSequenceUInt.write(value.`hide`, buf)
+            FfiConverterSequenceUInt.write(value.`dim`, buf)
+            FfiConverterSequenceTypePictureItem.write(value.`items`, buf)
     }
 }
 
@@ -4881,6 +5393,62 @@ public object FfiConverterTypeReceipt: FfiConverterRustBuffer<Receipt> {
             FfiConverterULong.write(value.`localSequence`, buf)
             FfiConverterTypeEventCursor.write(value.`cursor`, buf)
             FfiConverterBoolean.write(value.`duplicate`, buf)
+    }
+}
+
+
+
+/**
+ * An operation of a copy that was not applied, kept whole so nothing is lost.
+ */
+data class RejectedOperation (
+    var `operationId`: kotlin.String
+    , 
+    var `authorId`: kotlin.String
+    , 
+    var `payloadJson`: kotlin.String
+    , 
+    var `canonicalHex`: kotlin.String
+    , 
+    var `reason`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeRejectedOperation: FfiConverterRustBuffer<RejectedOperation> {
+    override fun read(buf: ByteBuffer): RejectedOperation {
+        return RejectedOperation(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: RejectedOperation) = (
+            FfiConverterString.allocationSize(value.`operationId`) +
+            FfiConverterString.allocationSize(value.`authorId`) +
+            FfiConverterString.allocationSize(value.`payloadJson`) +
+            FfiConverterString.allocationSize(value.`canonicalHex`) +
+            FfiConverterString.allocationSize(value.`reason`)
+    )
+
+    override fun write(value: RejectedOperation, buf: ByteBuffer) {
+            FfiConverterString.write(value.`operationId`, buf)
+            FfiConverterString.write(value.`authorId`, buf)
+            FfiConverterString.write(value.`payloadJson`, buf)
+            FfiConverterString.write(value.`canonicalHex`, buf)
+            FfiConverterString.write(value.`reason`, buf)
     }
 }
 
@@ -5316,6 +5884,50 @@ public object FfiConverterTypeStrokeView: FfiConverterRustBuffer<StrokeView> {
             FfiConverterTypeAffine.write(value.`transform`, buf)
             FfiConverterTypeBrush.write(value.`brush`, buf)
             FfiConverterBoolean.write(value.`tombstone`, buf)
+    }
+}
+
+
+
+/**
+ * Identity of a note's operation set: equal sets give equal digests whatever the log order.
+ */
+data class SyncDigest (
+    var `operationCount`: kotlin.ULong
+    , 
+    /**
+     * SHA-256 (lowercase hex) over the sorted operation IDs, each followed by `\n`.
+     */
+    var `digest`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSyncDigest: FfiConverterRustBuffer<SyncDigest> {
+    override fun read(buf: ByteBuffer): SyncDigest {
+        return SyncDigest(
+            FfiConverterULong.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: SyncDigest) = (
+            FfiConverterULong.allocationSize(value.`operationCount`) +
+            FfiConverterString.allocationSize(value.`digest`)
+    )
+
+    override fun write(value: SyncDigest, buf: ByteBuffer) {
+            FfiConverterULong.write(value.`operationCount`, buf)
+            FfiConverterString.write(value.`digest`, buf)
     }
 }
 
@@ -5844,6 +6456,15 @@ public object FfiConverterTypeChangePage : FfiConverterRustBuffer<ChangePage>{
 
 sealed class CommandBody {
     
+    data class ImageMarks(
+        val `mutations`: List<dev.syncr.core.ImageMutation>) : CommandBody()
+        
+    {
+        
+
+        companion object
+    }
+    
     data class Marks(
         val `mutations`: List<dev.syncr.core.MarkMutation>) : CommandBody()
         
@@ -5962,39 +6583,42 @@ sealed class CommandBody {
 public object FfiConverterTypeCommandBody : FfiConverterRustBuffer<CommandBody>{
     override fun read(buf: ByteBuffer): CommandBody {
         return when(buf.getInt()) {
-            1 -> CommandBody.Marks(
+            1 -> CommandBody.ImageMarks(
+                FfiConverterSequenceTypeImageMutation.read(buf),
+                )
+            2 -> CommandBody.Marks(
                 FfiConverterSequenceTypeMarkMutation.read(buf),
                 )
-            2 -> CommandBody.AddSheet(
+            3 -> CommandBody.AddSheet(
                 FfiConverterString.read(buf),
                 FfiConverterTypeBase.read(buf),
                 )
-            3 -> CommandBody.ReorderSheets(
+            4 -> CommandBody.ReorderSheets(
                 FfiConverterSequenceString.read(buf),
                 FfiConverterTypeBase.read(buf),
                 )
-            4 -> CommandBody.RenameNote(
+            5 -> CommandBody.RenameNote(
                 FfiConverterString.read(buf),
                 FfiConverterTypeBase.read(buf),
                 )
-            5 -> CommandBody.SetNotebook(
+            6 -> CommandBody.SetNotebook(
                 FfiConverterOptionalString.read(buf),
                 FfiConverterTypeBase.read(buf),
                 )
-            6 -> CommandBody.SetArchived(
+            7 -> CommandBody.SetArchived(
                 FfiConverterBoolean.read(buf),
                 FfiConverterTypeBase.read(buf),
                 )
-            7 -> CommandBody.Undo(
+            8 -> CommandBody.Undo(
                 FfiConverterString.read(buf),
                 )
-            8 -> CommandBody.Redo(
+            9 -> CommandBody.Redo(
                 FfiConverterString.read(buf),
                 )
-            9 -> CommandBody.CompanionMarks(
+            10 -> CommandBody.CompanionMarks(
                 FfiConverterSequenceTypeCompanionMutation.read(buf),
                 )
-            10 -> CommandBody.SetCompanionSettings(
+            11 -> CommandBody.SetCompanionSettings(
                 FfiConverterTypeCompanionSettings.read(buf),
                 FfiConverterTypeBase.read(buf),
                 )
@@ -6003,6 +6627,13 @@ public object FfiConverterTypeCommandBody : FfiConverterRustBuffer<CommandBody>{
     }
 
     override fun allocationSize(value: CommandBody): ULong = when(value) {
+        is CommandBody.ImageMarks -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterSequenceTypeImageMutation.allocationSize(value.`mutations`)
+            )
+        }
         is CommandBody.Marks -> {
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
@@ -6083,58 +6714,63 @@ public object FfiConverterTypeCommandBody : FfiConverterRustBuffer<CommandBody>{
 
     override fun write(value: CommandBody, buf: ByteBuffer) {
         when(value) {
-            is CommandBody.Marks -> {
+            is CommandBody.ImageMarks -> {
                 buf.putInt(1)
+                FfiConverterSequenceTypeImageMutation.write(value.`mutations`, buf)
+                Unit
+            }
+            is CommandBody.Marks -> {
+                buf.putInt(2)
                 FfiConverterSequenceTypeMarkMutation.write(value.`mutations`, buf)
                 Unit
             }
             is CommandBody.AddSheet -> {
-                buf.putInt(2)
+                buf.putInt(3)
                 FfiConverterString.write(value.`sheetId`, buf)
                 FfiConverterTypeBase.write(value.`base`, buf)
                 Unit
             }
             is CommandBody.ReorderSheets -> {
-                buf.putInt(3)
+                buf.putInt(4)
                 FfiConverterSequenceString.write(value.`sheetIds`, buf)
                 FfiConverterTypeBase.write(value.`base`, buf)
                 Unit
             }
             is CommandBody.RenameNote -> {
-                buf.putInt(4)
+                buf.putInt(5)
                 FfiConverterString.write(value.`title`, buf)
                 FfiConverterTypeBase.write(value.`base`, buf)
                 Unit
             }
             is CommandBody.SetNotebook -> {
-                buf.putInt(5)
+                buf.putInt(6)
                 FfiConverterOptionalString.write(value.`notebook`, buf)
                 FfiConverterTypeBase.write(value.`base`, buf)
                 Unit
             }
             is CommandBody.SetArchived -> {
-                buf.putInt(6)
+                buf.putInt(7)
                 FfiConverterBoolean.write(value.`archived`, buf)
                 FfiConverterTypeBase.write(value.`base`, buf)
                 Unit
             }
             is CommandBody.Undo -> {
-                buf.putInt(7)
-                FfiConverterString.write(value.`targetOperationId`, buf)
-                Unit
-            }
-            is CommandBody.Redo -> {
                 buf.putInt(8)
                 FfiConverterString.write(value.`targetOperationId`, buf)
                 Unit
             }
-            is CommandBody.CompanionMarks -> {
+            is CommandBody.Redo -> {
                 buf.putInt(9)
+                FfiConverterString.write(value.`targetOperationId`, buf)
+                Unit
+            }
+            is CommandBody.CompanionMarks -> {
+                buf.putInt(10)
                 FfiConverterSequenceTypeCompanionMutation.write(value.`mutations`, buf)
                 Unit
             }
             is CommandBody.SetCompanionSettings -> {
-                buf.putInt(10)
+                buf.putInt(11)
                 FfiConverterTypeCompanionSettings.write(value.`settings`, buf)
                 FfiConverterTypeBase.write(value.`base`, buf)
                 Unit
@@ -6178,6 +6814,17 @@ sealed class CompanionBody {
         val `who`: dev.syncr.core.MessageWho, 
         val `text`: kotlin.String, 
         val `sources`: List<dev.syncr.core.CompanionSource>) : CompanionBody()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class Picture(
+        val `anchorId`: kotlin.String, 
+        val `title`: kotlin.String, 
+        val `svg`: kotlin.String) : CompanionBody()
         
     {
         
@@ -6232,7 +6879,12 @@ public object FfiConverterTypeCompanionBody : FfiConverterRustBuffer<CompanionBo
                 FfiConverterString.read(buf),
                 FfiConverterSequenceTypeCompanionSource.read(buf),
                 )
-            4 -> CompanionBody.Drawing(
+            4 -> CompanionBody.Picture(
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                )
+            5 -> CompanionBody.Drawing(
                 FfiConverterString.read(buf),
                 FfiConverterString.read(buf),
                 FfiConverterDouble.read(buf),
@@ -6274,6 +6926,15 @@ public object FfiConverterTypeCompanionBody : FfiConverterRustBuffer<CompanionBo
                 + FfiConverterSequenceTypeCompanionSource.allocationSize(value.`sources`)
             )
         }
+        is CompanionBody.Picture -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`anchorId`)
+                + FfiConverterString.allocationSize(value.`title`)
+                + FfiConverterString.allocationSize(value.`svg`)
+            )
+        }
         is CompanionBody.Drawing -> {
             // Add the size for the Int that specifies the variant plus the size needed for all fields
             (
@@ -6313,8 +6974,15 @@ public object FfiConverterTypeCompanionBody : FfiConverterRustBuffer<CompanionBo
                 FfiConverterSequenceTypeCompanionSource.write(value.`sources`, buf)
                 Unit
             }
-            is CompanionBody.Drawing -> {
+            is CompanionBody.Picture -> {
                 buf.putInt(4)
+                FfiConverterString.write(value.`anchorId`, buf)
+                FfiConverterString.write(value.`title`, buf)
+                FfiConverterString.write(value.`svg`, buf)
+                Unit
+            }
+            is CompanionBody.Drawing -> {
+                buf.putInt(5)
                 FfiConverterString.write(value.`anchorId`, buf)
                 FfiConverterString.write(value.`title`, buf)
                 FfiConverterDouble.write(value.`width`, buf)
@@ -7174,6 +7842,351 @@ public object FfiConverterTypeFrameKind: FfiConverterRustBuffer<FrameKind> {
 
 
 
+enum class ImageMediaType {
+    
+    PNG,
+    JPEG;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeImageMediaType: FfiConverterRustBuffer<ImageMediaType> {
+    override fun read(buf: ByteBuffer) = try {
+        ImageMediaType.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: ImageMediaType) = 4UL
+
+    override fun write(value: ImageMediaType, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+sealed class ImageMutation {
+    
+    data class Add(
+        val `imageId`: kotlin.String, 
+        /**
+         * Omitted from log JSON; carried in canonical bytes and the images table.
+         */
+        val `bytes`: kotlin.ByteArray, 
+        val `mediaType`: dev.syncr.core.ImageMediaType, 
+        val `pixelWidth`: kotlin.UInt, 
+        val `pixelHeight`: kotlin.UInt, 
+        val `placement`: dev.syncr.core.ImagePlacement) : ImageMutation()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class Delete(
+        val `imageId`: kotlin.String, 
+        val `base`: dev.syncr.core.Base) : ImageMutation()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class Restore(
+        val `imageId`: kotlin.String, 
+        val `base`: dev.syncr.core.Base) : ImageMutation()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class Move(
+        val `imageId`: kotlin.String, 
+        val `base`: dev.syncr.core.Base, 
+        val `placement`: dev.syncr.core.ImagePlacement) : ImageMutation()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
+     * Agent-only; monotone, not undoable, and does not change the placement head.
+     */
+    data class MarkSeen(
+        val `imageId`: kotlin.String, 
+        val `base`: dev.syncr.core.Base) : ImageMutation()
+        
+    {
+        
+
+        companion object
+    }
+    
+
+    
+
+    
+    
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeImageMutation : FfiConverterRustBuffer<ImageMutation>{
+    override fun read(buf: ByteBuffer): ImageMutation {
+        return when(buf.getInt()) {
+            1 -> ImageMutation.Add(
+                FfiConverterString.read(buf),
+                FfiConverterByteArray.read(buf),
+                FfiConverterTypeImageMediaType.read(buf),
+                FfiConverterUInt.read(buf),
+                FfiConverterUInt.read(buf),
+                FfiConverterTypeImagePlacement.read(buf),
+                )
+            2 -> ImageMutation.Delete(
+                FfiConverterString.read(buf),
+                FfiConverterTypeBase.read(buf),
+                )
+            3 -> ImageMutation.Restore(
+                FfiConverterString.read(buf),
+                FfiConverterTypeBase.read(buf),
+                )
+            4 -> ImageMutation.Move(
+                FfiConverterString.read(buf),
+                FfiConverterTypeBase.read(buf),
+                FfiConverterTypeImagePlacement.read(buf),
+                )
+            5 -> ImageMutation.MarkSeen(
+                FfiConverterString.read(buf),
+                FfiConverterTypeBase.read(buf),
+                )
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: ImageMutation): ULong = when(value) {
+        is ImageMutation.Add -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`imageId`)
+                + FfiConverterByteArray.allocationSize(value.`bytes`)
+                + FfiConverterTypeImageMediaType.allocationSize(value.`mediaType`)
+                + FfiConverterUInt.allocationSize(value.`pixelWidth`)
+                + FfiConverterUInt.allocationSize(value.`pixelHeight`)
+                + FfiConverterTypeImagePlacement.allocationSize(value.`placement`)
+            )
+        }
+        is ImageMutation.Delete -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`imageId`)
+                + FfiConverterTypeBase.allocationSize(value.`base`)
+            )
+        }
+        is ImageMutation.Restore -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`imageId`)
+                + FfiConverterTypeBase.allocationSize(value.`base`)
+            )
+        }
+        is ImageMutation.Move -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`imageId`)
+                + FfiConverterTypeBase.allocationSize(value.`base`)
+                + FfiConverterTypeImagePlacement.allocationSize(value.`placement`)
+            )
+        }
+        is ImageMutation.MarkSeen -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`imageId`)
+                + FfiConverterTypeBase.allocationSize(value.`base`)
+            )
+        }
+    }
+
+    override fun write(value: ImageMutation, buf: ByteBuffer) {
+        when(value) {
+            is ImageMutation.Add -> {
+                buf.putInt(1)
+                FfiConverterString.write(value.`imageId`, buf)
+                FfiConverterByteArray.write(value.`bytes`, buf)
+                FfiConverterTypeImageMediaType.write(value.`mediaType`, buf)
+                FfiConverterUInt.write(value.`pixelWidth`, buf)
+                FfiConverterUInt.write(value.`pixelHeight`, buf)
+                FfiConverterTypeImagePlacement.write(value.`placement`, buf)
+                Unit
+            }
+            is ImageMutation.Delete -> {
+                buf.putInt(2)
+                FfiConverterString.write(value.`imageId`, buf)
+                FfiConverterTypeBase.write(value.`base`, buf)
+                Unit
+            }
+            is ImageMutation.Restore -> {
+                buf.putInt(3)
+                FfiConverterString.write(value.`imageId`, buf)
+                FfiConverterTypeBase.write(value.`base`, buf)
+                Unit
+            }
+            is ImageMutation.Move -> {
+                buf.putInt(4)
+                FfiConverterString.write(value.`imageId`, buf)
+                FfiConverterTypeBase.write(value.`base`, buf)
+                FfiConverterTypeImagePlacement.write(value.`placement`, buf)
+                Unit
+            }
+            is ImageMutation.MarkSeen -> {
+                buf.putInt(5)
+                FfiConverterString.write(value.`imageId`, buf)
+                FfiConverterTypeBase.write(value.`base`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
+sealed class ImagePlacement {
+    
+    data class Canvas(
+        val `sheetId`: kotlin.String, 
+        val `x`: kotlin.Double, 
+        val `y`: kotlin.Double, 
+        val `width`: kotlin.Double, 
+        val `height`: kotlin.Double) : ImagePlacement()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
+     * Under the text passage named by an existing companion text anchor.
+     */
+    data class Text(
+        val `anchorId`: kotlin.String, 
+        val `width`: kotlin.Double, 
+        val `height`: kotlin.Double) : ImagePlacement()
+        
+    {
+        
+
+        companion object
+    }
+    
+
+    
+
+    
+    
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeImagePlacement : FfiConverterRustBuffer<ImagePlacement>{
+    override fun read(buf: ByteBuffer): ImagePlacement {
+        return when(buf.getInt()) {
+            1 -> ImagePlacement.Canvas(
+                FfiConverterString.read(buf),
+                FfiConverterDouble.read(buf),
+                FfiConverterDouble.read(buf),
+                FfiConverterDouble.read(buf),
+                FfiConverterDouble.read(buf),
+                )
+            2 -> ImagePlacement.Text(
+                FfiConverterString.read(buf),
+                FfiConverterDouble.read(buf),
+                FfiConverterDouble.read(buf),
+                )
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: ImagePlacement): ULong = when(value) {
+        is ImagePlacement.Canvas -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`sheetId`)
+                + FfiConverterDouble.allocationSize(value.`x`)
+                + FfiConverterDouble.allocationSize(value.`y`)
+                + FfiConverterDouble.allocationSize(value.`width`)
+                + FfiConverterDouble.allocationSize(value.`height`)
+            )
+        }
+        is ImagePlacement.Text -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`anchorId`)
+                + FfiConverterDouble.allocationSize(value.`width`)
+                + FfiConverterDouble.allocationSize(value.`height`)
+            )
+        }
+    }
+
+    override fun write(value: ImagePlacement, buf: ByteBuffer) {
+        when(value) {
+            is ImagePlacement.Canvas -> {
+                buf.putInt(1)
+                FfiConverterString.write(value.`sheetId`, buf)
+                FfiConverterDouble.write(value.`x`, buf)
+                FfiConverterDouble.write(value.`y`, buf)
+                FfiConverterDouble.write(value.`width`, buf)
+                FfiConverterDouble.write(value.`height`, buf)
+                Unit
+            }
+            is ImagePlacement.Text -> {
+                buf.putInt(2)
+                FfiConverterString.write(value.`anchorId`, buf)
+                FfiConverterDouble.write(value.`width`, buf)
+                FfiConverterDouble.write(value.`height`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
+
 enum class InkColour {
     
     INK,
@@ -7812,6 +8825,279 @@ public object FfiConverterTypeOperationLookup : FfiConverterRustBuffer<Operation
             is OperationLookup.Committed -> {
                 buf.putInt(2)
                 FfiConverterTypeReceipt.write(value.`receipt`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
+
+
+sealed class PictureException: kotlin.Exception() {
+    
+    class Limit(
+        ) : PictureException() {
+        override val message
+            get() = ""
+    }
+    
+    class Malformed(
+        ) : PictureException() {
+        override val message
+            get() = ""
+    }
+    
+    class Canvas(
+        ) : PictureException() {
+        override val message
+            get() = ""
+    }
+    
+    class Steps(
+        ) : PictureException() {
+        override val message
+            get() = ""
+    }
+    
+    class Empty(
+        ) : PictureException() {
+        override val message
+            get() = ""
+    }
+    
+    class References(
+        ) : PictureException() {
+        override val message
+            get() = ""
+    }
+    
+
+    
+
+
+    companion object ErrorHandler : UniffiRustCallStatusErrorHandler<PictureException> {
+        override fun lift(error_buf: RustBuffer.ByValue): PictureException = FfiConverterTypePictureError.lift(error_buf)
+    }
+
+    
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePictureError : FfiConverterRustBuffer<PictureException> {
+    override fun read(buf: ByteBuffer): PictureException {
+        
+
+        return when(buf.getInt()) {
+            1 -> PictureException.Limit()
+            2 -> PictureException.Malformed()
+            3 -> PictureException.Canvas()
+            4 -> PictureException.Steps()
+            5 -> PictureException.Empty()
+            6 -> PictureException.References()
+            else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: PictureException): ULong {
+        return when(value) {
+            is PictureException.Limit -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+            )
+            is PictureException.Malformed -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+            )
+            is PictureException.Canvas -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+            )
+            is PictureException.Steps -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+            )
+            is PictureException.Empty -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+            )
+            is PictureException.References -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+            )
+        }
+    }
+
+    override fun write(value: PictureException, buf: ByteBuffer) {
+        when(value) {
+            is PictureException.Limit -> {
+                buf.putInt(1)
+                Unit
+            }
+            is PictureException.Malformed -> {
+                buf.putInt(2)
+                Unit
+            }
+            is PictureException.Canvas -> {
+                buf.putInt(3)
+                Unit
+            }
+            is PictureException.Steps -> {
+                buf.putInt(4)
+                Unit
+            }
+            is PictureException.Empty -> {
+                buf.putInt(5)
+                Unit
+            }
+            is PictureException.References -> {
+                buf.putInt(6)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+
+}
+
+
+
+sealed class PictureItem {
+    
+    data class Polyline(
+        val `points`: List<dev.syncr.core.PicturePoint>, 
+        val `closed`: kotlin.Boolean, 
+        val `stroke`: kotlin.String, 
+        val `strokeWidth`: kotlin.Float, 
+        val `fill`: kotlin.String, 
+        val `bounds`: dev.syncr.core.PictureBounds) : PictureItem()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class Text(
+        val `text`: kotlin.String, 
+        val `x`: kotlin.Float, 
+        val `y`: kotlin.Float, 
+        val `anchor`: kotlin.String, 
+        val `baseline`: kotlin.String, 
+        val `font`: kotlin.String, 
+        val `size`: kotlin.Float, 
+        val `fill`: kotlin.String, 
+        /**
+         * Linear transform of glyphs around (x,y); tx/ty are zero.
+         */
+        val `transform`: dev.syncr.core.Affine, 
+        val `bounds`: dev.syncr.core.PictureBounds) : PictureItem()
+        
+    {
+        
+
+        companion object
+    }
+    
+
+    
+
+    
+    
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePictureItem : FfiConverterRustBuffer<PictureItem>{
+    override fun read(buf: ByteBuffer): PictureItem {
+        return when(buf.getInt()) {
+            1 -> PictureItem.Polyline(
+                FfiConverterSequenceTypePicturePoint.read(buf),
+                FfiConverterBoolean.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterFloat.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterTypePictureBounds.read(buf),
+                )
+            2 -> PictureItem.Text(
+                FfiConverterString.read(buf),
+                FfiConverterFloat.read(buf),
+                FfiConverterFloat.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterFloat.read(buf),
+                FfiConverterString.read(buf),
+                FfiConverterTypeAffine.read(buf),
+                FfiConverterTypePictureBounds.read(buf),
+                )
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: PictureItem): ULong = when(value) {
+        is PictureItem.Polyline -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterSequenceTypePicturePoint.allocationSize(value.`points`)
+                + FfiConverterBoolean.allocationSize(value.`closed`)
+                + FfiConverterString.allocationSize(value.`stroke`)
+                + FfiConverterFloat.allocationSize(value.`strokeWidth`)
+                + FfiConverterString.allocationSize(value.`fill`)
+                + FfiConverterTypePictureBounds.allocationSize(value.`bounds`)
+            )
+        }
+        is PictureItem.Text -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`text`)
+                + FfiConverterFloat.allocationSize(value.`x`)
+                + FfiConverterFloat.allocationSize(value.`y`)
+                + FfiConverterString.allocationSize(value.`anchor`)
+                + FfiConverterString.allocationSize(value.`baseline`)
+                + FfiConverterString.allocationSize(value.`font`)
+                + FfiConverterFloat.allocationSize(value.`size`)
+                + FfiConverterString.allocationSize(value.`fill`)
+                + FfiConverterTypeAffine.allocationSize(value.`transform`)
+                + FfiConverterTypePictureBounds.allocationSize(value.`bounds`)
+            )
+        }
+    }
+
+    override fun write(value: PictureItem, buf: ByteBuffer) {
+        when(value) {
+            is PictureItem.Polyline -> {
+                buf.putInt(1)
+                FfiConverterSequenceTypePicturePoint.write(value.`points`, buf)
+                FfiConverterBoolean.write(value.`closed`, buf)
+                FfiConverterString.write(value.`stroke`, buf)
+                FfiConverterFloat.write(value.`strokeWidth`, buf)
+                FfiConverterString.write(value.`fill`, buf)
+                FfiConverterTypePictureBounds.write(value.`bounds`, buf)
+                Unit
+            }
+            is PictureItem.Text -> {
+                buf.putInt(2)
+                FfiConverterString.write(value.`text`, buf)
+                FfiConverterFloat.write(value.`x`, buf)
+                FfiConverterFloat.write(value.`y`, buf)
+                FfiConverterString.write(value.`anchor`, buf)
+                FfiConverterString.write(value.`baseline`, buf)
+                FfiConverterString.write(value.`font`, buf)
+                FfiConverterFloat.write(value.`size`, buf)
+                FfiConverterString.write(value.`fill`, buf)
+                FfiConverterTypeAffine.write(value.`transform`, buf)
+                FfiConverterTypePictureBounds.write(value.`bounds`, buf)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
@@ -8806,6 +10092,34 @@ public object FfiConverterSequenceTypeDrawingPoint: FfiConverterRustBuffer<List<
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeImageMarkView: FfiConverterRustBuffer<List<ImageMarkView>> {
+    override fun read(buf: ByteBuffer): List<ImageMarkView> {
+        val len = buf.getInt()
+        return List<ImageMarkView>(len) {
+            FfiConverterTypeImageMarkView.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<ImageMarkView>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeImageMarkView.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<ImageMarkView>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeImageMarkView.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeNoteSummary: FfiConverterRustBuffer<List<NoteSummary>> {
     override fun read(buf: ByteBuffer): List<NoteSummary> {
         val len = buf.getInt()
@@ -8852,6 +10166,90 @@ public object FfiConverterSequenceTypeNotebookSummary: FfiConverterRustBuffer<Li
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeNotebookSummary.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypePicturePoint: FfiConverterRustBuffer<List<PicturePoint>> {
+    override fun read(buf: ByteBuffer): List<PicturePoint> {
+        val len = buf.getInt()
+        return List<PicturePoint>(len) {
+            FfiConverterTypePicturePoint.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<PicturePoint>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypePicturePoint.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<PicturePoint>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypePicturePoint.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypePictureStep: FfiConverterRustBuffer<List<PictureStep>> {
+    override fun read(buf: ByteBuffer): List<PictureStep> {
+        val len = buf.getInt()
+        return List<PictureStep>(len) {
+            FfiConverterTypePictureStep.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<PictureStep>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypePictureStep.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<PictureStep>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypePictureStep.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeRejectedOperation: FfiConverterRustBuffer<List<RejectedOperation>> {
+    override fun read(buf: ByteBuffer): List<RejectedOperation> {
+        val len = buf.getInt()
+        return List<RejectedOperation>(len) {
+            FfiConverterTypeRejectedOperation.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<RejectedOperation>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeRejectedOperation.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<RejectedOperation>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeRejectedOperation.write(it, buf)
         }
     }
 }
@@ -8974,6 +10372,34 @@ public object FfiConverterSequenceTypeDrawingPrimitive: FfiConverterRustBuffer<L
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeImageMutation: FfiConverterRustBuffer<List<ImageMutation>> {
+    override fun read(buf: ByteBuffer): List<ImageMutation> {
+        val len = buf.getInt()
+        return List<ImageMutation>(len) {
+            FfiConverterTypeImageMutation.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<ImageMutation>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeImageMutation.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<ImageMutation>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeImageMutation.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeMarkMutation: FfiConverterRustBuffer<List<MarkMutation>> {
     override fun read(buf: ByteBuffer): List<MarkMutation> {
         val len = buf.getInt()
@@ -8992,6 +10418,34 @@ public object FfiConverterSequenceTypeMarkMutation: FfiConverterRustBuffer<List<
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeMarkMutation.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypePictureItem: FfiConverterRustBuffer<List<PictureItem>> {
+    override fun read(buf: ByteBuffer): List<PictureItem> {
+        val len = buf.getInt()
+        return List<PictureItem>(len) {
+            FfiConverterTypePictureItem.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<PictureItem>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypePictureItem.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<PictureItem>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypePictureItem.write(it, buf)
         }
     }
 }
@@ -9112,6 +10566,36 @@ public object FfiConverterSequenceTypePreviewEvent: FfiConverterRustBuffer<List<
         FfiConverterByteArray.lower(`samples`),
         FfiConverterTypeStrokeStyle.lower(`style`),
         FfiConverterTypeAffine.lower(`transform`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Canonical sanitization, with bounded reference expansion checked before admission.
+         */
+    @Throws(PictureException::class) fun `filterPicture`(`svg`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(PictureException) { _status ->
+    UniffiLib.uniffi_syncr_core_fn_func_filter_picture(
+    
+        
+        FfiConverterString.lower(`svg`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Accepts untrusted SVG too: the same filtering/admission rules always apply.
+         */
+    @Throws(PictureException::class) fun `pictureDisplayList`(`svg`: kotlin.String): PictureDisplayList {
+            return FfiConverterTypePictureDisplayList.lift(
+    uniffiRustCallWithError(PictureException) { _status ->
+    UniffiLib.uniffi_syncr_core_fn_func_picture_display_list(
+    
+        
+        FfiConverterString.lower(`svg`),_status)
 }
     )
     }
