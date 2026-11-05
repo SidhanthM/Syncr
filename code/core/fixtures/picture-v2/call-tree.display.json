@@ -1,0 +1,398 @@
+{
+  "width": 320.0,
+  "height": 220.0,
+  "always": [
+    {
+      "Text": {
+        "text": "A repeated call",
+        "x": 18.0,
+        "y": 20.0,
+        "anchor": "start",
+        "baseline": "alphabetic",
+        "font": "font-sans",
+        "size": 14.0,
+        "fill": "ink",
+        "transform": {
+          "a": 1.0,
+          "b": 0.0,
+          "c": 0.0,
+          "d": 1.0,
+          "tx": 0.0,
+          "ty": 0.0
+        },
+        "bounds": {
+          "min_x": 18.0,
+          "min_y": 6.0,
+          "max_x": 228.0,
+          "max_y": 25.600586
+        }
+      }
+    }
+  ],
+  "steps": [
+    {
+      "number": 1,
+      "caption": "Split into two calls",
+      "hide": [],
+      "dim": [],
+      "items": [
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 160.0,
+                "y": 50.0
+              },
+              {
+                "x": 80.0,
+                "y": 100.0
+              }
+            ],
+            "closed": false,
+            "stroke": "soft",
+            "stroke_width": 1.0,
+            "fill": "none",
+            "bounds": {
+              "min_x": 79.5,
+              "min_y": 49.5,
+              "max_x": 160.5,
+              "max_y": 100.5
+            }
+          }
+        },
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 160.0,
+                "y": 50.0
+              },
+              {
+                "x": 240.0,
+                "y": 100.0
+              }
+            ],
+            "closed": false,
+            "stroke": "soft",
+            "stroke_width": 1.0,
+            "fill": "none",
+            "bounds": {
+              "min_x": 159.5,
+              "min_y": 49.5,
+              "max_x": 240.5,
+              "max_y": 100.5
+            }
+          }
+        },
+        {
+          "Text": {
+            "text": "fib(4)",
+            "x": 160.0,
+            "y": 42.0,
+            "anchor": "middle",
+            "baseline": "alphabetic",
+            "font": "font-sans",
+            "size": 14.0,
+            "fill": "ink",
+            "transform": {
+              "a": 1.0,
+              "b": 0.0,
+              "c": 0.0,
+              "d": 1.0,
+              "tx": 0.0,
+              "ty": 0.0
+            },
+            "bounds": {
+              "min_x": 118.0,
+              "min_y": 28.0,
+              "max_x": 202.0,
+              "max_y": 47.600586
+            }
+          }
+        },
+        {
+          "Text": {
+            "text": "fib(3)",
+            "x": 80.0,
+            "y": 120.0,
+            "anchor": "middle",
+            "baseline": "alphabetic",
+            "font": "font-sans",
+            "size": 14.0,
+            "fill": "ink",
+            "transform": {
+              "a": 1.0,
+              "b": 0.0,
+              "c": 0.0,
+              "d": 1.0,
+              "tx": 0.0,
+              "ty": 0.0
+            },
+            "bounds": {
+              "min_x": 38.0,
+              "min_y": 106.0,
+              "max_x": 122.0,
+              "max_y": 125.600586
+            }
+          }
+        },
+        {
+          "Text": {
+            "text": "fib(2)",
+            "x": 240.0,
+            "y": 120.0,
+            "anchor": "middle",
+            "baseline": "alphabetic",
+            "font": "font-sans",
+            "size": 14.0,
+            "fill": "ink",
+            "transform": {
+              "a": 1.0,
+              "b": 0.0,
+              "c": 0.0,
+              "d": 1.0,
+              "tx": 0.0,
+              "ty": 0.0
+            },
+            "bounds": {
+              "min_x": 198.0,
+              "min_y": 106.0,
+              "max_x": 282.0,
+              "max_y": 125.600586
+            }
+          }
+        }
+      ]
+    },
+    {
+      "number": 2,
+      "caption": "Expand the left call",
+      "hide": [],
+      "dim": [
+        1
+      ],
+      "items": [
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 80.0,
+                "y": 130.0
+              },
+              {
+                "x": 40.0,
+                "y": 170.0
+              }
+            ],
+            "closed": false,
+            "stroke": "voice",
+            "stroke_width": 1.0,
+            "fill": "none",
+            "bounds": {
+              "min_x": 39.5,
+              "min_y": 129.5,
+              "max_x": 80.5,
+              "max_y": 170.5
+            }
+          }
+        },
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 80.0,
+                "y": 130.0
+              },
+              {
+                "x": 120.0,
+                "y": 170.0
+              }
+            ],
+            "closed": false,
+            "stroke": "voice",
+            "stroke_width": 1.0,
+            "fill": "none",
+            "bounds": {
+              "min_x": 79.5,
+              "min_y": 129.5,
+              "max_x": 120.5,
+              "max_y": 170.5
+            }
+          }
+        },
+        {
+          "Text": {
+            "text": "fib(2)",
+            "x": 40.0,
+            "y": 190.0,
+            "anchor": "middle",
+            "baseline": "alphabetic",
+            "font": "font-sans",
+            "size": 14.0,
+            "fill": "ink",
+            "transform": {
+              "a": 1.0,
+              "b": 0.0,
+              "c": 0.0,
+              "d": 1.0,
+              "tx": 0.0,
+              "ty": 0.0
+            },
+            "bounds": {
+              "min_x": -2.0,
+              "min_y": 176.0,
+              "max_x": 82.0,
+              "max_y": 195.60059
+            }
+          }
+        },
+        {
+          "Text": {
+            "text": "fib(1)",
+            "x": 120.0,
+            "y": 190.0,
+            "anchor": "middle",
+            "baseline": "alphabetic",
+            "font": "font-sans",
+            "size": 14.0,
+            "fill": "ink",
+            "transform": {
+              "a": 1.0,
+              "b": 0.0,
+              "c": 0.0,
+              "d": 1.0,
+              "tx": 0.0,
+              "ty": 0.0
+            },
+            "bounds": {
+              "min_x": 78.0,
+              "min_y": 176.0,
+              "max_x": 162.0,
+              "max_y": 195.60059
+            }
+          }
+        }
+      ]
+    },
+    {
+      "number": 3,
+      "caption": "Replace the expanded calls with a result",
+      "hide": [
+        2
+      ],
+      "dim": [],
+      "items": [
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 45.0,
+                "y": 145.0
+              },
+              {
+                "x": 135.0,
+                "y": 145.0
+              },
+              {
+                "x": 137.5,
+                "y": 145.66992
+              },
+              {
+                "x": 139.33008,
+                "y": 147.5
+              },
+              {
+                "x": 140.0,
+                "y": 150.0
+              },
+              {
+                "x": 140.0,
+                "y": 180.0
+              },
+              {
+                "x": 139.33008,
+                "y": 182.5
+              },
+              {
+                "x": 137.5,
+                "y": 184.33008
+              },
+              {
+                "x": 135.0,
+                "y": 185.0
+              },
+              {
+                "x": 45.0,
+                "y": 185.0
+              },
+              {
+                "x": 42.5,
+                "y": 184.33008
+              },
+              {
+                "x": 40.66992,
+                "y": 182.5
+              },
+              {
+                "x": 40.0,
+                "y": 180.0
+              },
+              {
+                "x": 40.0,
+                "y": 150.0
+              },
+              {
+                "x": 40.66992,
+                "y": 147.5
+              },
+              {
+                "x": 42.5,
+                "y": 145.66992
+              },
+              {
+                "x": 45.0,
+                "y": 145.0
+              }
+            ],
+            "closed": true,
+            "stroke": "none",
+            "stroke_width": 1.0,
+            "fill": "wash",
+            "bounds": {
+              "min_x": 40.0,
+              "min_y": 145.0,
+              "max_x": 140.0,
+              "max_y": 185.0
+            }
+          }
+        },
+        {
+          "Text": {
+            "text": "2 + 1 = 3",
+            "x": 90.0,
+            "y": 170.0,
+            "anchor": "middle",
+            "baseline": "alphabetic",
+            "font": "font-sans",
+            "size": 14.0,
+            "fill": "ink",
+            "transform": {
+              "a": 1.0,
+              "b": 0.0,
+              "c": 0.0,
+              "d": 1.0,
+              "tx": 0.0,
+              "ty": 0.0
+            },
+            "bounds": {
+              "min_x": 27.0,
+              "min_y": 156.0,
+              "max_x": 153.0,
+              "max_y": 175.60059
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

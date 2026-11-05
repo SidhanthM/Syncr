@@ -1,0 +1,318 @@
+{
+  "width": 320.0,
+  "height": 280.0,
+  "always": [
+    {
+      "Text": {
+        "text": "Forces on a slope",
+        "x": 18.0,
+        "y": 20.0,
+        "anchor": "start",
+        "baseline": "alphabetic",
+        "font": "font-voice",
+        "size": 14.0,
+        "fill": "ink",
+        "transform": {
+          "a": 1.0,
+          "b": 0.0,
+          "c": 0.0,
+          "d": 1.0,
+          "tx": 0.0,
+          "ty": 0.0
+        },
+        "bounds": {
+          "min_x": 18.0,
+          "min_y": 6.0,
+          "max_x": 256.0,
+          "max_y": 25.600586
+        }
+      }
+    }
+  ],
+  "steps": [
+    {
+      "number": 1,
+      "caption": "Place the block on a slope",
+      "hide": [],
+      "dim": [],
+      "items": [
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 30.0,
+                "y": 210.0
+              },
+              {
+                "x": 280.0,
+                "y": 80.0
+              },
+              {
+                "x": 280.0,
+                "y": 210.0
+              }
+            ],
+            "closed": true,
+            "stroke": "ink",
+            "stroke_width": 1.2001953,
+            "fill": "wash",
+            "bounds": {
+              "min_x": 29.399414,
+              "min_y": 79.399414,
+              "max_x": 280.6006,
+              "max_y": 210.60059
+            }
+          }
+        },
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 113.56055,
+                "y": 112.34961
+              },
+              {
+                "x": 149.2002,
+                "y": 94.19043
+              },
+              {
+                "x": 162.82031,
+                "y": 120.91992
+              },
+              {
+                "x": 127.17969,
+                "y": 139.08008
+              }
+            ],
+            "closed": true,
+            "stroke": "ink",
+            "stroke_width": 1.2001953,
+            "fill": "page",
+            "bounds": {
+              "min_x": 112.95996,
+              "min_y": 93.58984,
+              "max_x": 163.4209,
+              "max_y": 139.68066
+            }
+          }
+        }
+      ]
+    },
+    {
+      "number": 2,
+      "caption": "Gravity points straight down",
+      "hide": [],
+      "dim": [],
+      "items": [
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 145.0,
+                "y": 120.0
+              },
+              {
+                "x": 145.0,
+                "y": 225.0
+              }
+            ],
+            "closed": false,
+            "stroke": "voice",
+            "stroke_width": 1.2001953,
+            "fill": "none",
+            "bounds": {
+              "min_x": 144.39941,
+              "min_y": 119.399414,
+              "max_x": 145.60059,
+              "max_y": 225.60059
+            }
+          }
+        },
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 148.36035,
+                "y": 218.28027
+              },
+              {
+                "x": 145.0,
+                "y": 225.0
+              },
+              {
+                "x": 141.63965,
+                "y": 218.28027
+              }
+            ],
+            "closed": false,
+            "stroke": "voice",
+            "stroke_width": 1.0078125,
+            "fill": "none",
+            "bounds": {
+              "min_x": 141.13574,
+              "min_y": 217.77539,
+              "max_x": 148.86426,
+              "max_y": 225.50488
+            }
+          }
+        },
+        {
+          "Text": {
+            "text": "mg",
+            "x": 160.0,
+            "y": 240.0,
+            "anchor": "start",
+            "baseline": "alphabetic",
+            "font": "font-voice",
+            "size": 14.0,
+            "fill": "voice",
+            "transform": {
+              "a": 1.0,
+              "b": 0.0,
+              "c": 0.0,
+              "d": 1.0,
+              "tx": 0.0,
+              "ty": 0.0
+            },
+            "bounds": {
+              "min_x": 160.0,
+              "min_y": 226.0,
+              "max_x": 188.0,
+              "max_y": 245.60059
+            }
+          }
+        }
+      ]
+    },
+    {
+      "number": 3,
+      "caption": "The normal is perpendicular to the slope",
+      "hide": [],
+      "dim": [],
+      "items": [
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 145.0,
+                "y": 120.0
+              },
+              {
+                "x": 128.75,
+                "y": 88.0
+              },
+              {
+                "x": 110.0,
+                "y": 52.0
+              }
+            ],
+            "closed": false,
+            "stroke": "voice",
+            "stroke_width": 1.2001953,
+            "fill": "none",
+            "bounds": {
+              "min_x": 109.399414,
+              "min_y": 51.399414,
+              "max_x": 145.60059,
+              "max_y": 120.600586
+            }
+          }
+        },
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 110.12402,
+                "y": 59.51172
+              },
+              {
+                "x": 110.0,
+                "y": 52.0
+              },
+              {
+                "x": 116.083984,
+                "y": 56.408203
+              }
+            ],
+            "closed": false,
+            "stroke": "voice",
+            "stroke_width": 1.0078125,
+            "fill": "none",
+            "bounds": {
+              "min_x": 109.49512,
+              "min_y": 51.495117,
+              "max_x": 116.58887,
+              "max_y": 60.0166
+            }
+          }
+        },
+        {
+          "Text": {
+            "text": "N",
+            "x": 88.0,
+            "y": 45.0,
+            "anchor": "start",
+            "baseline": "alphabetic",
+            "font": "font-voice",
+            "size": 14.0,
+            "fill": "voice",
+            "transform": {
+              "a": 1.0,
+              "b": 0.0,
+              "c": 0.0,
+              "d": 1.0,
+              "tx": 0.0,
+              "ty": 0.0
+            },
+            "bounds": {
+              "min_x": 88.0,
+              "min_y": 31.0,
+              "max_x": 102.0,
+              "max_y": 50.600586
+            }
+          }
+        },
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 190.0,
+                "y": 127.0
+              },
+              {
+                "x": 189.6211,
+                "y": 134.5039
+              },
+              {
+                "x": 187.84668,
+                "y": 141.80371
+              },
+              {
+                "x": 184.7373,
+                "y": 148.64355
+              },
+              {
+                "x": 180.4043,
+                "y": 154.78125
+              },
+              {
+                "x": 175.0,
+                "y": 160.0
+              }
+            ],
+            "closed": false,
+            "stroke": "muted",
+            "stroke_width": 1.2001953,
+            "fill": "none",
+            "bounds": {
+              "min_x": 174.39941,
+              "min_y": 126.399414,
+              "max_x": 190.60059,
+              "max_y": 160.60059
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "operation_id": "00000000000000000000000003",
+  "dependencies": [],
+  "body": {
+    "CompanionMarks": {
+      "mutations": [
+        {
+          "id": "00000000000000000000000004",
+          "base": "Absent",
+          "tombstone": false,
+          "body": {
+            "Picture": {
+              "anchor_id": "00000000000000000000000005",
+              "title": "Flow",
+              "svg": "<svg viewBox=\"0 0 320 200\"><g data-caption=\"Start\" data-step=\"1\"><line stroke=\"var(--ink)\" x1=\"10\" x2=\"100\" y1=\"20\" y2=\"20\"/><text x=\"10\" y=\"40\">Label</text></g></svg>"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

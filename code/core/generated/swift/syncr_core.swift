@@ -664,9 +664,20 @@ public protocol NoteProtocol: AnyObject, Sendable {
     
     func exportCopy(destinationPath: String) throws  -> ExportReceipt
     
+    /**
+     * Original immutable PNG/JPEG container, also available for tombstoned marks.
+     */
+    func getImageBytes(imageId: String) throws  -> Data
+    
     func getSamples(markId: String) throws  -> Data
     
     func lookupOperation(operationId: String) throws  -> OperationLookup
+    
+    /**
+     * Appends every operation of `copy_path` this note lacks, under its stored author.
+     * Rejected operations are reported, not applied. See `tasks/contracts/sync-v1.md`.
+     */
+    func mergeCopy(copyPath: String) throws  -> MergeReport
     
     func snapshot() throws  -> NoteSnapshot
     
@@ -676,6 +687,11 @@ public protocol NoteProtocol: AnyObject, Sendable {
      * The only agent text write is insertion of an existing drawing's embed line.
      */
     func submitAgent(command: Command) throws  -> Receipt
+    
+    /**
+     * Operation count and SHA-256 over the sorted operation IDs; cached until the next commit.
+     */
+    func syncDigest() throws  -> SyncDigest
     
 }
 open class Note: NoteProtocol, @unchecked Sendable {
@@ -781,6 +797,19 @@ open func exportCopy(destinationPath: String)throws  -> ExportReceipt  {
 })
 }
     
+    /**
+     * Original immutable PNG/JPEG container, also available for tombstoned marks.
+     */
+open func getImageBytes(imageId: String)throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_syncr_core_fn_method_note_get_image_bytes(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(imageId),uniffiCallStatus
+    )
+})
+}
+    
 open func getSamples(markId: String)throws  -> Data  {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
         uniffiCallStatus in
@@ -797,6 +826,20 @@ open func lookupOperation(operationId: String)throws  -> OperationLookup  {
     uniffi_syncr_core_fn_method_note_lookup_operation(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(operationId),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Appends every operation of `copy_path` this note lacks, under its stored author.
+     * Rejected operations are reported, not applied. See `tasks/contracts/sync-v1.md`.
+     */
+open func mergeCopy(copyPath: String)throws  -> MergeReport  {
+    return try  FfiConverterTypeMergeReport_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_syncr_core_fn_method_note_merge_copy(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(copyPath),uniffiCallStatus
     )
 })
 }
@@ -829,6 +872,18 @@ open func submitAgent(command: Command)throws  -> Receipt  {
     uniffi_syncr_core_fn_method_note_submit_agent(
             self.uniffiCloneHandle(),
         FfiConverterTypeCommand_lower(command),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Operation count and SHA-256 over the sorted operation IDs; cached until the next commit.
+     */
+open func syncDigest()throws  -> SyncDigest  {
+    return try  FfiConverterTypeSyncDigest_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_syncr_core_fn_method_note_sync_digest(
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -1533,6 +1588,13 @@ public protocol SyncrLibraryProtocol: AnyObject, Sendable {
     func deleteNotebook(name: String) throws 
     
     /**
+     * Places a validated copy of a note this library does not have, never overwriting.
+     * `IdCollision` when the note is published, in Recently deleted or purged. The copy is
+     * not migrated; an old-format note upgrades when first opened.
+     */
+    func installCopy(copyPath: String) throws  -> NoteSummary
+    
+    /**
      * Recently deleted, newest deletion first.
      */
     func listDeletedNotes() throws  -> [DeletedNoteSummary]
@@ -1550,6 +1612,11 @@ public protocol SyncrLibraryProtocol: AnyObject, Sendable {
      */
     func lookupCreation(operationId: String) throws  -> OperationLookup
     
+    /**
+     * `Note::sync_digest` for a note that may be closed (read-only when closed).
+     */
+    func noteSyncDigest(noteId: String) throws  -> SyncDigest
+    
     func openNote(noteId: String) throws  -> Note
     
     /**
@@ -1563,6 +1630,13 @@ public protocol SyncrLibraryProtocol: AnyObject, Sendable {
      * deleted can be purged (`InvalidInput` for a library note). Idempotent once purged.
      */
     func purgeNote(noteId: String) throws 
+    
+    /**
+     * Phone side of a conflict: rebuilds the closed note as the copy plus this file's own
+     * operations that still apply, after a backup. `rejected` holds the local operations
+     * that were dropped. `NoteLocked` while a handle is open.
+     */
+    func rebaseOntoCopy(noteId: String, copyPath: String) throws  -> MergeReport
     
     /**
      * Renames the registry entry, then submits one SetNotebook per member note,
@@ -1692,6 +1766,21 @@ open func deleteNotebook(name: String)throws   {try rustCallWithError(FfiConvert
 }
     
     /**
+     * Places a validated copy of a note this library does not have, never overwriting.
+     * `IdCollision` when the note is published, in Recently deleted or purged. The copy is
+     * not migrated; an old-format note upgrades when first opened.
+     */
+open func installCopy(copyPath: String)throws  -> NoteSummary  {
+    return try  FfiConverterTypeNoteSummary_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_syncr_core_fn_method_syncrlibrary_install_copy(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(copyPath),uniffiCallStatus
+    )
+})
+}
+    
+    /**
      * Recently deleted, newest deletion first.
      */
 open func listDeletedNotes()throws  -> [DeletedNoteSummary]  {
@@ -1738,6 +1827,19 @@ open func lookupCreation(operationId: String)throws  -> OperationLookup  {
 })
 }
     
+    /**
+     * `Note::sync_digest` for a note that may be closed (read-only when closed).
+     */
+open func noteSyncDigest(noteId: String)throws  -> SyncDigest  {
+    return try  FfiConverterTypeSyncDigest_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_syncr_core_fn_method_syncrlibrary_note_sync_digest(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(noteId),uniffiCallStatus
+    )
+})
+}
+    
 open func openNote(noteId: String)throws  -> Note  {
     return try  FfiConverterTypeNote_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
         uniffiCallStatus in
@@ -1773,6 +1875,22 @@ open func purgeNote(noteId: String)throws   {try rustCallWithError(FfiConverterT
         FfiConverterString.lower(noteId),uniffiCallStatus
     )
 }
+}
+    
+    /**
+     * Phone side of a conflict: rebuilds the closed note as the copy plus this file's own
+     * operations that still apply, after a backup. `rejected` holds the local operations
+     * that were dropped. `NoteLocked` while a handle is open.
+     */
+open func rebaseOntoCopy(noteId: String, copyPath: String)throws  -> MergeReport  {
+    return try  FfiConverterTypeMergeReport_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_syncr_core_fn_method_syncrlibrary_rebase_onto_copy(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(noteId),
+        FfiConverterString.lower(copyPath),uniffiCallStatus
+    )
+})
 }
     
     /**
@@ -2880,6 +2998,146 @@ public func FfiConverterTypeExportReceipt_lower(_ value: ExportReceipt) -> RustB
 }
 
 
+public struct ImageMarkView: Equatable, Hashable {
+    public var id: String
+    public var authorId: String
+    public var head: EntityHead
+    public var mediaType: ImageMediaType
+    public var pixelWidth: UInt32
+    public var pixelHeight: UInt32
+    public var placement: ImagePlacement
+    public var tombstone: Bool
+    public var seenByCompanion: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, authorId: String, head: EntityHead, mediaType: ImageMediaType, pixelWidth: UInt32, pixelHeight: UInt32, placement: ImagePlacement, tombstone: Bool, seenByCompanion: Bool) {
+        self.id = id
+        self.authorId = authorId
+        self.head = head
+        self.mediaType = mediaType
+        self.pixelWidth = pixelWidth
+        self.pixelHeight = pixelHeight
+        self.placement = placement
+        self.tombstone = tombstone
+        self.seenByCompanion = seenByCompanion
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ImageMarkView: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeImageMarkView: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ImageMarkView {
+        return
+            try ImageMarkView(
+                id: FfiConverterString.read(from: &buf), 
+                authorId: FfiConverterString.read(from: &buf), 
+                head: FfiConverterTypeEntityHead.read(from: &buf), 
+                mediaType: FfiConverterTypeImageMediaType.read(from: &buf), 
+                pixelWidth: FfiConverterUInt32.read(from: &buf), 
+                pixelHeight: FfiConverterUInt32.read(from: &buf), 
+                placement: FfiConverterTypeImagePlacement.read(from: &buf), 
+                tombstone: FfiConverterBool.read(from: &buf), 
+                seenByCompanion: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ImageMarkView, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.authorId, into: &buf)
+        FfiConverterTypeEntityHead.write(value.head, into: &buf)
+        FfiConverterTypeImageMediaType.write(value.mediaType, into: &buf)
+        FfiConverterUInt32.write(value.pixelWidth, into: &buf)
+        FfiConverterUInt32.write(value.pixelHeight, into: &buf)
+        FfiConverterTypeImagePlacement.write(value.placement, into: &buf)
+        FfiConverterBool.write(value.tombstone, into: &buf)
+        FfiConverterBool.write(value.seenByCompanion, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeImageMarkView_lift(_ buf: RustBuffer) throws -> ImageMarkView {
+    return try FfiConverterTypeImageMarkView.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeImageMarkView_lower(_ value: ImageMarkView) -> RustBuffer {
+    return FfiConverterTypeImageMarkView.lower(value)
+}
+
+
+public struct MergeReport: Equatable, Hashable {
+    public var applied: UInt32
+    public var duplicates: UInt32
+    public var rejected: [RejectedOperation]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(applied: UInt32, duplicates: UInt32, rejected: [RejectedOperation]) {
+        self.applied = applied
+        self.duplicates = duplicates
+        self.rejected = rejected
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension MergeReport: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMergeReport: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MergeReport {
+        return
+            try MergeReport(
+                applied: FfiConverterUInt32.read(from: &buf), 
+                duplicates: FfiConverterUInt32.read(from: &buf), 
+                rejected: FfiConverterSequenceTypeRejectedOperation.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MergeReport, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.applied, into: &buf)
+        FfiConverterUInt32.write(value.duplicates, into: &buf)
+        FfiConverterSequenceTypeRejectedOperation.write(value.rejected, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMergeReport_lift(_ buf: RustBuffer) throws -> MergeReport {
+    return try FfiConverterTypeMergeReport.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMergeReport_lower(_ value: MergeReport) -> RustBuffer {
+    return FfiConverterTypeMergeReport.lower(value)
+}
+
+
 public struct NoteSnapshot: Equatable, Hashable {
     public var noteId: String
     public var title: String
@@ -2901,13 +3159,14 @@ public struct NoteSnapshot: Equatable, Hashable {
     public var textBlocks: [TextBlockView]
     public var companionItems: [CompanionItemView]
     public var companionSettings: CompanionSettingsView?
+    public var images: [ImageMarkView]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init(noteId: String, title: String, notebook: String?, metadataHead: EntityHead, structureHead: EntityHead, sheets: [SheetView], strokes: [StrokeView], localSequence: UInt64, cursor: EventCursor, undoTarget: String?, redoTarget: String?, undoDependencies: [String], redoDependencies: [String], 
         /**
          * Metadata, like `notebook`; changed by SetArchived. Trailing with a default.
-         */archived: Bool = false, textBlocks: [TextBlockView] = [], companionItems: [CompanionItemView] = [], companionSettings: CompanionSettingsView? = nil) {
+         */archived: Bool = false, textBlocks: [TextBlockView] = [], companionItems: [CompanionItemView] = [], companionSettings: CompanionSettingsView? = nil, images: [ImageMarkView] = []) {
         self.noteId = noteId
         self.title = title
         self.notebook = notebook
@@ -2925,6 +3184,7 @@ public struct NoteSnapshot: Equatable, Hashable {
         self.textBlocks = textBlocks
         self.companionItems = companionItems
         self.companionSettings = companionSettings
+        self.images = images
     }
 
     
@@ -2959,7 +3219,8 @@ public struct FfiConverterTypeNoteSnapshot: FfiConverterRustBuffer {
                 archived: FfiConverterBool.read(from: &buf), 
                 textBlocks: FfiConverterSequenceTypeTextBlockView.read(from: &buf), 
                 companionItems: FfiConverterSequenceTypeCompanionItemView.read(from: &buf), 
-                companionSettings: FfiConverterOptionTypeCompanionSettingsView.read(from: &buf)
+                companionSettings: FfiConverterOptionTypeCompanionSettingsView.read(from: &buf), 
+                images: FfiConverterSequenceTypeImageMarkView.read(from: &buf)
         )
     }
 
@@ -2981,6 +3242,7 @@ public struct FfiConverterTypeNoteSnapshot: FfiConverterRustBuffer {
         FfiConverterSequenceTypeTextBlockView.write(value.textBlocks, into: &buf)
         FfiConverterSequenceTypeCompanionItemView.write(value.companionItems, into: &buf)
         FfiConverterOptionTypeCompanionSettingsView.write(value.companionSettings, into: &buf)
+        FfiConverterSequenceTypeImageMarkView.write(value.images, into: &buf)
     }
 }
 
@@ -3145,6 +3407,250 @@ public func FfiConverterTypeNotebookSummary_lift(_ buf: RustBuffer) throws -> No
 #endif
 public func FfiConverterTypeNotebookSummary_lower(_ value: NotebookSummary) -> RustBuffer {
     return FfiConverterTypeNotebookSummary.lower(value)
+}
+
+
+public struct PictureBounds: Equatable, Hashable {
+    public var minX: Float
+    public var minY: Float
+    public var maxX: Float
+    public var maxY: Float
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(minX: Float, minY: Float, maxX: Float, maxY: Float) {
+        self.minX = minX
+        self.minY = minY
+        self.maxX = maxX
+        self.maxY = maxY
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PictureBounds: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePictureBounds: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PictureBounds {
+        return
+            try PictureBounds(
+                minX: FfiConverterFloat.read(from: &buf), 
+                minY: FfiConverterFloat.read(from: &buf), 
+                maxX: FfiConverterFloat.read(from: &buf), 
+                maxY: FfiConverterFloat.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PictureBounds, into buf: inout [UInt8]) {
+        FfiConverterFloat.write(value.minX, into: &buf)
+        FfiConverterFloat.write(value.minY, into: &buf)
+        FfiConverterFloat.write(value.maxX, into: &buf)
+        FfiConverterFloat.write(value.maxY, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePictureBounds_lift(_ buf: RustBuffer) throws -> PictureBounds {
+    return try FfiConverterTypePictureBounds.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePictureBounds_lower(_ value: PictureBounds) -> RustBuffer {
+    return FfiConverterTypePictureBounds.lower(value)
+}
+
+
+public struct PictureDisplayList: Equatable, Hashable {
+    public var width: Float
+    public var height: Float
+    public var always: [PictureItem]
+    public var steps: [PictureStep]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(width: Float, height: Float, always: [PictureItem], steps: [PictureStep]) {
+        self.width = width
+        self.height = height
+        self.always = always
+        self.steps = steps
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PictureDisplayList: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePictureDisplayList: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PictureDisplayList {
+        return
+            try PictureDisplayList(
+                width: FfiConverterFloat.read(from: &buf), 
+                height: FfiConverterFloat.read(from: &buf), 
+                always: FfiConverterSequenceTypePictureItem.read(from: &buf), 
+                steps: FfiConverterSequenceTypePictureStep.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PictureDisplayList, into buf: inout [UInt8]) {
+        FfiConverterFloat.write(value.width, into: &buf)
+        FfiConverterFloat.write(value.height, into: &buf)
+        FfiConverterSequenceTypePictureItem.write(value.always, into: &buf)
+        FfiConverterSequenceTypePictureStep.write(value.steps, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePictureDisplayList_lift(_ buf: RustBuffer) throws -> PictureDisplayList {
+    return try FfiConverterTypePictureDisplayList.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePictureDisplayList_lower(_ value: PictureDisplayList) -> RustBuffer {
+    return FfiConverterTypePictureDisplayList.lower(value)
+}
+
+
+public struct PicturePoint: Equatable, Hashable {
+    public var x: Float
+    public var y: Float
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(x: Float, y: Float) {
+        self.x = x
+        self.y = y
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PicturePoint: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePicturePoint: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PicturePoint {
+        return
+            try PicturePoint(
+                x: FfiConverterFloat.read(from: &buf), 
+                y: FfiConverterFloat.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PicturePoint, into buf: inout [UInt8]) {
+        FfiConverterFloat.write(value.x, into: &buf)
+        FfiConverterFloat.write(value.y, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePicturePoint_lift(_ buf: RustBuffer) throws -> PicturePoint {
+    return try FfiConverterTypePicturePoint.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePicturePoint_lower(_ value: PicturePoint) -> RustBuffer {
+    return FfiConverterTypePicturePoint.lower(value)
+}
+
+
+public struct PictureStep: Equatable, Hashable {
+    public var number: UInt32
+    public var caption: String
+    public var hide: [UInt32]
+    public var dim: [UInt32]
+    public var items: [PictureItem]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(number: UInt32, caption: String, hide: [UInt32], dim: [UInt32], items: [PictureItem]) {
+        self.number = number
+        self.caption = caption
+        self.hide = hide
+        self.dim = dim
+        self.items = items
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PictureStep: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePictureStep: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PictureStep {
+        return
+            try PictureStep(
+                number: FfiConverterUInt32.read(from: &buf), 
+                caption: FfiConverterString.read(from: &buf), 
+                hide: FfiConverterSequenceUInt32.read(from: &buf), 
+                dim: FfiConverterSequenceUInt32.read(from: &buf), 
+                items: FfiConverterSequenceTypePictureItem.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PictureStep, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.number, into: &buf)
+        FfiConverterString.write(value.caption, into: &buf)
+        FfiConverterSequenceUInt32.write(value.hide, into: &buf)
+        FfiConverterSequenceUInt32.write(value.dim, into: &buf)
+        FfiConverterSequenceTypePictureItem.write(value.items, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePictureStep_lift(_ buf: RustBuffer) throws -> PictureStep {
+    return try FfiConverterTypePictureStep.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePictureStep_lower(_ value: PictureStep) -> RustBuffer {
+    return FfiConverterTypePictureStep.lower(value)
 }
 
 
@@ -3376,6 +3882,75 @@ public func FfiConverterTypeReceipt_lift(_ buf: RustBuffer) throws -> Receipt {
 #endif
 public func FfiConverterTypeReceipt_lower(_ value: Receipt) -> RustBuffer {
     return FfiConverterTypeReceipt.lower(value)
+}
+
+
+/**
+ * An operation of a copy that was not applied, kept whole so nothing is lost.
+ */
+public struct RejectedOperation: Equatable, Hashable {
+    public var operationId: String
+    public var authorId: String
+    public var payloadJson: String
+    public var canonicalHex: String
+    public var reason: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(operationId: String, authorId: String, payloadJson: String, canonicalHex: String, reason: String) {
+        self.operationId = operationId
+        self.authorId = authorId
+        self.payloadJson = payloadJson
+        self.canonicalHex = canonicalHex
+        self.reason = reason
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension RejectedOperation: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRejectedOperation: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RejectedOperation {
+        return
+            try RejectedOperation(
+                operationId: FfiConverterString.read(from: &buf), 
+                authorId: FfiConverterString.read(from: &buf), 
+                payloadJson: FfiConverterString.read(from: &buf), 
+                canonicalHex: FfiConverterString.read(from: &buf), 
+                reason: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RejectedOperation, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.operationId, into: &buf)
+        FfiConverterString.write(value.authorId, into: &buf)
+        FfiConverterString.write(value.payloadJson, into: &buf)
+        FfiConverterString.write(value.canonicalHex, into: &buf)
+        FfiConverterString.write(value.reason, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRejectedOperation_lift(_ buf: RustBuffer) throws -> RejectedOperation {
+    return try FfiConverterTypeRejectedOperation.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRejectedOperation_lower(_ value: RejectedOperation) -> RustBuffer {
+    return FfiConverterTypeRejectedOperation.lower(value)
 }
 
 
@@ -3875,6 +4450,69 @@ public func FfiConverterTypeStrokeView_lift(_ buf: RustBuffer) throws -> StrokeV
 #endif
 public func FfiConverterTypeStrokeView_lower(_ value: StrokeView) -> RustBuffer {
     return FfiConverterTypeStrokeView.lower(value)
+}
+
+
+/**
+ * Identity of a note's operation set: equal sets give equal digests whatever the log order.
+ */
+public struct SyncDigest: Equatable, Hashable {
+    public var operationCount: UInt64
+    /**
+     * SHA-256 (lowercase hex) over the sorted operation IDs, each followed by `\n`.
+     */
+    public var digest: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(operationCount: UInt64, 
+        /**
+         * SHA-256 (lowercase hex) over the sorted operation IDs, each followed by `\n`.
+         */digest: String) {
+        self.operationCount = operationCount
+        self.digest = digest
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension SyncDigest: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSyncDigest: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SyncDigest {
+        return
+            try SyncDigest(
+                operationCount: FfiConverterUInt64.read(from: &buf), 
+                digest: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SyncDigest, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.operationCount, into: &buf)
+        FfiConverterString.write(value.digest, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSyncDigest_lift(_ buf: RustBuffer) throws -> SyncDigest {
+    return try FfiConverterTypeSyncDigest.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSyncDigest_lower(_ value: SyncDigest) -> RustBuffer {
+    return FfiConverterTypeSyncDigest.lower(value)
 }
 
 
@@ -4484,6 +5122,8 @@ public func FfiConverterTypeChangePage_lower(_ value: ChangePage) -> RustBuffer 
 
 public enum CommandBody: Equatable, Hashable {
     
+    case imageMarks(mutations: [ImageMutation]
+    )
     case marks(mutations: [MarkMutation]
     )
     case addSheet(sheetId: String, base: Base
@@ -4531,34 +5171,37 @@ public struct FfiConverterTypeCommandBody: FfiConverterRustBuffer {
         let variant: Int32 = try readInt(&buf)
         switch variant {
         
-        case 1: return .marks(mutations: try FfiConverterSequenceTypeMarkMutation.read(from: &buf)
+        case 1: return .imageMarks(mutations: try FfiConverterSequenceTypeImageMutation.read(from: &buf)
         )
         
-        case 2: return .addSheet(sheetId: try FfiConverterString.read(from: &buf), base: try FfiConverterTypeBase.read(from: &buf)
+        case 2: return .marks(mutations: try FfiConverterSequenceTypeMarkMutation.read(from: &buf)
         )
         
-        case 3: return .reorderSheets(sheetIds: try FfiConverterSequenceString.read(from: &buf), base: try FfiConverterTypeBase.read(from: &buf)
+        case 3: return .addSheet(sheetId: try FfiConverterString.read(from: &buf), base: try FfiConverterTypeBase.read(from: &buf)
         )
         
-        case 4: return .renameNote(title: try FfiConverterString.read(from: &buf), base: try FfiConverterTypeBase.read(from: &buf)
+        case 4: return .reorderSheets(sheetIds: try FfiConverterSequenceString.read(from: &buf), base: try FfiConverterTypeBase.read(from: &buf)
         )
         
-        case 5: return .setNotebook(notebook: try FfiConverterOptionString.read(from: &buf), base: try FfiConverterTypeBase.read(from: &buf)
+        case 5: return .renameNote(title: try FfiConverterString.read(from: &buf), base: try FfiConverterTypeBase.read(from: &buf)
         )
         
-        case 6: return .setArchived(archived: try FfiConverterBool.read(from: &buf), base: try FfiConverterTypeBase.read(from: &buf)
+        case 6: return .setNotebook(notebook: try FfiConverterOptionString.read(from: &buf), base: try FfiConverterTypeBase.read(from: &buf)
         )
         
-        case 7: return .undo(targetOperationId: try FfiConverterString.read(from: &buf)
+        case 7: return .setArchived(archived: try FfiConverterBool.read(from: &buf), base: try FfiConverterTypeBase.read(from: &buf)
         )
         
-        case 8: return .redo(targetOperationId: try FfiConverterString.read(from: &buf)
+        case 8: return .undo(targetOperationId: try FfiConverterString.read(from: &buf)
         )
         
-        case 9: return .companionMarks(mutations: try FfiConverterSequenceTypeCompanionMutation.read(from: &buf)
+        case 9: return .redo(targetOperationId: try FfiConverterString.read(from: &buf)
         )
         
-        case 10: return .setCompanionSettings(settings: try FfiConverterTypeCompanionSettings.read(from: &buf), base: try FfiConverterTypeBase.read(from: &buf)
+        case 10: return .companionMarks(mutations: try FfiConverterSequenceTypeCompanionMutation.read(from: &buf)
+        )
+        
+        case 11: return .setCompanionSettings(settings: try FfiConverterTypeCompanionSettings.read(from: &buf), base: try FfiConverterTypeBase.read(from: &buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -4569,58 +5212,63 @@ public struct FfiConverterTypeCommandBody: FfiConverterRustBuffer {
         switch value {
         
         
-        case let .marks(mutations):
+        case let .imageMarks(mutations):
             writeInt(&buf, Int32(1))
+            FfiConverterSequenceTypeImageMutation.write(mutations, into: &buf)
+            
+        
+        case let .marks(mutations):
+            writeInt(&buf, Int32(2))
             FfiConverterSequenceTypeMarkMutation.write(mutations, into: &buf)
             
         
         case let .addSheet(sheetId,base):
-            writeInt(&buf, Int32(2))
+            writeInt(&buf, Int32(3))
             FfiConverterString.write(sheetId, into: &buf)
             FfiConverterTypeBase.write(base, into: &buf)
             
         
         case let .reorderSheets(sheetIds,base):
-            writeInt(&buf, Int32(3))
+            writeInt(&buf, Int32(4))
             FfiConverterSequenceString.write(sheetIds, into: &buf)
             FfiConverterTypeBase.write(base, into: &buf)
             
         
         case let .renameNote(title,base):
-            writeInt(&buf, Int32(4))
+            writeInt(&buf, Int32(5))
             FfiConverterString.write(title, into: &buf)
             FfiConverterTypeBase.write(base, into: &buf)
             
         
         case let .setNotebook(notebook,base):
-            writeInt(&buf, Int32(5))
+            writeInt(&buf, Int32(6))
             FfiConverterOptionString.write(notebook, into: &buf)
             FfiConverterTypeBase.write(base, into: &buf)
             
         
         case let .setArchived(archived,base):
-            writeInt(&buf, Int32(6))
+            writeInt(&buf, Int32(7))
             FfiConverterBool.write(archived, into: &buf)
             FfiConverterTypeBase.write(base, into: &buf)
             
         
         case let .undo(targetOperationId):
-            writeInt(&buf, Int32(7))
-            FfiConverterString.write(targetOperationId, into: &buf)
-            
-        
-        case let .redo(targetOperationId):
             writeInt(&buf, Int32(8))
             FfiConverterString.write(targetOperationId, into: &buf)
             
         
-        case let .companionMarks(mutations):
+        case let .redo(targetOperationId):
             writeInt(&buf, Int32(9))
+            FfiConverterString.write(targetOperationId, into: &buf)
+            
+        
+        case let .companionMarks(mutations):
+            writeInt(&buf, Int32(10))
             FfiConverterSequenceTypeCompanionMutation.write(mutations, into: &buf)
             
         
         case let .setCompanionSettings(settings,base):
-            writeInt(&buf, Int32(10))
+            writeInt(&buf, Int32(11))
             FfiConverterTypeCompanionSettings.write(settings, into: &buf)
             FfiConverterTypeBase.write(base, into: &buf)
             
@@ -4654,6 +5302,8 @@ public enum CompanionBody: Equatable, Hashable {
     )
     case threadMessage(marginId: String, order: UInt32, who: MessageWho, text: String, sources: [CompanionSource]
     )
+    case picture(anchorId: String, title: String, svg: String
+    )
     case drawing(anchorId: String, title: String, width: Double, height: Double, steps: [CompanionDrawingStep]
     )
 
@@ -4686,7 +5336,10 @@ public struct FfiConverterTypeCompanionBody: FfiConverterRustBuffer {
         case 3: return .threadMessage(marginId: try FfiConverterString.read(from: &buf), order: try FfiConverterUInt32.read(from: &buf), who: try FfiConverterTypeMessageWho.read(from: &buf), text: try FfiConverterString.read(from: &buf), sources: try FfiConverterSequenceTypeCompanionSource.read(from: &buf)
         )
         
-        case 4: return .drawing(anchorId: try FfiConverterString.read(from: &buf), title: try FfiConverterString.read(from: &buf), width: try FfiConverterDouble.read(from: &buf), height: try FfiConverterDouble.read(from: &buf), steps: try FfiConverterSequenceTypeCompanionDrawingStep.read(from: &buf)
+        case 4: return .picture(anchorId: try FfiConverterString.read(from: &buf), title: try FfiConverterString.read(from: &buf), svg: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 5: return .drawing(anchorId: try FfiConverterString.read(from: &buf), title: try FfiConverterString.read(from: &buf), width: try FfiConverterDouble.read(from: &buf), height: try FfiConverterDouble.read(from: &buf), steps: try FfiConverterSequenceTypeCompanionDrawingStep.read(from: &buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -4721,8 +5374,15 @@ public struct FfiConverterTypeCompanionBody: FfiConverterRustBuffer {
             FfiConverterSequenceTypeCompanionSource.write(sources, into: &buf)
             
         
-        case let .drawing(anchorId,title,width,height,steps):
+        case let .picture(anchorId,title,svg):
             writeInt(&buf, Int32(4))
+            FfiConverterString.write(anchorId, into: &buf)
+            FfiConverterString.write(title, into: &buf)
+            FfiConverterString.write(svg, into: &buf)
+            
+        
+        case let .drawing(anchorId,title,width,height,steps):
+            writeInt(&buf, Int32(5))
             FfiConverterString.write(anchorId, into: &buf)
             FfiConverterString.write(title, into: &buf)
             FfiConverterDouble.write(width, into: &buf)
@@ -5362,6 +6022,271 @@ public func FfiConverterTypeFrameKind_lower(_ value: FrameKind) -> RustBuffer {
 
 
 
+public enum ImageMediaType: Equatable, Hashable {
+    
+    case png
+    case jpeg
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension ImageMediaType: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeImageMediaType: FfiConverterRustBuffer {
+    typealias SwiftType = ImageMediaType
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ImageMediaType {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .png
+        
+        case 2: return .jpeg
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: ImageMediaType, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .png:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .jpeg:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeImageMediaType_lift(_ buf: RustBuffer) throws -> ImageMediaType {
+    return try FfiConverterTypeImageMediaType.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeImageMediaType_lower(_ value: ImageMediaType) -> RustBuffer {
+    return FfiConverterTypeImageMediaType.lower(value)
+}
+
+
+
+
+public enum ImageMutation: Equatable, Hashable {
+    
+    case add(imageId: String, 
+        /**
+         * Omitted from log JSON; carried in canonical bytes and the images table.
+         */bytes: Data, mediaType: ImageMediaType, pixelWidth: UInt32, pixelHeight: UInt32, placement: ImagePlacement
+    )
+    case delete(imageId: String, base: Base
+    )
+    case restore(imageId: String, base: Base
+    )
+    case move(imageId: String, base: Base, placement: ImagePlacement
+    )
+    /**
+     * Agent-only; monotone, not undoable, and does not change the placement head.
+     */
+    case markSeen(imageId: String, base: Base
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension ImageMutation: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeImageMutation: FfiConverterRustBuffer {
+    typealias SwiftType = ImageMutation
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ImageMutation {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .add(imageId: try FfiConverterString.read(from: &buf), bytes: try FfiConverterData.read(from: &buf), mediaType: try FfiConverterTypeImageMediaType.read(from: &buf), pixelWidth: try FfiConverterUInt32.read(from: &buf), pixelHeight: try FfiConverterUInt32.read(from: &buf), placement: try FfiConverterTypeImagePlacement.read(from: &buf)
+        )
+        
+        case 2: return .delete(imageId: try FfiConverterString.read(from: &buf), base: try FfiConverterTypeBase.read(from: &buf)
+        )
+        
+        case 3: return .restore(imageId: try FfiConverterString.read(from: &buf), base: try FfiConverterTypeBase.read(from: &buf)
+        )
+        
+        case 4: return .move(imageId: try FfiConverterString.read(from: &buf), base: try FfiConverterTypeBase.read(from: &buf), placement: try FfiConverterTypeImagePlacement.read(from: &buf)
+        )
+        
+        case 5: return .markSeen(imageId: try FfiConverterString.read(from: &buf), base: try FfiConverterTypeBase.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: ImageMutation, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .add(imageId,bytes,mediaType,pixelWidth,pixelHeight,placement):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(imageId, into: &buf)
+            FfiConverterData.write(bytes, into: &buf)
+            FfiConverterTypeImageMediaType.write(mediaType, into: &buf)
+            FfiConverterUInt32.write(pixelWidth, into: &buf)
+            FfiConverterUInt32.write(pixelHeight, into: &buf)
+            FfiConverterTypeImagePlacement.write(placement, into: &buf)
+            
+        
+        case let .delete(imageId,base):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(imageId, into: &buf)
+            FfiConverterTypeBase.write(base, into: &buf)
+            
+        
+        case let .restore(imageId,base):
+            writeInt(&buf, Int32(3))
+            FfiConverterString.write(imageId, into: &buf)
+            FfiConverterTypeBase.write(base, into: &buf)
+            
+        
+        case let .move(imageId,base,placement):
+            writeInt(&buf, Int32(4))
+            FfiConverterString.write(imageId, into: &buf)
+            FfiConverterTypeBase.write(base, into: &buf)
+            FfiConverterTypeImagePlacement.write(placement, into: &buf)
+            
+        
+        case let .markSeen(imageId,base):
+            writeInt(&buf, Int32(5))
+            FfiConverterString.write(imageId, into: &buf)
+            FfiConverterTypeBase.write(base, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeImageMutation_lift(_ buf: RustBuffer) throws -> ImageMutation {
+    return try FfiConverterTypeImageMutation.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeImageMutation_lower(_ value: ImageMutation) -> RustBuffer {
+    return FfiConverterTypeImageMutation.lower(value)
+}
+
+
+
+
+public enum ImagePlacement: Equatable, Hashable {
+    
+    case canvas(sheetId: String, x: Double, y: Double, width: Double, height: Double
+    )
+    /**
+     * Under the text passage named by an existing companion text anchor.
+     */
+    case text(anchorId: String, width: Double, height: Double
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension ImagePlacement: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeImagePlacement: FfiConverterRustBuffer {
+    typealias SwiftType = ImagePlacement
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ImagePlacement {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .canvas(sheetId: try FfiConverterString.read(from: &buf), x: try FfiConverterDouble.read(from: &buf), y: try FfiConverterDouble.read(from: &buf), width: try FfiConverterDouble.read(from: &buf), height: try FfiConverterDouble.read(from: &buf)
+        )
+        
+        case 2: return .text(anchorId: try FfiConverterString.read(from: &buf), width: try FfiConverterDouble.read(from: &buf), height: try FfiConverterDouble.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: ImagePlacement, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .canvas(sheetId,x,y,width,height):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(sheetId, into: &buf)
+            FfiConverterDouble.write(x, into: &buf)
+            FfiConverterDouble.write(y, into: &buf)
+            FfiConverterDouble.write(width, into: &buf)
+            FfiConverterDouble.write(height, into: &buf)
+            
+        
+        case let .text(anchorId,width,height):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(anchorId, into: &buf)
+            FfiConverterDouble.write(width, into: &buf)
+            FfiConverterDouble.write(height, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeImagePlacement_lift(_ buf: RustBuffer) throws -> ImagePlacement {
+    return try FfiConverterTypeImagePlacement.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeImagePlacement_lower(_ value: ImagePlacement) -> RustBuffer {
+    return FfiConverterTypeImagePlacement.lower(value)
+}
+
+
+
+
 public enum InkColour: Equatable, Hashable {
     
     case ink
@@ -5925,6 +6850,196 @@ public func FfiConverterTypeOperationLookup_lift(_ buf: RustBuffer) throws -> Op
 #endif
 public func FfiConverterTypeOperationLookup_lower(_ value: OperationLookup) -> RustBuffer {
     return FfiConverterTypeOperationLookup.lower(value)
+}
+
+
+
+public 
+enum PictureError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+
+    
+    
+    case Limit
+    case Malformed
+    case Canvas
+    case Steps
+    case Empty
+    case References
+
+    
+
+    
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
+}
+
+#if compiler(>=6)
+extension PictureError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePictureError: FfiConverterRustBuffer {
+    typealias SwiftType = PictureError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PictureError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .Limit
+        case 2: return .Malformed
+        case 3: return .Canvas
+        case 4: return .Steps
+        case 5: return .Empty
+        case 6: return .References
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: PictureError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case .Limit:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .Malformed:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .Canvas:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .Steps:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .Empty:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .References:
+            writeInt(&buf, Int32(6))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePictureError_lift(_ buf: RustBuffer) throws -> PictureError {
+    return try FfiConverterTypePictureError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePictureError_lower(_ value: PictureError) -> RustBuffer {
+    return FfiConverterTypePictureError.lower(value)
+}
+
+
+
+public enum PictureItem: Equatable, Hashable {
+    
+    case polyline(points: [PicturePoint], closed: Bool, stroke: String, strokeWidth: Float, fill: String, bounds: PictureBounds
+    )
+    case text(text: String, x: Float, y: Float, anchor: String, baseline: String, font: String, size: Float, fill: String, 
+        /**
+         * Linear transform of glyphs around (x,y); tx/ty are zero.
+         */transform: Affine, bounds: PictureBounds
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension PictureItem: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePictureItem: FfiConverterRustBuffer {
+    typealias SwiftType = PictureItem
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PictureItem {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .polyline(points: try FfiConverterSequenceTypePicturePoint.read(from: &buf), closed: try FfiConverterBool.read(from: &buf), stroke: try FfiConverterString.read(from: &buf), strokeWidth: try FfiConverterFloat.read(from: &buf), fill: try FfiConverterString.read(from: &buf), bounds: try FfiConverterTypePictureBounds.read(from: &buf)
+        )
+        
+        case 2: return .text(text: try FfiConverterString.read(from: &buf), x: try FfiConverterFloat.read(from: &buf), y: try FfiConverterFloat.read(from: &buf), anchor: try FfiConverterString.read(from: &buf), baseline: try FfiConverterString.read(from: &buf), font: try FfiConverterString.read(from: &buf), size: try FfiConverterFloat.read(from: &buf), fill: try FfiConverterString.read(from: &buf), transform: try FfiConverterTypeAffine.read(from: &buf), bounds: try FfiConverterTypePictureBounds.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: PictureItem, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .polyline(points,closed,stroke,strokeWidth,fill,bounds):
+            writeInt(&buf, Int32(1))
+            FfiConverterSequenceTypePicturePoint.write(points, into: &buf)
+            FfiConverterBool.write(closed, into: &buf)
+            FfiConverterString.write(stroke, into: &buf)
+            FfiConverterFloat.write(strokeWidth, into: &buf)
+            FfiConverterString.write(fill, into: &buf)
+            FfiConverterTypePictureBounds.write(bounds, into: &buf)
+            
+        
+        case let .text(text,x,y,anchor,baseline,font,size,fill,transform,bounds):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(text, into: &buf)
+            FfiConverterFloat.write(x, into: &buf)
+            FfiConverterFloat.write(y, into: &buf)
+            FfiConverterString.write(anchor, into: &buf)
+            FfiConverterString.write(baseline, into: &buf)
+            FfiConverterString.write(font, into: &buf)
+            FfiConverterFloat.write(size, into: &buf)
+            FfiConverterString.write(fill, into: &buf)
+            FfiConverterTypeAffine.write(transform, into: &buf)
+            FfiConverterTypePictureBounds.write(bounds, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePictureItem_lift(_ buf: RustBuffer) throws -> PictureItem {
+    return try FfiConverterTypePictureItem.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePictureItem_lower(_ value: PictureItem) -> RustBuffer {
+    return FfiConverterTypePictureItem.lower(value)
 }
 
 
@@ -6777,6 +7892,31 @@ fileprivate struct FfiConverterSequenceTypeDrawingPoint: FfiConverterRustBuffer 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeImageMarkView: FfiConverterRustBuffer {
+    typealias SwiftType = [ImageMarkView]
+
+    public static func write(_ value: [ImageMarkView], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeImageMarkView.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ImageMarkView] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [ImageMarkView]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeImageMarkView.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeNoteSummary: FfiConverterRustBuffer {
     typealias SwiftType = [NoteSummary]
 
@@ -6819,6 +7959,81 @@ fileprivate struct FfiConverterSequenceTypeNotebookSummary: FfiConverterRustBuff
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeNotebookSummary.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypePicturePoint: FfiConverterRustBuffer {
+    typealias SwiftType = [PicturePoint]
+
+    public static func write(_ value: [PicturePoint], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypePicturePoint.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [PicturePoint] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [PicturePoint]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypePicturePoint.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypePictureStep: FfiConverterRustBuffer {
+    typealias SwiftType = [PictureStep]
+
+    public static func write(_ value: [PictureStep], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypePictureStep.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [PictureStep] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [PictureStep]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypePictureStep.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeRejectedOperation: FfiConverterRustBuffer {
+    typealias SwiftType = [RejectedOperation]
+
+    public static func write(_ value: [RejectedOperation], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeRejectedOperation.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [RejectedOperation] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [RejectedOperation]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeRejectedOperation.read(from: &buf))
         }
         return seq
     }
@@ -6927,6 +8142,31 @@ fileprivate struct FfiConverterSequenceTypeDrawingPrimitive: FfiConverterRustBuf
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeImageMutation: FfiConverterRustBuffer {
+    typealias SwiftType = [ImageMutation]
+
+    public static func write(_ value: [ImageMutation], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeImageMutation.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ImageMutation] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [ImageMutation]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeImageMutation.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeMarkMutation: FfiConverterRustBuffer {
     typealias SwiftType = [MarkMutation]
 
@@ -6944,6 +8184,31 @@ fileprivate struct FfiConverterSequenceTypeMarkMutation: FfiConverterRustBuffer 
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeMarkMutation.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypePictureItem: FfiConverterRustBuffer {
+    typealias SwiftType = [PictureItem]
+
+    public static func write(_ value: [PictureItem], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypePictureItem.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [PictureItem] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [PictureItem]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypePictureItem.read(from: &buf))
         }
         return seq
     }
@@ -7043,6 +8308,28 @@ public func tessellateStroke(samples: Data, style: StrokeStyle, transform: Affin
     )
 })
 }
+/**
+ * Canonical sanitization, with bounded reference expansion checked before admission.
+ */
+public func filterPicture(svg: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypePictureError_lift) {
+        uniffiCallStatus in
+    uniffi_syncr_core_fn_func_filter_picture(
+        FfiConverterString.lower(svg),uniffiCallStatus
+    )
+})
+}
+/**
+ * Accepts untrusted SVG too: the same filtering/admission rules always apply.
+ */
+public func pictureDisplayList(svg: String)throws  -> PictureDisplayList  {
+    return try  FfiConverterTypePictureDisplayList_lift(try rustCallWithError(FfiConverterTypePictureError_lift) {
+        uniffiCallStatus in
+    uniffi_syncr_core_fn_func_picture_display_list(
+        FfiConverterString.lower(svg),uniffiCallStatus
+    )
+})
+}
 public func decodePreviewFrame(bytes: Data)throws  -> PreviewFrame  {
     return try  FfiConverterTypePreviewFrame_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
         uniffiCallStatus in
@@ -7130,6 +8417,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_syncr_core_checksum_func_tessellate_stroke() != 44957) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_syncr_core_checksum_func_filter_picture() != 7943) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_syncr_core_checksum_func_picture_display_list() != 52499) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_syncr_core_checksum_func_decode_preview_frame() != 7876) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -7172,10 +8465,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_syncr_core_checksum_method_note_export_copy() != 16489) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_syncr_core_checksum_method_note_get_image_bytes() != 11641) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_syncr_core_checksum_method_note_get_samples() != 38126) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_syncr_core_checksum_method_note_lookup_operation() != 31127) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_syncr_core_checksum_method_note_merge_copy() != 35185) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_syncr_core_checksum_method_note_snapshot() != 39615) {
@@ -7185,6 +8484,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_syncr_core_checksum_method_note_submit_agent() != 25563) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_syncr_core_checksum_method_note_sync_digest() != 51555) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_syncr_core_checksum_method_syncrlibrary_author_id() != 11347) {
@@ -7202,6 +8504,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_syncr_core_checksum_method_syncrlibrary_delete_notebook() != 146) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_syncr_core_checksum_method_syncrlibrary_install_copy() != 13815) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_syncr_core_checksum_method_syncrlibrary_list_deleted_notes() != 32976) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -7214,6 +8519,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_syncr_core_checksum_method_syncrlibrary_lookup_creation() != 2947) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_syncr_core_checksum_method_syncrlibrary_note_sync_digest() != 61175) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_syncr_core_checksum_method_syncrlibrary_open_note() != 18546) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -7221,6 +8529,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_syncr_core_checksum_method_syncrlibrary_purge_note() != 64) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_syncr_core_checksum_method_syncrlibrary_rebase_onto_copy() != 41565) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_syncr_core_checksum_method_syncrlibrary_rename_notebook() != 6705) {

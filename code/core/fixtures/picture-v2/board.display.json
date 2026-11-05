@@ -1,0 +1,846 @@
+{
+  "width": 320.0,
+  "height": 240.0,
+  "always": [
+    {
+      "Text": {
+        "text": "Try, then undo",
+        "x": 18.0,
+        "y": 20.0,
+        "anchor": "start",
+        "baseline": "alphabetic",
+        "font": "font-voice",
+        "size": 14.0,
+        "fill": "ink",
+        "transform": {
+          "a": 1.0,
+          "b": 0.0,
+          "c": 0.0,
+          "d": 1.0,
+          "tx": 0.0,
+          "ty": 0.0
+        },
+        "bounds": {
+          "min_x": 18.0,
+          "min_y": 6.0,
+          "max_x": 214.0,
+          "max_y": 25.600586
+        }
+      }
+    }
+  ],
+  "steps": [
+    {
+      "number": 1,
+      "caption": "Place the first queen",
+      "hide": [],
+      "dim": [],
+      "items": [
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 18.0,
+                "y": 40.0
+              },
+              {
+                "x": 98.0,
+                "y": 40.0
+              },
+              {
+                "x": 98.0,
+                "y": 120.0
+              },
+              {
+                "x": 18.0,
+                "y": 120.0
+              }
+            ],
+            "closed": true,
+            "stroke": "ink",
+            "stroke_width": 1.0,
+            "fill": "none",
+            "bounds": {
+              "min_x": 17.5,
+              "min_y": 39.5,
+              "max_x": 98.5,
+              "max_y": 120.5
+            }
+          }
+        },
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 38.0,
+                "y": 40.0
+              },
+              {
+                "x": 38.0,
+                "y": 120.0
+              }
+            ],
+            "closed": false,
+            "stroke": "ink",
+            "stroke_width": 1.0,
+            "fill": "none",
+            "bounds": {
+              "min_x": 37.5,
+              "min_y": 39.5,
+              "max_x": 38.5,
+              "max_y": 120.5
+            }
+          }
+        },
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 58.0,
+                "y": 40.0
+              },
+              {
+                "x": 58.0,
+                "y": 120.0
+              }
+            ],
+            "closed": false,
+            "stroke": "ink",
+            "stroke_width": 1.0,
+            "fill": "none",
+            "bounds": {
+              "min_x": 57.5,
+              "min_y": 39.5,
+              "max_x": 58.5,
+              "max_y": 120.5
+            }
+          }
+        },
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 78.0,
+                "y": 40.0
+              },
+              {
+                "x": 78.0,
+                "y": 120.0
+              }
+            ],
+            "closed": false,
+            "stroke": "ink",
+            "stroke_width": 1.0,
+            "fill": "none",
+            "bounds": {
+              "min_x": 77.5,
+              "min_y": 39.5,
+              "max_x": 78.5,
+              "max_y": 120.5
+            }
+          }
+        },
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 18.0,
+                "y": 60.0
+              },
+              {
+                "x": 98.0,
+                "y": 60.0
+              }
+            ],
+            "closed": false,
+            "stroke": "ink",
+            "stroke_width": 1.0,
+            "fill": "none",
+            "bounds": {
+              "min_x": 17.5,
+              "min_y": 59.5,
+              "max_x": 98.5,
+              "max_y": 60.5
+            }
+          }
+        },
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 18.0,
+                "y": 80.0
+              },
+              {
+                "x": 98.0,
+                "y": 80.0
+              }
+            ],
+            "closed": false,
+            "stroke": "ink",
+            "stroke_width": 1.0,
+            "fill": "none",
+            "bounds": {
+              "min_x": 17.5,
+              "min_y": 79.5,
+              "max_x": 98.5,
+              "max_y": 80.5
+            }
+          }
+        },
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 18.0,
+                "y": 100.0
+              },
+              {
+                "x": 98.0,
+                "y": 100.0
+              }
+            ],
+            "closed": false,
+            "stroke": "ink",
+            "stroke_width": 1.0,
+            "fill": "none",
+            "bounds": {
+              "min_x": 17.5,
+              "min_y": 99.5,
+              "max_x": 98.5,
+              "max_y": 100.5
+            }
+          }
+        },
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 34.0,
+                "y": 50.0
+              },
+              {
+                "x": 33.19629,
+                "y": 53.0
+              },
+              {
+                "x": 31.0,
+                "y": 55.19629
+              },
+              {
+                "x": 28.0,
+                "y": 56.0
+              },
+              {
+                "x": 25.0,
+                "y": 55.19629
+              },
+              {
+                "x": 22.80371,
+                "y": 53.0
+              },
+              {
+                "x": 22.0,
+                "y": 50.0
+              },
+              {
+                "x": 22.80371,
+                "y": 47.0
+              },
+              {
+                "x": 25.0,
+                "y": 44.80371
+              },
+              {
+                "x": 28.0,
+                "y": 44.0
+              },
+              {
+                "x": 31.0,
+                "y": 44.80371
+              },
+              {
+                "x": 33.19629,
+                "y": 47.0
+              }
+            ],
+            "closed": true,
+            "stroke": "ink",
+            "stroke_width": 1.0,
+            "fill": "voice",
+            "bounds": {
+              "min_x": 21.5,
+              "min_y": 43.5,
+              "max_x": 34.5,
+              "max_y": 56.5
+            }
+          }
+        }
+      ]
+    },
+    {
+      "number": 2,
+      "caption": "Try a second queen",
+      "hide": [
+        1
+      ],
+      "dim": [],
+      "items": [
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 18.0,
+                "y": 40.0
+              },
+              {
+                "x": 98.0,
+                "y": 40.0
+              },
+              {
+                "x": 98.0,
+                "y": 120.0
+              },
+              {
+                "x": 18.0,
+                "y": 120.0
+              }
+            ],
+            "closed": true,
+            "stroke": "ink",
+            "stroke_width": 1.0,
+            "fill": "none",
+            "bounds": {
+              "min_x": 17.5,
+              "min_y": 39.5,
+              "max_x": 98.5,
+              "max_y": 120.5
+            }
+          }
+        },
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 38.0,
+                "y": 40.0
+              },
+              {
+                "x": 38.0,
+                "y": 120.0
+              }
+            ],
+            "closed": false,
+            "stroke": "ink",
+            "stroke_width": 1.0,
+            "fill": "none",
+            "bounds": {
+              "min_x": 37.5,
+              "min_y": 39.5,
+              "max_x": 38.5,
+              "max_y": 120.5
+            }
+          }
+        },
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 58.0,
+                "y": 40.0
+              },
+              {
+                "x": 58.0,
+                "y": 120.0
+              }
+            ],
+            "closed": false,
+            "stroke": "ink",
+            "stroke_width": 1.0,
+            "fill": "none",
+            "bounds": {
+              "min_x": 57.5,
+              "min_y": 39.5,
+              "max_x": 58.5,
+              "max_y": 120.5
+            }
+          }
+        },
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 78.0,
+                "y": 40.0
+              },
+              {
+                "x": 78.0,
+                "y": 120.0
+              }
+            ],
+            "closed": false,
+            "stroke": "ink",
+            "stroke_width": 1.0,
+            "fill": "none",
+            "bounds": {
+              "min_x": 77.5,
+              "min_y": 39.5,
+              "max_x": 78.5,
+              "max_y": 120.5
+            }
+          }
+        },
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 18.0,
+                "y": 60.0
+              },
+              {
+                "x": 98.0,
+                "y": 60.0
+              }
+            ],
+            "closed": false,
+            "stroke": "ink",
+            "stroke_width": 1.0,
+            "fill": "none",
+            "bounds": {
+              "min_x": 17.5,
+              "min_y": 59.5,
+              "max_x": 98.5,
+              "max_y": 60.5
+            }
+          }
+        },
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 18.0,
+                "y": 80.0
+              },
+              {
+                "x": 98.0,
+                "y": 80.0
+              }
+            ],
+            "closed": false,
+            "stroke": "ink",
+            "stroke_width": 1.0,
+            "fill": "none",
+            "bounds": {
+              "min_x": 17.5,
+              "min_y": 79.5,
+              "max_x": 98.5,
+              "max_y": 80.5
+            }
+          }
+        },
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 18.0,
+                "y": 100.0
+              },
+              {
+                "x": 98.0,
+                "y": 100.0
+              }
+            ],
+            "closed": false,
+            "stroke": "ink",
+            "stroke_width": 1.0,
+            "fill": "none",
+            "bounds": {
+              "min_x": 17.5,
+              "min_y": 99.5,
+              "max_x": 98.5,
+              "max_y": 100.5
+            }
+          }
+        },
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 34.0,
+                "y": 50.0
+              },
+              {
+                "x": 33.19629,
+                "y": 53.0
+              },
+              {
+                "x": 31.0,
+                "y": 55.19629
+              },
+              {
+                "x": 28.0,
+                "y": 56.0
+              },
+              {
+                "x": 25.0,
+                "y": 55.19629
+              },
+              {
+                "x": 22.80371,
+                "y": 53.0
+              },
+              {
+                "x": 22.0,
+                "y": 50.0
+              },
+              {
+                "x": 22.80371,
+                "y": 47.0
+              },
+              {
+                "x": 25.0,
+                "y": 44.80371
+              },
+              {
+                "x": 28.0,
+                "y": 44.0
+              },
+              {
+                "x": 31.0,
+                "y": 44.80371
+              },
+              {
+                "x": 33.19629,
+                "y": 47.0
+              }
+            ],
+            "closed": true,
+            "stroke": "ink",
+            "stroke_width": 1.0,
+            "fill": "voice",
+            "bounds": {
+              "min_x": 21.5,
+              "min_y": 43.5,
+              "max_x": 34.5,
+              "max_y": 56.5
+            }
+          }
+        },
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 54.0,
+                "y": 70.0
+              },
+              {
+                "x": 53.19629,
+                "y": 73.0
+              },
+              {
+                "x": 51.0,
+                "y": 75.19629
+              },
+              {
+                "x": 48.0,
+                "y": 76.0
+              },
+              {
+                "x": 45.0,
+                "y": 75.19629
+              },
+              {
+                "x": 42.80371,
+                "y": 73.0
+              },
+              {
+                "x": 42.0,
+                "y": 70.0
+              },
+              {
+                "x": 42.80371,
+                "y": 67.0
+              },
+              {
+                "x": 45.0,
+                "y": 64.80371
+              },
+              {
+                "x": 48.0,
+                "y": 64.0
+              },
+              {
+                "x": 51.0,
+                "y": 64.80371
+              },
+              {
+                "x": 53.19629,
+                "y": 67.0
+              }
+            ],
+            "closed": true,
+            "stroke": "ink",
+            "stroke_width": 1.0,
+            "fill": "voice",
+            "bounds": {
+              "min_x": 41.5,
+              "min_y": 63.5,
+              "max_x": 54.5,
+              "max_y": 76.5
+            }
+          }
+        }
+      ]
+    },
+    {
+      "number": 3,
+      "caption": "Undo the conflicting queen",
+      "hide": [
+        2
+      ],
+      "dim": [],
+      "items": [
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 18.0,
+                "y": 40.0
+              },
+              {
+                "x": 98.0,
+                "y": 40.0
+              },
+              {
+                "x": 98.0,
+                "y": 120.0
+              },
+              {
+                "x": 18.0,
+                "y": 120.0
+              }
+            ],
+            "closed": true,
+            "stroke": "ink",
+            "stroke_width": 1.0,
+            "fill": "none",
+            "bounds": {
+              "min_x": 17.5,
+              "min_y": 39.5,
+              "max_x": 98.5,
+              "max_y": 120.5
+            }
+          }
+        },
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 38.0,
+                "y": 40.0
+              },
+              {
+                "x": 38.0,
+                "y": 120.0
+              }
+            ],
+            "closed": false,
+            "stroke": "ink",
+            "stroke_width": 1.0,
+            "fill": "none",
+            "bounds": {
+              "min_x": 37.5,
+              "min_y": 39.5,
+              "max_x": 38.5,
+              "max_y": 120.5
+            }
+          }
+        },
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 58.0,
+                "y": 40.0
+              },
+              {
+                "x": 58.0,
+                "y": 120.0
+              }
+            ],
+            "closed": false,
+            "stroke": "ink",
+            "stroke_width": 1.0,
+            "fill": "none",
+            "bounds": {
+              "min_x": 57.5,
+              "min_y": 39.5,
+              "max_x": 58.5,
+              "max_y": 120.5
+            }
+          }
+        },
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 78.0,
+                "y": 40.0
+              },
+              {
+                "x": 78.0,
+                "y": 120.0
+              }
+            ],
+            "closed": false,
+            "stroke": "ink",
+            "stroke_width": 1.0,
+            "fill": "none",
+            "bounds": {
+              "min_x": 77.5,
+              "min_y": 39.5,
+              "max_x": 78.5,
+              "max_y": 120.5
+            }
+          }
+        },
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 18.0,
+                "y": 60.0
+              },
+              {
+                "x": 98.0,
+                "y": 60.0
+              }
+            ],
+            "closed": false,
+            "stroke": "ink",
+            "stroke_width": 1.0,
+            "fill": "none",
+            "bounds": {
+              "min_x": 17.5,
+              "min_y": 59.5,
+              "max_x": 98.5,
+              "max_y": 60.5
+            }
+          }
+        },
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 18.0,
+                "y": 80.0
+              },
+              {
+                "x": 98.0,
+                "y": 80.0
+              }
+            ],
+            "closed": false,
+            "stroke": "ink",
+            "stroke_width": 1.0,
+            "fill": "none",
+            "bounds": {
+              "min_x": 17.5,
+              "min_y": 79.5,
+              "max_x": 98.5,
+              "max_y": 80.5
+            }
+          }
+        },
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 18.0,
+                "y": 100.0
+              },
+              {
+                "x": 98.0,
+                "y": 100.0
+              }
+            ],
+            "closed": false,
+            "stroke": "ink",
+            "stroke_width": 1.0,
+            "fill": "none",
+            "bounds": {
+              "min_x": 17.5,
+              "min_y": 99.5,
+              "max_x": 98.5,
+              "max_y": 100.5
+            }
+          }
+        },
+        {
+          "Polyline": {
+            "points": [
+              {
+                "x": 34.0,
+                "y": 50.0
+              },
+              {
+                "x": 33.19629,
+                "y": 53.0
+              },
+              {
+                "x": 31.0,
+                "y": 55.19629
+              },
+              {
+                "x": 28.0,
+                "y": 56.0
+              },
+              {
+                "x": 25.0,
+                "y": 55.19629
+              },
+              {
+                "x": 22.80371,
+                "y": 53.0
+              },
+              {
+                "x": 22.0,
+                "y": 50.0
+              },
+              {
+                "x": 22.80371,
+                "y": 47.0
+              },
+              {
+                "x": 25.0,
+                "y": 44.80371
+              },
+              {
+                "x": 28.0,
+                "y": 44.0
+              },
+              {
+                "x": 31.0,
+                "y": 44.80371
+              },
+              {
+                "x": 33.19629,
+                "y": 47.0
+              }
+            ],
+            "closed": true,
+            "stroke": "ink",
+            "stroke_width": 1.0,
+            "fill": "voice",
+            "bounds": {
+              "min_x": 21.5,
+              "min_y": 43.5,
+              "max_x": 34.5,
+              "max_y": 56.5
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
