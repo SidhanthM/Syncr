@@ -73,7 +73,7 @@ impl Catalog {
             .map_err(storage)?;
         Ok(())
     }
-    fn is_purged(&self, note_id: &str) -> CoreResult<bool> {
+    pub(super) fn is_purged(&self, note_id: &str) -> CoreResult<bool> {
         self.db
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM purged WHERE note_id=?1)",
@@ -119,6 +119,15 @@ impl SyncrLibrary {
                 .then_with(|| a.path.cmp(&b.path))
         });
         Ok(result)
+    }
+
+    /// Whether the note is in Recently deleted or was purged (sync never brings it back).
+    pub(super) fn is_deleted_or_purged(
+        &self,
+        catalog: &Catalog,
+        note_id: &str,
+    ) -> CoreResult<bool> {
+        Ok(!self.trashed(note_id)?.is_empty() || catalog.is_purged(note_id)?)
     }
 
     fn trashed(&self, note_id: &str) -> CoreResult<Vec<Trashed>> {

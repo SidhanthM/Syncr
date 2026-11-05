@@ -10,6 +10,7 @@
 mod catalog;
 mod note;
 mod notebooks;
+pub(crate) mod sync;
 #[cfg(test)]
 mod tests;
 mod trash;
@@ -147,6 +148,7 @@ fn open_catalog(root: &Path) -> CoreResult<(Connection, Id)> {
 /// copies. Neither was ever reported as saved. Only our reserved prefixes are touched.
 fn remove_unpublished_temporaries(root: &Path) -> CoreResult<()> {
     files::remove_prefixed(root, catalog::CREATE_TEMP_PREFIX)?;
+    files::remove_prefixed(root, sync::REBASE_PREFIX)?;
     files::sync(root)?;
     let backups = root.join(store::BACKUP_DIR);
     if backups.is_dir() {
@@ -220,6 +222,26 @@ impl SyncrLibrary {
     pub fn rename_notebook(self: &Arc<Self>, old_name: String, new_name: String) -> CoreResult<()> {
         notebooks::rename_notebook(self, old_name, new_name)
     }
+    /// Places a validated copy of a note this library does not have, never overwriting.
+    /// `IdCollision` when the note is published, in Recently deleted or purged. The copy is
+    /// not migrated; an old-format note upgrades when first opened.
+    pub fn install_copy(&self, copy_path: String) -> CoreResult<NoteSummary> {
+        sync::install_copy(self, copy_path)
+    }
+    /// Phone side of a conflict: rebuilds the closed note as the copy plus this file's own
+    /// operations that still apply, after a backup. `rejected` holds the local operations
+    /// that were dropped. `NoteLocked` while a handle is open.
+    pub fn rebase_onto_copy(
+        self: &Arc<Self>,
+        note_id: Id,
+        copy_path: String,
+    ) -> CoreResult<MergeReport> {
+        sync::rebase_onto_copy(self, note_id, copy_path)
+    }
+    /// `Note::sync_digest` for a note that may be closed (read-only when closed).
+    pub fn note_sync_digest(&self, note_id: Id) -> CoreResult<SyncDigest> {
+        sync::note_sync_digest(self, note_id)
+    }
 }
 
 #[uniffi::export]
@@ -229,6 +251,10 @@ impl Note {
     }
     pub fn get_samples(&self, mark_id: Id) -> CoreResult<Vec<u8>> {
         note::get_samples(self, mark_id)
+    }
+    /// Original immutable PNG/JPEG container, also available for tombstoned marks.
+    pub fn get_image_bytes(&self, image_id: Id) -> CoreResult<Vec<u8>> {
+        note::get_image_bytes(self, image_id)
     }
     pub fn submit(&self, command: Command) -> CoreResult<Receipt> {
         note::submit(self, command)
@@ -241,6 +267,15 @@ impl Note {
     }
     pub fn export_copy(&self, destination_path: String) -> CoreResult<ExportReceipt> {
         note::export_copy(self, destination_path)
+    }
+    /// Operation count and SHA-256 over the sorted operation IDs; cached until the next commit.
+    pub fn sync_digest(&self) -> CoreResult<SyncDigest> {
+        sync::digest(self)
+    }
+    /// Appends every operation of `copy_path` this note lacks, under its stored author.
+    /// Rejected operations are reported, not applied. See `tasks/contracts/sync-v1.md`.
+    pub fn merge_copy(&self, copy_path: String) -> CoreResult<MergeReport> {
+        sync::merge_copy(self, copy_path)
     }
     pub fn close_note(&self) -> CoreResult<()> {
         note::close_note(self)
@@ -262,6 +297,10 @@ impl Note {
     /// The only agent text write is insertion of an existing drawing's embed line.
     pub fn submit_agent(&self, command: Command) -> CoreResult<Receipt> {
         match &command.body {
+            CommandBody::ImageMarks { mutations }
+                if mutations
+                    .iter()
+                    .all(|m| matches!(m, ImageMutation::MarkSeen { .. })) => {}
             CommandBody::CompanionMarks { .. }
             | CommandBody::Undo { .. }
             | CommandBody::Redo { .. } => {}
@@ -280,7 +319,12 @@ impl Note {
                 let r = lock(&self.runtime)?;
                 r.db()?;
                 if !r.state.companion_items.iter().any(|v| {
-                    v.id == id && !v.tombstone && matches!(v.body, CompanionBody::Drawing { .. })
+                    v.id == id
+                        && !v.tombstone
+                        && matches!(
+                            v.body,
+                            CompanionBody::Drawing { .. } | CompanionBody::Picture { .. }
+                        )
                 }) {
                     return Err(invalid("Drawing embed must reference a drawing"));
                 }

@@ -170,6 +170,9 @@ pub struct NoteSnapshot {
     #[serde(default)]
     #[uniffi(default = None)]
     pub companion_settings: Option<CompanionSettingsView>,
+    #[serde(default)]
+    #[uniffi(default = [])]
+    pub images: Vec<crate::ImageMarkView>,
 }
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, uniffi::Record)]
 pub struct SampleChannels {
@@ -261,6 +264,9 @@ pub enum MarkMutation {
 }
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, uniffi::Enum)]
 pub enum CommandBody {
+    ImageMarks {
+        mutations: Vec<crate::ImageMutation>,
+    },
     Marks {
         mutations: Vec<MarkMutation>,
     },

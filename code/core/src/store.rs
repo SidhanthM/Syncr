@@ -23,6 +23,10 @@ pub(crate) const NOTE_VERSION: u32 = 3;
 pub(crate) const TEXT_NOTE_VERSION: u32 = 4;
 /// v5: anchored companion items and per-note companion settings. Lazy on commit.
 pub(crate) const COMPANION_NOTE_VERSION: u32 = 5;
+/// v6: filtered SVG picture bodies, lazy on first picture commit.
+pub(crate) const PICTURE_NOTE_VERSION: u32 = 6;
+/// v7: immutable image bytes and image marks, lazy on first image commit.
+pub(crate) const IMAGE_NOTE_VERSION: u32 = 7;
 /// Copies of notes taken just before their v3 upgrade, inside the library root:
 /// `<root>/.backups/<NOTE_ID>.v<old version>.<unix ms>.syncr`.
 pub(crate) const BACKUP_DIR: &str = ".backups";
@@ -82,9 +86,27 @@ pub(crate) fn open(path: &Path, writable: bool) -> CoreResult<Connection> {
 /// Returns the note schema version. Older versions stay readable read-only;
 /// `open_note` upgrades them (see [upgrade]) before writing.
 pub(crate) fn check_version(db: &Connection) -> CoreResult<u32> {
-    let version = check_version_supported(db, COMPANION_NOTE_VERSION)?;
-    if version == COMPANION_NOTE_VERSION {
+    let version = check_version_supported(db, IMAGE_NOTE_VERSION)?;
+    if version >= COMPANION_NOTE_VERSION {
         let marked: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='companion_format')", [], |r| r.get(0)).map_err(storage)?;
+        if !marked {
+            return Err(unsupported("Unsupported note schema version"));
+        }
+    }
+    if version >= PICTURE_NOTE_VERSION {
+        let marked: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='picture_format')", [], |r| r.get(0)).map_err(storage)?;
+        if !marked {
+            return Err(unsupported("Unsupported note schema version"));
+        }
+    }
+    if version >= IMAGE_NOTE_VERSION {
+        let marked: bool = db
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='images')",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(storage)?;
         if !marked {
             return Err(unsupported("Unsupported note schema version"));
         }

@@ -127,6 +127,7 @@ impl State {
                 if self.strokes.iter().any(|s| s.id == *mark_id)
                     || self.text_blocks.iter().any(|b| b.id == *mark_id)
                     || self.companion_items.iter().any(|v| v.id == *mark_id)
+                    || self.images.iter().any(|v| v.id == *mark_id)
                 {
                     return Err(collision());
                 }

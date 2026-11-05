@@ -102,6 +102,7 @@ pub(crate) fn command(command: &Command) -> CoreResult<()> {
     // Duplicates are legal and will be deduplicated/sorted by canonical encoding.
     let dependencies = command.dependencies.iter().map(String::as_str).collect();
     match &command.body {
+        CommandBody::ImageMarks { mutations } => crate::image::validate(mutations, &dependencies)?,
         CommandBody::CompanionMarks { mutations } => {
             if mutations.is_empty() || mutations.len() > 1024 {
                 return Err(limit("Companion batch requires 1 to 1024 items"));

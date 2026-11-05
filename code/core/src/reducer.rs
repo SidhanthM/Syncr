@@ -47,6 +47,10 @@ pub(crate) struct Action {
     pub companion_before: Vec<CompanionItemView>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub companion_after: Vec<CompanionItemView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub image_before: Vec<ImageMarkView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub image_after: Vec<ImageMarkView>,
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub(crate) struct History {
@@ -87,6 +91,8 @@ pub(crate) struct State {
     pub companion_items: Vec<CompanionItemView>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub companion_settings: Option<CompanionSettingsView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<ImageMarkView>,
     pub sequence: u64,
     pub histories: BTreeMap<Id, History>,
 }
@@ -127,6 +133,7 @@ impl State {
             text_effects: vec![],
             companion_items: vec![],
             companion_settings: None,
+            images: vec![],
             sequence: 1,
             histories: BTreeMap::new(),
         }
@@ -162,6 +169,7 @@ impl State {
             text_blocks: self.text_blocks.clone(),
             companion_items: self.companion_items.clone(),
             companion_settings: self.companion_settings.clone(),
+            images: self.images.clone(),
         }
     }
     fn action_dependencies(&self, action: Option<&Action>) -> Vec<Id> {
@@ -177,6 +185,7 @@ impl State {
             .map(|s| &s.id)
             .chain(action.text_after.iter().map(|e| &e.mark_id))
             .chain(action.companion_after.iter().map(|e| &e.id))
+            .chain(action.image_after.iter().map(|e| &e.id))
             .collect();
         self.strokes
             .iter()
@@ -190,6 +199,12 @@ impl State {
             )
             .chain(
                 self.companion_items
+                    .iter()
+                    .filter(|v| affected.contains(&v.id))
+                    .map(|v| v.head.operation_id.clone()),
+            )
+            .chain(
+                self.images
                     .iter()
                     .filter(|v| affected.contains(&v.id))
                     .map(|v| v.head.operation_id.clone()),
@@ -239,6 +254,10 @@ impl State {
         let deps: HashSet<&str> = c.dependencies.iter().map(String::as_str).collect();
         let op = &c.operation_id;
         match &c.body {
+            CommandBody::ImageMarks { mutations } => {
+                self.apply_images(mutations, op, author, &deps)?;
+                Ok(ChangeKind::MarksChanged)
+            }
             CommandBody::CompanionMarks { mutations } => {
                 self.apply_companion(mutations, op, author, &deps)?;
                 Ok(ChangeKind::MarksChanged)
@@ -381,6 +400,8 @@ impl State {
             text_after,
             companion_before: vec![],
             companion_after: vec![],
+            image_before: vec![],
+            image_after: vec![],
         });
         history.redo.clear();
         Ok(())
@@ -399,6 +420,7 @@ impl State {
         if self.strokes.iter().any(|s| s.id == *mark_id)
             || self.text_blocks.iter().any(|b| b.id == *mark_id)
             || self.companion_items.iter().any(|v| v.id == *mark_id)
+            || self.images.iter().any(|v| v.id == *mark_id)
         {
             return Err(collision());
         }
@@ -482,6 +504,12 @@ impl State {
             action.companion_before.clone()
         };
         self.check_companion_history(&companion_desired, author, deps)?;
+        let image_desired = if redo {
+            action.image_after.clone()
+        } else {
+            action.image_before.clone()
+        };
+        self.check_image_history(&image_desired, author, deps)?;
         let history = self.histories.get_mut(author).ok_or_else(stale)?;
         let stack = if redo {
             &mut history.redo
@@ -546,6 +574,17 @@ impl State {
                 .iter_mut()
                 .find(|v| v.id == value.id)
                 .ok_or_else(stale)?;
+            *current = value;
+            current.head = head(op);
+            history.expected.insert(current.id.clone(), op.clone());
+        }
+        for mut value in image_desired {
+            let current = self
+                .images
+                .iter_mut()
+                .find(|v| v.id == value.id)
+                .ok_or_else(stale)?;
+            value.seen_by_companion |= current.seen_by_companion;
             *current = value;
             current.head = head(op);
             history.expected.insert(current.id.clone(), op.clone());

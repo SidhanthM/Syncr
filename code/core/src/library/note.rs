@@ -29,6 +29,8 @@ pub(super) struct Runtime {
     stream: Id,
     sequence: u64,
     events: VecDeque<ChangeEvent>,
+    /// Cached `sync_digest`; cleared on every commit.
+    pub(super) digest: Option<SyncDigest>,
 }
 
 impl Runtime {
@@ -59,6 +61,7 @@ impl Note {
                 stream: new_id(),
                 sequence: 0,
                 events: VecDeque::new(),
+                digest: None,
             }),
         })
     }
@@ -96,7 +99,37 @@ fn write_commit(
         CommandBody::CompanionMarks { .. } | CommandBody::SetCompanionSettings { .. }
     ) {
         tx.execute_batch("CREATE TABLE IF NOT EXISTS companion_format(singleton INTEGER PRIMARY KEY CHECK(singleton=1)); INSERT OR IGNORE INTO companion_format VALUES (1);").map_err(storage)?;
-        tx.pragma_update(None, "user_version", store::COMPANION_NOTE_VERSION)
+        if store::check_version(tx)? < store::COMPANION_NOTE_VERSION {
+            tx.pragma_update(None, "user_version", store::COMPANION_NOTE_VERSION)
+                .map_err(storage)?;
+        }
+        if let CommandBody::CompanionMarks { mutations } = &command.body
+            && mutations
+                .iter()
+                .any(|m| matches!(m.body, CompanionBody::Picture { .. }))
+        {
+            tx.execute_batch("CREATE TABLE IF NOT EXISTS picture_format(singleton INTEGER PRIMARY KEY CHECK(singleton=1)); INSERT OR IGNORE INTO picture_format VALUES (1);").map_err(storage)?;
+            if store::check_version(tx)? < store::PICTURE_NOTE_VERSION {
+                tx.pragma_update(None, "user_version", store::PICTURE_NOTE_VERSION)
+                    .map_err(storage)?;
+            }
+        }
+    }
+    if let CommandBody::ImageMarks { mutations } = &command.body {
+        tx.execute_batch("CREATE TABLE IF NOT EXISTS companion_format(singleton INTEGER PRIMARY KEY CHECK(singleton=1)); INSERT OR IGNORE INTO companion_format VALUES (1); CREATE TABLE IF NOT EXISTS picture_format(singleton INTEGER PRIMARY KEY CHECK(singleton=1)); INSERT OR IGNORE INTO picture_format VALUES (1); CREATE TABLE IF NOT EXISTS images(image_id TEXT PRIMARY KEY, bytes BLOB NOT NULL);").map_err(storage)?;
+        for mutation in mutations {
+            if let ImageMutation::Add {
+                image_id, bytes, ..
+            } = mutation
+            {
+                tx.execute(
+                    "INSERT INTO images VALUES (?1,?2)",
+                    params![image_id, bytes],
+                )
+                .map_err(storage)?;
+            }
+        }
+        tx.pragma_update(None, "user_version", store::IMAGE_NOTE_VERSION)
             .map_err(storage)?;
     }
     store::save(tx, candidate)?;
@@ -152,16 +185,52 @@ pub(super) fn get_samples(note: &Note, mark_id: Id) -> CoreResult<Vec<u8>> {
     .ok_or_else(missing)
 }
 
+pub(super) fn get_image_bytes(note: &Note, image_id: Id) -> CoreResult<Vec<u8>> {
+    let r = lock(&note.runtime)?;
+    let db = r.db()?;
+    validation::id(&image_id)?;
+    if !r.state.images.iter().any(|v| v.id == image_id) {
+        return Err(missing());
+    }
+    db.query_row(
+        "SELECT bytes FROM images WHERE image_id=?1",
+        [image_id],
+        |r| r.get(0),
+    )
+    .optional()
+    .map_err(storage)?
+    .ok_or_else(missing)
+}
+
 pub(super) fn submit(note: &Note, command: Command) -> CoreResult<Receipt> {
     submit_as(note, command, &note.library.author)
 }
-pub(super) fn submit_as(note: &Note, mut command: Command, author: &str) -> CoreResult<Receipt> {
+pub(super) fn submit_as(note: &Note, command: Command, author: &str) -> CoreResult<Receipt> {
+    submit_checked(note, command, author, true)
+}
+/// `enforce_author_policy` is false only for operations merged from another copy of the
+/// note: they already passed admission where they were made.
+pub(super) fn submit_checked(
+    note: &Note,
+    mut command: Command,
+    author: &str,
+    enforce_author_policy: bool,
+) -> CoreResult<Receipt> {
     let mut r = lock(&note.runtime)?;
     let db = r.db()?;
     validation::id(&command.operation_id)?;
     command.dependencies.sort();
     command.dependencies.dedup();
     validation::id(author)?;
+    if enforce_author_policy
+        && let CommandBody::ImageMarks { mutations } = &command.body
+        && mutations
+            .iter()
+            .any(|m| matches!(m, ImageMutation::MarkSeen { .. }))
+        && author != note.agent_author_id()
+    {
+        return Err(invalid("Only the companion author may mark an image seen"));
+    }
     let canonical = canonical::command(&command, &r.state.note_id, author)?;
     // Idempotency comes before admission, so a committed command still retries as a
     // duplicate after the rules tighten (e.g. pre-canvas AddSheet).
@@ -214,6 +283,7 @@ pub(super) fn submit_as(note: &Note, mut command: Command, author: &str) -> Core
     tx.commit().map_err(storage)?;
     fault::crash_point("command_after_commit");
     candidate.text_effects.clear();
+    r.digest = None;
     r.state = candidate;
     r.sequence = event_sequence;
     r.events.push_back(ChangeEvent {

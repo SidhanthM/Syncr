@@ -253,6 +253,80 @@ impl Encoder {
         }
         Ok(())
     }
+    fn image_placement(&mut self, placement: &ImagePlacement) -> CoreResult<()> {
+        match placement {
+            ImagePlacement::Canvas {
+                sheet_id,
+                x,
+                y,
+                width,
+                height,
+            } => {
+                self.tag(0);
+                self.string(sheet_id)?;
+                for v in [x, y, width, height] {
+                    self.raw(&v.to_bits().to_le_bytes());
+                }
+            }
+            ImagePlacement::Text {
+                anchor_id,
+                width,
+                height,
+            } => {
+                self.tag(1);
+                self.string(anchor_id)?;
+                for v in [width, height] {
+                    self.raw(&v.to_bits().to_le_bytes());
+                }
+            }
+        }
+        Ok(())
+    }
+    fn image_mutation(&mut self, mutation: &ImageMutation) -> CoreResult<()> {
+        match mutation {
+            ImageMutation::Add {
+                image_id,
+                bytes,
+                media_type,
+                pixel_width,
+                pixel_height,
+                placement,
+            } => {
+                self.tag(0);
+                self.string(image_id)?;
+                self.blob(bytes)?;
+                self.tag(match media_type {
+                    ImageMediaType::Png => 0,
+                    ImageMediaType::Jpeg => 1,
+                });
+                self.raw(&pixel_width.to_le_bytes());
+                self.raw(&pixel_height.to_le_bytes());
+                self.image_placement(placement)?;
+            }
+            ImageMutation::Delete { image_id, base }
+            | ImageMutation::Restore { image_id, base }
+            | ImageMutation::MarkSeen { image_id, base } => {
+                self.tag(match mutation {
+                    ImageMutation::Delete { .. } => 1,
+                    ImageMutation::Restore { .. } => 2,
+                    _ => 4,
+                });
+                self.string(image_id)?;
+                self.base(base)?;
+            }
+            ImageMutation::Move {
+                image_id,
+                base,
+                placement,
+            } => {
+                self.tag(3);
+                self.string(image_id)?;
+                self.base(base)?;
+                self.image_placement(placement)?;
+            }
+        }
+        Ok(())
+    }
     fn finish(self) -> CoreResult<Vec<u8>> {
         if self.metadata > MAX_METADATA_BYTES {
             return Err(limit("Operation metadata exceeds 64 KiB"));
@@ -333,6 +407,13 @@ pub(crate) fn command(command: &Command, note_id: &str, author: &str) -> CoreRes
         e.string(d)?;
     }
     match &command.body {
+        CommandBody::ImageMarks { mutations } => {
+            e.tag(10);
+            e.length(mutations.len())?;
+            for mutation in mutations {
+                e.image_mutation(mutation)?;
+            }
+        }
         CommandBody::CompanionMarks { mutations } => {
             e.tag(8);
             e.length(mutations.len())?;

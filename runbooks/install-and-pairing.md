@@ -1,6 +1,6 @@
 # Install, emulator and pairing
 
-Run these commands from the Syncr vault root (`cd /Users/sid_m/Projects/personal/Syncr`). `./syncr help` shows the current command list.
+Run these commands from your Syncr checkout root (`cd /path/to/Syncr`). `./syncr help` shows the current command list.
 
 ## Use Syncr on the Mac emulator
 
