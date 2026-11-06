@@ -63,7 +63,7 @@ class Probe(private val o: Options, private val print: (String) -> Unit) {
         override fun forget() { pairing = null; file?.delete() }
     }
 
-    internal class Library(root: File) : NoteSource {
+    internal class Library(val root: File) : NoteSource {
         private val access: LibraryAccess = GeneratedCoreAdapter().open(root.absolutePath)
         val sheets = HashMap<String, String>()
 
@@ -74,6 +74,67 @@ class Probe(private val o: Options, private val print: (String) -> Unit) {
             val note = access.openNote(id)
             return try { note.export(dest.absolutePath).exportedLocalSequence.toLong() } finally { note.closeDurably() }
         }
+
+        // ---- link v1: what the phone's app does through its repository, done directly on the core for the host test ----
+
+        @Synchronized override fun digests(ids: List<String>): Map<String, NoteDigest> = ids.mapNotNull { id ->
+            runCatching { access.noteSyncDigest(id) }.getOrNull()?.let { id to NoteDigest(it.digest, it.operationCount.toLong()) }
+        }.toMap()
+
+        @Synchronized override fun trash(): List<String> = access.listDeletedNotes().map { it.id }
+
+        @Synchronized override fun applyCopy(id: String, file: File): CopyOutcome {
+            val path = file.absolutePath
+            val how: String
+            var rejected = 0
+            if (access.listNotes().none { it.id == id }) {
+                access.installCopy(path); how = "installed"
+            } else {
+                val note = access.openNote(id)
+                val report = try { note.mergeCopy(path) } finally { note.closeDurably() }
+                if (report.rejected.isEmpty()) how = "merged"
+                else { rejected = access.rebaseOntoCopy(id, path).rejected.size; how = "rebased" }
+            }
+            val d = access.noteSyncDigest(id)
+            val seq = access.listNotes().first { it.id == id }.localSequence.toLong()
+            return CopyOutcome.Applied(seq, NoteDigest(d.digest, d.operationCount.toLong()), how, rejected)
+        }
+
+        /** Every stroke of [id], tombstoned ones included, with its sample bytes. */
+        @Synchronized fun strokeBytes(id: String): Map<String, ByteArray> {
+            val note = access.openNote(id)
+            return try { note.snapshot().strokes.associate { it.id to note.samples(it.id) } } finally { note.closeDurably() }
+        }
+
+        @Synchronized fun hasNote(id: String) = access.listNotes().any { it.id == id }
+        @Synchronized fun digest(id: String) = access.noteSyncDigest(id)
+        @Synchronized fun deleteNote(id: String) = access.deleteNote(id)
+
+        @Synchronized fun liveStrokes(id: String): List<dev.syncr.core.StrokeView> {
+            val note = access.openNote(id)
+            return try { note.snapshot().strokes.filter { !it.tombstone } } finally { note.closeDurably() }
+        }
+
+        @Synchronized fun snapshot(id: String): dev.syncr.core.NoteSnapshot {
+            val note = access.openNote(id)
+            return try { note.snapshot() } finally { note.closeDurably() }
+        }
+
+        /** Moves a stroke right by [tx] (one core command, based on the stroke's current head). Returns the operation ID. */
+        @Synchronized fun moveStroke(id: String, mark: String, tx: Double): String {
+            val note = access.openNote(id)
+            try {
+                val s = note.snapshot().strokes.first { it.id == mark }
+                val op = newId()
+                note.submit(Command(op, listOf(s.head.operationId), CommandBody.Marks(listOf(
+                    MarkMutation.TransformStroke(mark, dev.syncr.core.Base.Operation(s.head.operationId), dev.syncr.core.Affine(1.0, 0.0, 0.0, 1.0, tx, 0.0))))))
+                return op
+            } finally { note.closeDurably() }
+        }
+
+        /** The backups the core wrote before rebasing [id], by file name. */
+        fun rebaseBackups(root: File, id: String): List<File> =
+            File(root, ".backups").listFiles().orEmpty().filter { it.name.startsWith("$id.rebase.") }
 
         @Synchronized fun sheetOf(id: String): String {
             val note = access.openNote(id)

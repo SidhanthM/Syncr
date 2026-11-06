@@ -90,6 +90,7 @@ fun writeRecovery(output: OutputStream, data: RecoveryData) {
                 is CommandBody.Redo -> json.name("type").value("Redo").name("target_operation_id").value(body.targetOperationId)
                 is CommandBody.CompanionMarks, is CommandBody.SetCompanionSettings ->
                     error("Companion edits are not supported in phone recovery commands")
+                is CommandBody.ImageMarks -> error("Image edits are not supported in phone recovery commands")
             }
             json.endObject().endObject()
         }

@@ -116,9 +116,21 @@ class JoinTest(private val o: Options, private val print: (String) -> Unit) {
     /** A socket that can be cut on cue: now, or after so many more bytes written (to land in the middle of a file transfer). */
     private class CuttingSocket : Socket() {
         private val written = AtomicLong()
+        private val read = AtomicLong()
         @Volatile private var cutAt = Long.MAX_VALUE
+        @Volatile private var readCutAt = Long.MAX_VALUE
         fun armIn(bytes: Long) { cutAt = written.get() + bytes }
+        /** Cuts after this many more bytes have been read (to land in the middle of a file the Mac sends). */
+        fun armReadIn(bytes: Long) { readCutAt = read.get() + bytes }
         fun cutNow() { try { close() } catch (_: IOException) { } }
+        override fun getInputStream(): java.io.InputStream {
+            val inner = super.getInputStream()
+            return object : java.io.InputStream() {
+                override fun read(): Int = inner.read().also { if (it >= 0) count(1) }
+                override fun read(b: ByteArray, off: Int, len: Int): Int = inner.read(b, off, len).also { if (it > 0) count(it) }
+                private fun count(n: Int) { if (read.addAndGet(n.toLong()) >= readCutAt) { cutNow(); throw IOException("cut on cue") } }
+            }
+        }
         override fun getOutputStream(): OutputStream {
             val inner = super.getOutputStream()
             return object : OutputStream() {
@@ -143,7 +155,7 @@ class JoinTest(private val o: Options, private val print: (String) -> Unit) {
     }
 
     /** One link client with everything the scenarios want to see of it. */
-    private inner class Session(val store: Probe.FileStore) {
+    private inner class Session(val store: Probe.FileStore, val version: Int = 0) {
         @Volatile var status = SessionStatus()
         @Volatile var target = StreamTarget()
         val phases = CopyOnWriteArrayList<Phase>()
@@ -152,14 +164,15 @@ class JoinTest(private val o: Options, private val print: (String) -> Unit) {
         val delivered = CopyOnWriteArrayList<Pair<String, Long>>()
         val logs = CopyOnWriteArrayList<String>()
         val transport = CuttingTransport()
+        val outDir = File(work, "out-${sessions.size}")
         val feed = PenFeed()
         val ids = IdPool(::newId)
         @Volatile var cutOnWant: Long = -1
         val client: LinkClient
 
         init {
-            val config = ClientConfig("Syncr join test", store, lib, Clock.SYSTEM, File(work, "out-${sessions.size}"), CorePreviewOut(), feed,
-                ::encodeSamples, { logs += it }, transport = transport, ids = ids)
+            val config = ClientConfig("Syncr join test", store, lib, Clock.SYSTEM, outDir, CorePreviewOut(), feed,
+                ::encodeSamples, { logs += it }, transport = transport, ids = ids, linkVersion = version)
             client = LinkClient(config, { p -> endpoint.copy(name = p.macName, macId = p.macId) }, object : ClientListener {
                 override fun onStatus(status: SessionStatus) {
                     this@Session.status = status; statuses += status
@@ -181,6 +194,26 @@ class JoinTest(private val o: Options, private val print: (String) -> Unit) {
         fun awaitPhase(p: Phase, ms: Long = o.timeoutMs) {
             if (!poll(ms) { status.phase == p }) throw Fail("phone stayed in ${status.phase} (${status.message}), wanted $p")
         }
+    }
+
+    /** The Mac's operation-set digests (first 12 hex characters) and operation counts, by note. */
+    private fun macDigests(): Map<String, Pair<String, Long>> {
+        val m = mark()
+        control("report")
+        val line = awaitLog(m, "^link: sync-digests", 10_000)
+        return line.removePrefix("link: sync-digests").trim().split(",").filter { it.isNotBlank() }.associate {
+            val (id, d, n) = it.split(":"); id to (d to n.toLong())
+        }
+    }
+
+    /** Waits until the phone's and the Mac's copies of [id] hold the same set of operations. */
+    private fun awaitEqual(id: String, ms: Long = o.timeoutMs) {
+        var last = ""
+        if (!poll(ms, every = 100) {
+                val phone = lib.digest(id); val mac = macDigests()[id]
+                last = "phone ${phone.digest.take(12)}:${phone.operationCount} mac ${mac?.first}:${mac?.second}"
+                mac != null && mac.first == phone.digest.take(12) && mac.second == phone.operationCount.toLong()
+            }) throw Fail("the phone and the Mac never agreed on note $id ($last)")
     }
 
     private fun newStore() = Probe.FileStore(storeFile, phoneId)
@@ -345,6 +378,10 @@ class JoinTest(private val o: Options, private val print: (String) -> Unit) {
             }
 
             step("f1 Tablet Stream: pad on with no Mac note open creates one and offers it as the target") {
+                // The Mac follows the phone to the note it views, and a phone note is writable on the Mac now (link v1), so the
+                // pad would write into it. This step is about the Mac having no note open: close every tab first.
+                control("sync-close-tabs")
+                awaitReport("the Mac still shows a note after its tabs were closed") { it.shown == "none" }
                 val m = mark()
                 val before = report()
                 check(before.notes.values.none { it.second }) { "a Mac-created note already exists" }
@@ -499,6 +536,8 @@ class JoinTest(private val o: Options, private val print: (String) -> Unit) {
             }
 
             step("g3 connection dropped mid-Stream-stroke: nothing partial is saved, the pad works after reconnect") {
+                // Ended previews of the mirrored strokes above wait up to 10 s for a copy that never comes; start from a clean layer.
+                awaitReport("an earlier preview never expired") { it.wet == 0 }
                 s.client.setPad(true)
                 check(poll { s.target.usable }) { "no target" }
                 val target = s.target
@@ -565,9 +604,196 @@ class JoinTest(private val o: Options, private val print: (String) -> Unit) {
                 awaitLog(m, "link: paired phone=")
             }
 
+
+            // ---------------------------------------------------------------- link v1: two-way sync (sync-v1.md)
+            s.stop()
+            var cur = Session(newStore(), 1)
+            var macNoteId = ""
+            fun connectV1() {
+                cur = Session(newStore(), 1)
+                cur.start(); cur.client.connect(endpoint)
+                cur.awaitPhase(Phase.CONNECTED)
+            }
+            step("j0 a v1 phone connects: the Mac sends its notes list, the Mac-made note installs on the phone, every digest agrees") {
+                macNoteId = report().notes.entries.first { it.value.second }.key
+                cur.start(); cur.client.connect(endpoint)
+                cur.awaitPhase(Phase.CONNECTED)
+                check(poll { lib.hasNote(macNoteId) }) { "the Mac-made note $macNoteId never reached the phone" }
+                for (id in listOf(note1, note2, macNoteId)) awaitEqual(id)
+                print("JOIN info j0 phone holds ${lib.list().size} notes; Mac-made note ${macNoteId} has ${lib.liveStrokes(macNoteId).size} strokes")
+            }
+            step("j1 a phone note is adopted, then typed into on the Mac: the phone receives the text operation") {
+                control("sync-text $note1 hello")
+                check(poll { lib.snapshot(note1).textBlocks.any { !it.tombstone && it.text.contains("hello") } }) { "the typed text never reached the phone" }
+                awaitEqual(note1)
+            }
+            step("j2 a Mac note with text, ink and a margin note appears on the phone with all of it") {
+                control("sync-text $macNoteId note")
+                check(poll { lib.snapshot(macNoteId).textBlocks.any { !it.tombstone } }) { "the Mac's text block never reached the phone" }
+                control("sync-margin $macNoteId")
+                check(poll { lib.snapshot(macNoteId).companionItems.any { it.body is dev.syncr.core.CompanionBody.MarginNote } }) { "the margin note never reached the phone" }
+                val strokes = lib.liveStrokes(macNoteId).size
+                check(strokes >= 3) { "the phone holds $strokes of the Mac note's strokes" }
+                awaitEqual(macNoteId)
+            }
+            step("j3 both sides change different strokes while disconnected; after reconnect the digests are equal and both moves are in") {
+                cur.stop()
+                val strokes = lib.liveStrokes(note1)
+                check(strokes.size >= 2) { "note1 has ${strokes.size} strokes" }
+                val first = strokes.first().id; val last = strokes.last().id
+                val m = mark()
+                lib.moveStroke(note1, first, 11.0)
+                control("sync-move $note1 last 22")
+                awaitLog(m, "ack sync-move $note1")
+                val conflictsBefore = report().int("conflicts")
+                connectV1()
+                awaitEqual(note1)
+                val snap = lib.snapshot(note1)
+                check(snap.strokes.first { it.id == first }.transform.tx == 11.0) { "the phone's own move was lost" }
+                check(snap.strokes.first { it.id == last }.transform.tx == 22.0) { "the Mac's move did not reach the phone" }
+                check(report().int("conflicts") == conflictsBefore) { "a conflict was recorded for changes that do not overlap" }
+            }
+            step("j4 the same stroke is moved on both sides: the Mac keeps its move, a conflict file appears, the phone rebases with a backup") {
+                cur.stop()
+                val first = lib.liveStrokes(note1).first().id
+                val phoneOp = lib.moveStroke(note1, first, 7.0)
+                val m = mark()
+                control("sync-move $note1 first 100")
+                awaitLog(m, "ack sync-move $note1")
+                connectV1()
+                awaitLog(m, """link: sync-conflict note=$note1 rejected=1""")
+                val file = File(o.macLibrary, ".mac/sync-conflicts/$note1/$phoneOp.json")
+                check(poll { file.isFile }) { "no conflict file at $file" }
+                val text = file.readText()
+                check(text.contains("stale base") && text.contains("\"canonical_hex\"") && text.contains("\"payload_json\"") && text.contains("\"author_id\"")) { "the conflict file lacks fields: ${text.take(200)}" }
+                check(poll { lib.rebaseBackups(lib.root, note1).isNotEmpty() }) { "the phone wrote no backup, so it did not rebase" }
+                awaitEqual(note1)
+                check(lib.snapshot(note1).strokes.first { it.id == first }.transform.tx == 100.0) { "the Mac's version did not win on the phone" }
+                check(macHas(m, "sync-conflict")) { "the Mac did not log the conflict" }
+                print("JOIN info j4 conflict file ${file.name} (${text.length} bytes), phone backups ${lib.rebaseBackups(lib.root, note1).map { it.name }}")
+            }
+            step("j5a a connection cut while the Mac sends a big note changes nothing on the phone; the transfer completes after reconnect") {
+                val before = lib.digest(note2)
+                val tmp = cur.outDir
+                cur.transport.current!!.armReadIn(150_000)
+                val m = mark()
+                control("sync-bulk $note2 6")
+                // The cut is seen on the Mac (the phone may already be reconnected by the time this thread looks at its own status).
+                awaitLog(m, "link: disconnected phone=")
+                check(lib.digest(note2) == before) { "the phone's note changed during a cut transfer" }
+                check(tmp.listFiles().orEmpty().none { it.name.startsWith("in-") }) { "a partial file stayed on the phone: ${tmp.list()?.toList()}" }
+                cur.awaitPhase(Phase.CONNECTED)
+                awaitEqual(note2)
+                check(lib.digest(note2) != before) { "the big note never arrived" }
+                check(tmp.listFiles().orEmpty().none { it.name.startsWith("in-") }) { "a staging file stayed after the transfer" }
+            }
+            step("j5b a connection cut while the phone sends a big note changes nothing on the Mac; the transfer completes after reconnect") {
+                repeat(6) { k ->
+                    val pts = List(8_000) { i ->
+                        val u = i / 7_999f
+                        Triple(300f + 4200f * u, 400f + 300f * k + 120f * sin(u * 60f * PI.toFloat()), 0.5f + 0.3f * sin(u * 9f))
+                    }
+                    lib.addStroke(note1, newId(), channels(pts), brush())
+                }
+                val m = mark()
+                val before = macDigests()[note1]!!
+                cur.cutOnWant = 150_000
+                cur.client.notesChanged(lib.list(), null)
+                val aborted = awaitLog(m, """link: transfer-aborted id=$note1 received=(\d+) of=(\d+) partial-file-removed=true""")
+                print("JOIN info j5b $aborted")
+                check(macDigests()[note1] == before || macDigests()[note1]!!.second >= before.second) { "the Mac's note went backwards" }
+                cur.awaitPhase(Phase.CONNECTED)
+                awaitEqual(note1)
+                check(File(o.macLibrary, ".incoming-link").listFiles().orEmpty().isEmpty()) { "Mac staging not empty" }
+            }
+            step("j6 200 randomised connect and cut cycles: every operation is applied once, nothing is lost, both sides converge") {
+                cur.stop()
+                awaitEqual(note1)
+                val base = lib.digest(note1).operationCount.toLong()
+                val rnd = java.util.Random(20261116)
+                var phoneAdds = 0; var macAdds = 0
+                val started = System.nanoTime()
+                repeat(200) { n ->
+                    val c = Session(newStore(), 1)
+                    c.start(); c.client.connect(endpoint)
+                    check(poll(15_000, 5) { c.status.phase == Phase.CONNECTED }) { "cycle $n: no connection (${c.status})" }
+                    val roll = rnd.nextInt(4)
+                    if (roll == 0 || roll == 3) { lib.addStroke(note1, newId(), channels(List(20) { curve(it, 20) }), brush()); phoneAdds++; c.client.notesChanged(lib.list(), null) }
+                    if (roll == 1 || roll == 3) { control("sync-stroke $note1 ${rnd.nextInt(3000)}"); macAdds++ }
+                    Thread.sleep(rnd.nextInt(150).toLong())
+                    if (rnd.nextBoolean()) c.transport.current?.cutNow()
+                    c.stop()
+                }
+                print("JOIN info j6 200 cycles in ${(System.nanoTime() - started) / 1_000_000_000}s: phone added $phoneAdds strokes, Mac $macAdds")
+                connectV1()
+                cur.client.notesChanged(lib.list(), null)
+                val expect = base + phoneAdds + macAdds
+                var last = ""
+                check(poll(90_000, every = 250) {
+                    val mac = macDigests()[note1]; val phone = lib.digest(note1)
+                    last = "phone ${phone.digest.take(12)}:${phone.operationCount} mac ${mac?.first}:${mac?.second} expected $expect ops"
+                    mac != null && mac.first == phone.digest.take(12) && mac.second == expect && phone.operationCount.toLong() == expect
+                }) { "no convergence: $last" }
+                val ids = lib.snapshot(note1).strokes.map { it.id }
+                check(ids.size == ids.toSet().size) { "a stroke appears twice on the phone" }
+                print("JOIN info j6 converged: $last")
+            }
+            step("j7 a note in the phone's Recently deleted is neither wanted from nor pushed to the phone") {
+                cur.stop()
+                lib.deleteNote(note2)
+                val m = mark()
+                connectV1()
+                control("sync-stroke $note2 300")
+                awaitLog(m, "ack sync-stroke $note2")
+                // A window: nothing is meant to follow, so give an announcement and a transfer time to show up.
+                Thread.sleep(2_000)
+                check(!lib.hasNote(note2)) { "the deleted note came back to the phone" }
+                check(!macHas(m, "link: announce ids=.*$note2")) { "the Mac announced a note the phone deleted" }
+                check(cur.logs.none { it.contains("copy-") && it.contains(note2) }) { "the phone took a copy of its deleted note" }
+            }
+
+
+            step("k rehearsal: the phone fixtures (two canvas notes, one pre-canvas v1 note) are adopted, edited on both sides and synced; every stroke is compared by count, ID and sample bytes") {
+                cur.stop()
+                val repo = File("../../core")
+                val extra = listOf(File(repo, "fixtures/legacy-v1/note-v1.syncr")).filter { it.isFile }
+                extra.forEach { it.copyTo(File(lib.root, it.name), overwrite = true) }
+                val ids = lib.list().map { it.id }.filter { it != macNoteId }
+                val before = ids.associateWith { lib.strokeBytes(it) }
+                print("JOIN rehearsal notes=${ids.size} strokes-before=${before.values.sumOf { it.size }} per-note=${before.map { "${it.key.takeLast(6)}:${it.value.size}" }}")
+                connectV1()
+                // adopt every note, then edit on both sides while connected and while apart
+                for (id in ids) check(poll { macDigests()[id] != null }) { "note $id was never adopted by the Mac" }
+                for (id in ids) awaitEqual(id)
+                cur.stop()
+                for (id in ids) {
+                    lib.addStroke(id, newId(), channels(List(30) { curve(it, 30) }), brush())
+                    control("sync-stroke $id 2500")
+                    if (lib.liveStrokes(id).size >= 2) lib.moveStroke(id, lib.liveStrokes(id).first().id, 5.0)
+                }
+                connectV1()
+                cur.client.notesChanged(lib.list(), null)
+                for (id in ids) awaitEqual(id)
+                // compare against the Mac's own file: a copy of it (the Mac holds the writer lock on the library)
+                var total = 0
+                for (id in ids) {
+                    val dir = Files.createTempDirectory(work.toPath(), "macview").toFile()
+                    File(o.macLibrary, "$id.syncr").copyTo(File(dir, "$id.syncr"))
+                    val mac = Probe.Library(dir).also { it.root }
+                    val macBytes = mac.strokeBytes(id); val phoneBytes = lib.strokeBytes(id)
+                    mac.close()
+                    check(macBytes.keys == phoneBytes.keys) { "note $id: stroke IDs differ (Mac ${macBytes.size}, phone ${phoneBytes.size})" }
+                    for ((k, v) in phoneBytes) check(v.contentEquals(macBytes[k])) { "note $id stroke $k: sample bytes differ" }
+                    for ((k, v) in before[id]!!) check(phoneBytes[k]?.contentEquals(v) == true && macBytes[k]?.contentEquals(v) == true) { "note $id: original stroke $k changed or lost" }
+                    total += phoneBytes.size
+                    print("JOIN rehearsal note=${id.takeLast(8)} strokes before=${before[id]!!.size} after=${phoneBytes.size} ids-equal=true bytes-equal=true originals-intact=true")
+                }
+                print("JOIN rehearsal ok: ${ids.size} notes, $total strokes compared, ${before.values.sumOf { it.size }} originals intact on both sides")
+            }
+
             step("i latency lines print on both sides") {
                 val m = mark()
-                s.stop()
+                cur.stop()
                 awaitLog(0, """link: latency \[[a-z ]+\] phone-send-to-mac-presented p50=[\d.]+ p95=[\d.]+ max=[\d.]+ ms n=\d+ rtt-last=[\d.]+ ms rtt-best=[\d.]+ ms \(""")
                 awaitLog(m, "link: disconnected phone=")
                 val phone = sessions.flatMap { it.logs }.filter { it.startsWith("latency ") }

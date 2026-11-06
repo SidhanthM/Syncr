@@ -28,6 +28,8 @@ class LinkSession(
     private val latency: LatencyLog,
     private val source: NoteSource,
     private val events: SessionEvents,
+    /** The link version this phone speaks: sent in `hello`, and the most it will act on. 0 behaves exactly as wifi-link-v0. */
+    private val version: Int = Control.VERSION,
 ) {
     @Volatile var phase = Phase.CONNECTING
         private set
@@ -46,7 +48,7 @@ class LinkSession(
         // A stored token goes only to the Mac it was issued by; a Mac that is not known yet gets a chance to say so.
         val stored = store.pairing()?.takeIf { target.macId == null || it.macId == target.macId }
         sentToken = stored?.token
-        scheduler.sendControl(Control.Hello(device, store.phoneId(), stored?.token))
+        scheduler.sendControl(Control.Hello(device, store.phoneId(), stored?.token, version))
         events.status(SessionStatus(Phase.CONNECTING, stored?.macName ?: target.name))
     }
 
@@ -76,19 +78,21 @@ class LinkSession(
                 if (rtt >= 0) latency.roundTrip.add(rtt * 1000)
             }
             is Control.Want -> if (phase == Phase.CONNECTED) sync.onWant(c.ids)
-            is Control.Have -> if (phase == Phase.CONNECTED) sync.onHave(c.id, c.seq)
+            is Control.Have -> if (phase == Phase.CONNECTED) { sync.onHave(c.id, c.seq); sync.receiver.onPeerHave(c.id, c.digest) }
+            is Control.Notes -> if (phase == Phase.CONNECTED) sync.receiver.onNotes(c.notes)
+            is Control.File -> if (phase == Phase.CONNECTED) sync.receiver.onFile(c)
+            is Control.FileEnd -> if (phase == Phase.CONNECTED) sync.receiver.onFileEnd(c.xfer)
             is Control.FileError -> if (phase == Phase.CONNECTED) sync.onFileError(c.xfer, c.id, c.reason)
             is Control.Target -> if (phase == Phase.CONNECTED) {
                 events.target(StreamTarget(c.note, c.sheet, c.writable, c.rev))
             }
             // The Mac never sends these; a confused or hostile one is ignored rather than trusted.
-            is Control.Hello, is Control.Code, is Control.Notes, is Control.File, is Control.FileEnd,
-            is Control.Viewing, is Control.Pad -> Unit
+            is Control.Hello, is Control.Code, is Control.Viewing, is Control.Pad -> Unit
         }
     }
 
     private fun onWelcome(c: Control.Welcome) {
-        if (c.v != Control.VERSION) {
+        if (c.v !in Control.OLDEST..version) {
             events.close("This Mac app speaks a different link version.", fatal = true)
             return
         }
@@ -103,7 +107,7 @@ class LinkSession(
         feed.enabled = true
         nextPing = clock.nowMs() + PING_MS
         events.status(SessionStatus(Phase.CONNECTED, c.mac))
-        sync.onWelcome(source.list(), openId)
+        sync.onWelcome(source.list(), openId, minOf(c.v, version))
         viewing?.let { scheduler.sendControl(Control.Viewing(it)) }
         if (padOn) scheduler.sendControl(Control.Pad(true))
     }
@@ -134,6 +138,11 @@ class LinkSession(
             nextPing = now + PING_MS
             scheduler.sendControl(Control.Ping(++pingId, now))
         }
+    }
+
+    /** A file chunk from the Mac (a note it sends the phone). */
+    fun onFileChunk(message: ByteArray) {
+        if (phase == Phase.CONNECTED) sync.receiver.onChunk(message)
     }
 
     /** The app's notes changed; [open] is the note on screen. */

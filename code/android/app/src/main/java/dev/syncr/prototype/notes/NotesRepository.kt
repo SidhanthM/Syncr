@@ -28,6 +28,7 @@ class NotesRepository(
     private val editor = OpenNoteEditor(session, core, id)
     private val drafts = DraftQueue(session, core, editor, id)
     private val library = LibraryOperations(session, core, thumbnailDir, now)
+    private val sync = SyncOperations(session, editor)
 
     val state: StateFlow<NotesState> = session.state
 
@@ -233,6 +234,33 @@ class NotesRepository(
             }
         }
         return sequence
+    }
+
+    /** Link v1: operation-set digests of [ids] (notes that are gone are left out). Silent, serialized on the worker. */
+    suspend fun syncDigests(ids: List<String>): Map<String, SyncDigestInfo> {
+        val out = HashMap<String, SyncDigestInfo>()
+        session.background { for (id in ids) sync.digest(id)?.let { out[id] = it } }
+        return out
+    }
+
+    /** Link v1: IDs in Recently deleted, read from the core. */
+    suspend fun trashIds(): List<String> {
+        var ids = emptyList<String>()
+        session.background { ids = session.library().listDeletedNotes().map { it.id } }
+        return ids
+    }
+
+    /**
+     * Link v1: puts the Mac's copy of [noteId], staged at [path], into the library (installs, merges, or rebases when the
+     * merge rejects operations). Waits a few seconds for the open note's own saves first; fails with a message, never
+     * silently. The library and the open note's snapshot are read back when it succeeds.
+     */
+    suspend fun applyCopy(noteId: String, path: String): AppliedCopy {
+        var waited = 0
+        while (state.value.unsaved && waited < 50) { kotlinx.coroutines.delay(100); waited++ }
+        var result: Result<AppliedCopy> = Result.failure(IllegalStateException("not run"))
+        session.background { result = runCatching { sync.apply(noteId, path) }.recoverCatching { throw IllegalStateException(diagnostic(it)) } }
+        return result.getOrThrow()
     }
 
     /** Called only after screen closure; no note handle may be released here. */

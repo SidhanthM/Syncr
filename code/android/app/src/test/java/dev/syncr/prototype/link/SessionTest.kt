@@ -15,7 +15,7 @@ class SessionTest {
         val hello = h.controls().single() as Control.Hello
         assertEquals("0123456789abcdef0123456789abcdef", hello.phoneId)
         assertNull(hello.token)
-        assertEquals(0, hello.v)
+        assertEquals(1, hello.v)
 
         h.mac(Control.PairRequest)
         assertEquals(Phase.NEEDS_CODE, h.session.phase)
@@ -104,7 +104,7 @@ class SessionTest {
     @Test fun welcomeWithAnotherVersionIsRefused() {
         val h = SessionHarness()
         h.session.start(); h.drain()
-        h.mac(Control.Welcome(1, "Mac", MAC_ID, 1))
+        h.mac(Control.Welcome(2, "Mac", MAC_ID, 1))
         assertEquals(true, h.closed?.second)
         assertFalse(h.feed.enabled)
         h.cleanup()

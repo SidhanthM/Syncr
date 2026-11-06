@@ -26,6 +26,12 @@ interface LibraryAccess {
     /** Permanent; only for notes in Recently deleted. */
     fun purgeNote(id: String)
     fun purgeDeletedOlderThan(cutoffMs: Long): UInt
+    /** Link v1 sync: places a validated copy of a note the library lacks. */
+    fun installCopy(path: String): NoteSummary = throw UnsupportedOperationException("sync")
+    /** Link v1 sync: rebuilds the CLOSED note as the copy plus this file's own operations that still apply. */
+    fun rebaseOntoCopy(noteId: String, path: String): MergeReport = throw UnsupportedOperationException("sync")
+    /** Link v1 sync: the operation-set digest of a note that may be closed. */
+    fun noteSyncDigest(noteId: String): SyncDigest = throw UnsupportedOperationException("sync")
     fun release()
 }
 interface NoteAccess {
@@ -35,6 +41,8 @@ interface NoteAccess {
     fun lookup(id: String): OperationLookup
     fun changes(cursor: EventCursor): ChangePage
     fun export(path: String): ExportReceipt
+    fun syncDigest(): SyncDigest = throw UnsupportedOperationException("sync")
+    fun mergeCopy(path: String): MergeReport = throw UnsupportedOperationException("sync")
     /** Fallible durable close THEN reference release. Never release after a failed close. */
     fun closeDurably()
 }
@@ -57,6 +65,9 @@ class GeneratedCoreAdapter : CoreAdapter {
         override fun restoreNote(id: String) = handle.restoreNote(id)
         override fun purgeNote(id: String) = handle.purgeNote(id)
         override fun purgeDeletedOlderThan(cutoffMs: Long) = handle.purgeDeletedOlderThan(cutoffMs)
+        override fun installCopy(path: String) = handle.installCopy(path)
+        override fun rebaseOntoCopy(noteId: String, path: String) = handle.rebaseOntoCopy(noteId, path)
+        override fun noteSyncDigest(noteId: String) = handle.noteSyncDigest(noteId)
         override fun release() = handle.close()
     }
     private class GeneratedNote(private val handle: Note) : NoteAccess {
@@ -66,6 +77,8 @@ class GeneratedCoreAdapter : CoreAdapter {
         override fun lookup(id: String) = handle.lookupOperation(id)
         override fun changes(cursor: EventCursor) = handle.changesSince(cursor, 256u)
         override fun export(path: String) = handle.exportCopy(path)
+        override fun syncDigest() = handle.syncDigest()
+        override fun mergeCopy(path: String) = handle.mergeCopy(path)
         override fun closeDurably() { handle.closeNote(); handle.close() }
     }
 }

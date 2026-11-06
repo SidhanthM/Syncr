@@ -28,6 +28,9 @@ class SyncSender(
         var sentAt = 0L
     }
 
+    /** Mac to phone sync; the session routes the Mac's `notes`, `file`, chunks and `file_end` to it. */
+    val receiver = SyncReceiver(source, scheduler, loop, clock, tempDir, log)
+
     private val known = LinkedHashMap<String, NoteMeta>()
     private val announced = HashMap<String, Long>()
     private class Due(val at: Long, val meta: NoteMeta)
@@ -40,6 +43,8 @@ class SyncSender(
     private var active: Transfer? = null
     private var nextXfer = 1L
     private var generation = 0
+    /** The Mac speaks link v1: announcements carry digests and the phone's trash. */
+    private var v1 = false
 
     /** Transfers the Mac confirmed with `have`, for tests and the probe. */
     val delivered = ArrayList<Pair<String, Long>>()
@@ -47,14 +52,16 @@ class SyncSender(
     val busy get() = preparing || active != null
 
     /** After `welcome`: a clean slate for this connection, then the whole manifest. */
-    fun onWelcome(notes: List<NoteMeta>, open: String?) {
+    fun onWelcome(notes: List<NoteMeta>, open: String?, version: Int = 0) {
         reset()
         connected = true
+        v1 = version >= 1
         generation++
+        receiver.onWelcome(v1)
         known.clear()
         notes.forEach { known[it.id] = it }
         openId = open
-        sendNotes(notes)
+        sendNotes(notes, first = true)
         notes.forEach { announced[it.id] = it.seq }
     }
 
@@ -63,6 +70,7 @@ class SyncSender(
         connected = false
         generation++
         reset()
+        receiver.onClosed()
     }
 
     private fun reset() {
@@ -108,6 +116,7 @@ class SyncSender(
 
     /** Called often: sends notices whose quiet period is over and watches the transfer. */
     fun tick() {
+        receiver.tick()
         val now = clock.nowMs()
         if (due.isNotEmpty()) {
             val ready = due.values.filter { it.at <= now }.map { it.meta }
@@ -132,13 +141,32 @@ class SyncSender(
         notes.forEach { announced[it.id] = it.seq }
     }
 
+    /**
+     * Link v1: digests (and, on the first message of a connection, the phone's trash) are read off the link thread, then the
+     * announcement goes out in the order it was asked for. A link v0 Mac gets the plain manifest of wifi-link-v0.
+     */
+    private fun sendNotes(notes: List<NoteMeta>, first: Boolean = false) {
+        if (!v1) return sendBatches(notes)
+        val mine = generation
+        loop.background {
+            val digests = try { source.digests(notes.map { it.id }) } catch (e: Exception) { log("digest read failed: ${e.javaClass.simpleName}"); emptyMap() }
+            val trash = if (first) try { source.trash() } catch (e: Exception) { log("trash read failed: ${e.javaClass.simpleName}"); emptyList() } else null
+            loop.post {
+                if (mine != generation || !connected) return@post
+                // The trash goes first and alone, so a long list never competes with the notes for the message limit.
+                if (trash != null) scheduler.sendControl(Control.Notes(emptyList(), trash.take(MAX_TRASH)))
+                sendBatches(notes.map { n -> digests[n.id]?.let { n.copy(digest = it.digest, ops = it.ops) } ?: n })
+            }
+        }
+    }
+
     /** Titles are for display; long ones are cut so a manifest of any size splits into frames that fit. */
-    private fun sendNotes(notes: List<NoteMeta>) {
+    private fun sendBatches(notes: List<NoteMeta>) {
         var batch = ArrayList<NoteMeta>()
         var size = 0
         for (n in notes) {
             val trimmed = if (n.title.length > MAX_TITLE) n.copy(title = n.title.take(MAX_TITLE)) else n
-            val cost = 80 + trimmed.id.length + trimmed.title.length * 6 // worst-case JSON escaping
+            val cost = 160 + trimmed.id.length + trimmed.title.length * 6 // worst-case JSON escaping, plus a digest
             if (batch.isNotEmpty() && size + cost > BATCH_BYTES) {
                 scheduler.sendControl(Control.Notes(batch))
                 batch = ArrayList(); size = 0
@@ -249,5 +277,6 @@ class SyncSender(
         const val ACK_TIMEOUT_MS = 30_000L
         private const val MAX_TITLE = 200
         private const val BATCH_BYTES = 48_000
+        private const val MAX_TRASH = 1_500
     }
 }

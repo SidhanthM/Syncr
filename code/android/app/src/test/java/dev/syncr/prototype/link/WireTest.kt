@@ -149,6 +149,22 @@ class WireTest {
         }
     }
 
+    @Test fun linkV1VectorsParseAndRoundTrip() {
+        val root = Json.parse(File("../../shared/link-v0/vectors-v1.json").canonicalFile.readBytes()) as Map<*, *>
+        val list = (root["vectors"] as List<*>).map { it as Map<*, *> }
+        assertTrue(list.size >= 5)
+        for (v in list) {
+            val name = v["name"] as String
+            val message = Wire.read(ByteArrayInputStream(hex(v["framed_hex"] as String)))
+            val parsed = Control.parse(message) ?: throw AssertionError("$name did not parse")
+            assertEquals(name, v["json"], Json.parse(parsed.encode(), 1))
+            assertEquals(name, parsed, Control.parse(parsed.encode()))
+        }
+        val notes = Control.parse(Wire.read(ByteArrayInputStream(hex(list.first { it["name"] == "notes_v1_phone" }["framed_hex"] as String)))) as Control.Notes
+        assertEquals(12L, notes.notes.single().ops)
+        assertEquals(listOf("01JCN0TE000000000000000002"), notes.trash)
+    }
+
     @Test fun vectorsCoverEveryControlTypeWeParse() {
         val seen = vectors.mapNotNull { (it["json"] as? Map<*, *>)?.get("t") as? String }.toSet()
         assertTrue(seen.containsAll(listOf("hello", "welcome", "pair", "code", "paired", "denied", "bye", "ping", "pong", "notes", "want",

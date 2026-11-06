@@ -55,6 +55,8 @@ class ClientConfig(
     val ids: IdPool? = null,
     /** Read on the link worker, never the pen thread. */
     val latencyContext: () -> String = { "radio=host/unavailable" },
+    /** Link version to speak (0: wifi-link-v0 only, for the joined test's old-phone probe). */
+    val linkVersion: Int = Control.VERSION,
 )
 
 /**
@@ -276,7 +278,7 @@ class LinkClient(
             override fun target(target: StreamTarget) = this@LinkClient.target(target)
             override fun close(reason: String, fatal: Boolean) = this@LinkClient.close(reason, fatal)
         }
-        val sess = LinkSession(cfg.device, cfg.store, endpoint, scheduler, sync, pump, cfg.feed, cfg.clock, latency, cfg.source, events)
+        val sess = LinkSession(cfg.device, cfg.store, endpoint, scheduler, sync, pump, cfg.feed, cfg.clock, latency, cfg.source, events, cfg.linkVersion)
         sess.adopt(appViewing, appPad, appOpen)
         session = sess
         lastInbound = cfg.clock.nowMs()
@@ -350,7 +352,11 @@ class LinkClient(
             while (!s.isClosed) {
                 val message = Wire.read(input)
                 lastInbound = cfg.clock.nowMs()
-                if (Wire.kind(message) != Wire.KIND_CONTROL) continue // only control flows Mac to phone
+                if (Wire.kind(message) == Wire.KIND_FILE) {
+                    post { if (id == connId) sess.onFileChunk(message) }
+                    continue
+                }
+                if (Wire.kind(message) != Wire.KIND_CONTROL) continue // the Mac sends no preview or stroke-commit frames
                 post {
                     if (id != connId) return@post // a connection that has since ended
                     try {

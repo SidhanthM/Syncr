@@ -28,6 +28,8 @@ import dev.syncr.prototype.link.IdPool
 import dev.syncr.prototype.link.InkMirror
 import dev.syncr.prototype.link.LinkClient
 import dev.syncr.prototype.link.LinkPolicy
+import dev.syncr.prototype.link.CopyOutcome
+import dev.syncr.prototype.link.NoteDigest
 import dev.syncr.prototype.link.NoteMeta
 import dev.syncr.prototype.link.NoteSource
 import dev.syncr.prototype.link.PenFeed
@@ -225,6 +227,20 @@ class LinkController private constructor(private val app: Application) {
                 val repo = repo ?: return null
                 dest.delete()
                 return runBlocking { repo.exportCopy(id, dest.absolutePath) }
+            }
+            override fun digests(ids: List<String>): Map<String, NoteDigest> {
+                val repo = repo ?: return emptyMap()
+                return runBlocking { repo.syncDigests(ids) }.mapValues { NoteDigest(it.value.digest, it.value.operationCount.toLong()) }
+            }
+            override fun trash(): List<String> = repo?.let { runBlocking { it.trashIds() } } ?: emptyList()
+            override fun applyCopy(id: String, file: File): CopyOutcome {
+                val repo = repo ?: return CopyOutcome.Refused("notes are not open")
+                return try {
+                    val r = runBlocking { repo.applyCopy(id, file.absolutePath) }
+                    CopyOutcome.Applied(r.seq, NoteDigest(r.digest, r.operationCount), r.how, r.rejected)
+                } catch (e: Exception) {
+                    CopyOutcome.Refused((e.message ?: e.javaClass.simpleName).take(150))
+                }
             }
         }
         val config = ClientConfig(

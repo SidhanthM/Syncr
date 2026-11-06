@@ -1,7 +1,10 @@
 package dev.syncr.prototype.link
 
-/** One note in a manifest: its ID, its `local_sequence` and its title. */
-data class NoteMeta(val id: String, val seq: Long, val title: String)
+/**
+ * One note in a manifest: its ID, its `local_sequence` and its title. Link v1 adds [digest] (SHA-256 hex over the note's
+ * sorted operation IDs) and [ops] (how many); a note announced without them is wanted by sequence only.
+ */
+data class NoteMeta(val id: String, val seq: Long, val title: String, val digest: String? = null, val ops: Long? = null)
 
 /**
  * Control messages of wifi-link-v0 §3. [parse] accepts every message either side sends (so a phone can be tested
@@ -52,8 +55,18 @@ sealed class Control {
         override fun json() = mapOf("t" to "pong", "id" to id, "at" to at, "now" to now)
     }
 
-    data class Notes(val notes: List<NoteMeta>) : Control() {
-        override fun json() = mapOf("t" to "notes", "notes" to notes.map { mapOf("id" to it.id, "seq" to it.seq, "title" to it.title) })
+    /** [trash] (v1, phone to Mac): IDs in this phone's Recently deleted. The Mac never sends it. */
+    data class Notes(val notes: List<NoteMeta>, val trash: List<String>? = null) : Control() {
+        override fun json(): Map<String, Any?> {
+            val m = linkedMapOf<String, Any?>("t" to "notes", "notes" to notes.map { n ->
+                val e = linkedMapOf<String, Any?>("id" to n.id, "seq" to n.seq, "title" to n.title)
+                n.digest?.let { e["digest"] = it }
+                n.ops?.let { e["ops"] = it }
+                e
+            })
+            trash?.let { m["trash"] = it }
+            return m
+        }
     }
 
     data class Want(val ids: List<String>) : Control() {
@@ -68,8 +81,14 @@ sealed class Control {
         override fun json() = mapOf("t" to "file_end", "xfer" to xfer)
     }
 
-    data class Have(val id: String, val seq: Long) : Control() {
-        override fun json() = mapOf("t" to "have", "id" to id, "seq" to seq)
+    /** [digest] and [ops] (v1): the sender's operation set after installing. */
+    data class Have(val id: String, val seq: Long, val digest: String? = null, val ops: Long? = null) : Control() {
+        override fun json(): Map<String, Any?> {
+            val m = linkedMapOf<String, Any?>("t" to "have", "id" to id, "seq" to seq)
+            digest?.let { m["digest"] = it }
+            ops?.let { m["ops"] = it }
+            return m
+        }
     }
 
     data class FileError(val xfer: Long, val id: String, val reason: String) : Control() {
@@ -91,7 +110,9 @@ sealed class Control {
     }
 
     companion object {
-        const val VERSION = 0
+        /** Sent in hello. A Mac that answers `welcome` with version 0 is an older app: the phone then syncs one way only. */
+        const val VERSION = 1
+        const val OLDEST = 0
         private const val MAX_STRING = 1024
         private const val MAX_LIST = 5000
 
@@ -112,12 +133,12 @@ sealed class Control {
                 "pong" -> Pong(m.int("id"), m.int("at"), m.int("now"))
                 "notes" -> Notes(m.list("notes").map { entry ->
                     val e = Fields(entry as? Map<*, *> ?: throw LinkProtocolException("note entry is not an object"))
-                    NoteMeta(e.id("id"), e.int("seq"), e.str("title", MAX_STRING))
-                })
+                    NoteMeta(e.id("id"), e.int("seq"), e.str("title", MAX_STRING), e.optDigest("digest"), e.optInt("ops"))
+                }, m.optList("trash")?.map { it as? String ?: throw LinkProtocolException("trash id is not a string") })
                 "want" -> Want(m.list("ids").map { it as? String ?: throw LinkProtocolException("want id is not a string") })
                 "file" -> File(m.u32("xfer"), m.id("id"), m.int("seq"), m.int("size"), m.str("sha256", 64), m.int("chunks"))
                 "file_end" -> FileEnd(m.u32("xfer"))
-                "have" -> Have(m.id("id"), m.int("seq"))
+                "have" -> Have(m.id("id"), m.int("seq"), m.optDigest("digest"), m.optInt("ops"))
                 "file_error" -> FileError(m.u32("xfer"), m.str("id", 64), m.str("reason", MAX_STRING))
                 "viewing" -> Viewing(m.optStr("id", 64))
                 "pad" -> Pad(m.bool("on"))
@@ -142,6 +163,18 @@ sealed class Control {
 
         /** IDs are short opaque strings; the core validates them where it uses them. */
         fun id(key: String): String = str(key, 64)
+
+        fun optInt(key: String): Long? = if (map[key] == null) null else int(key)
+
+        /** A SHA-256 digest as 64 lowercase hex characters, or null when the field is absent. */
+        fun optDigest(key: String): String? {
+            if (map[key] == null) return null
+            val v = str(key, 64)
+            if (v.length != 64 || !v.all { it in '0'..'9' || it in 'a'..'f' }) throw LinkProtocolException("field $key is not a digest")
+            return v
+        }
+
+        fun optList(key: String): List<*>? = if (map[key] == null) null else list(key)
 
         fun int(key: String): Long = map[key] as? Long ?: throw LinkProtocolException("field $key is not an integer")
 

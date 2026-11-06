@@ -39,6 +39,27 @@ interface NoteSource {
 
     /** The core's `export_copy` of [id] into [dest]; the exported sequence, or null when the note is gone. */
     fun exportCopy(id: String, dest: File): Long?
+
+    /** Link v1: operation-set digests of [ids] (absent when a note is gone). Blocking. */
+    fun digests(ids: List<String>): Map<String, NoteDigest> = emptyMap()
+
+    /** Link v1: IDs in this phone's Recently deleted. Blocking. */
+    fun trash(): List<String> = emptyList()
+
+    /**
+     * Link v1: puts a verified Mac copy of note [id], staged at [file], into the library: installs it, merges it into the
+     * note, or rebases the note onto it when the merge rejects operations. Blocking; the caller deletes [file] after.
+     */
+    fun applyCopy(id: String, file: File): CopyOutcome = CopyOutcome.Refused("not supported")
+}
+
+/** A note's operation set: how many operations and the SHA-256 hex over their sorted IDs. */
+data class NoteDigest(val digest: String, val ops: Long)
+
+sealed interface CopyOutcome {
+    /** [how] is `installed`, `merged` or `rebased`; [rejected] counts operations of the other side that did not apply. */
+    data class Applied(val seq: Long, val digest: NoteDigest, val how: String, val rejected: Int = 0) : CopyOutcome
+    data class Refused(val reason: String) : CopyOutcome
 }
 
 /** The part of the core's `PreviewSendQueue` the link uses, so schedulers can be tested without the native library. */
