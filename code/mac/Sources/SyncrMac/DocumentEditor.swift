@@ -39,7 +39,8 @@ import AppKit
     var onLink: ((String, Bool) -> Void)?
     var onReveal: ((Int) -> Void)?
     var onFind: (() -> Void)?
-    var onWidth: ((CGFloat) -> Void)?
+    /// The owner released a border: the new left and right edge in canvas units, nil where reset to the default.
+    var onColumn: ((CGFloat?, CGFloat?) -> Void)?
     var onWidthPreview: (() -> Void)?
     var onScroll: ((Float, Float) -> Void)?
     var resolve: ((String) -> Bool)?
@@ -50,8 +51,23 @@ import AppKit
     private var resizing = false
     private var resizingLeft = false
     private var resizeStartX: CGFloat = 0
-    private var resizeStartWidth: CGFloat = 1600
+    private var resizeStartEdge: CGFloat = 0
+    /// The text column in canvas units. Defaults are today's layout (100 and the block width less 100); the
+    /// owner's dragged edges are Mac preferences and never part of a note.
+    static let defaultLeft: CGFloat = 100
+    private(set) var columnLeft: CGFloat = 100
+    private(set) var columnRight: CGFloat = 1500
+    private var blockWidth: CGFloat = 1600
     var pageWidth: CGFloat = 1600
+    var textLeft: CGFloat { isFree ? 0 : columnLeft }
+    var textWidth: CGFloat { isFree ? max(200, pageWidth) : max(200, columnRight - columnLeft) }
+    private func loadColumn() {
+        guard !isFree else { pageWidth = blockWidth; return }
+        let values = AppPreferences.shared.values
+        let right = min(3000, max(800, values.columnRight.map { CGFloat($0) } ?? blockWidth - 100))
+        let left = min(max(Self.defaultLeft, values.columnLeft.map { CGFloat($0) } ?? Self.defaultLeft), right - 600)
+        columnLeft = left; columnRight = right; pageWidth = right + 100
+    }
     override var isFlipped: Bool { true }
 
     override init(frame: NSRect) {
@@ -94,6 +110,7 @@ import AppKit
     @objc private func preferencesChanged() {
         textView.isContinuousSpellCheckingEnabled = AppPreferences.shared.values.spellCheck
         textView.insertionPointColor = Theme.ink
+        if !resizing { loadColumn() }
         style(); onWidthPreview?()
     }
     override func viewDidChangeEffectiveAppearance() {
@@ -106,7 +123,7 @@ import AppKit
     func show(document: any TextDocument, title name: String, width: CGFloat) {
         let changedDocument = self.document !== document
         if changedDocument { flush() }
-        self.document = document; if !resizing { pageWidth = width }
+        self.document = document; if !resizing { blockWidth = width; loadColumn() }
         if title.currentEditor() == nil { title.stringValue = name }
         let permissionChanged = textView.isEditable != document.writable
         title.isEditable = document.writable
@@ -118,15 +135,16 @@ import AppKit
         } else if changedDocument || permissionChanged || textView.textStorage?.length == 0 { style() }
         resizeText()
     }
-    func debugDragWidth(_ width: CGFloat, left: Bool = false) {
+    /// Drags a border to canvas x `edge` the way the mouse would.
+    func debugDragWidth(_ edge: CGFloat, left: Bool = false) {
         guard let window else { return }
         func event(_ type: NSEvent.EventType, x: CGFloat) -> NSEvent? {
-            NSEvent.mouseEvent(with: type, location: convert(CGPoint(x: x, y: 60), to: nil), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)
+            NSEvent.mouseEvent(with: type, location: convert(CGPoint(x: x, y: 400), to: nil), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)
         }
-        let target = left ? 10 + pageWidth - width : width
-        if let e = event(.leftMouseDown, x: left ? 10 : pageWidth - 10) { mouseDown(with: e) }
-        if let e = event(.leftMouseDragged, x: target) { mouseDragged(with: e) }
-        if let e = event(.leftMouseUp, x: target) { mouseUp(with: e) }
+        let from = left ? columnLeft - 90 : columnRight + 90
+        if let e = event(.leftMouseDown, x: from) { mouseDown(with: e) }
+        if let e = event(.leftMouseDragged, x: from + (edge - (left ? columnLeft : columnRight))) { mouseDragged(with: e) }
+        if let e = event(.leftMouseUp, x: from + (edge - (left ? columnLeft : columnRight))) { mouseUp(with: e) }
     }
     func debugDragFree(dx: CGFloat, dy: CGFloat) {
         guard let window else { return }
@@ -151,14 +169,14 @@ import AppKit
     func find() { onFind?() }
     override func layout() { super.layout(); resizeText() }
     private func resizeText() {
-        let width = max(200, pageWidth - (isFree ? 0 : 200))
-        title.frame = isFree ? CGRect(x: 0, y: 0, width: 60, height: 42) : CGRect(x: 100, y: 70, width: width, height: 110 * AppPreferences.shared.textScale)
+        let width = textWidth
+        title.frame = isFree ? CGRect(x: 0, y: 0, width: 60, height: 42) : CGRect(x: columnLeft, y: 70, width: width, height: 110 * AppPreferences.shared.textScale)
         title.font = isFree ? .systemFont(ofSize: 32, weight: .medium) : DocumentLayout.titleFont
         textView.textContainer?.containerSize = CGSize(width: width, height: .greatestFiniteMagnitude)
         textView.layoutManager?.ensureLayout(for: textView.textContainer!)
         let height = max(1200, (textView.layoutManager?.usedRect(for: textView.textContainer!).height ?? 0) + 180)
-        textView.frame = CGRect(x: isFree ? 0 : 100, y: isFree ? 45 : 260, width: width, height: height)
-        suggestions.frame = CGRect(x: 100, y: choices.isEmpty ? min(height + 300, 700) : suggestions.frame.minY, width: width, height: 180)
+        textView.frame = CGRect(x: textLeft, y: isFree ? 45 : 260, width: width, height: height)
+        suggestions.frame = CGRect(x: textLeft, y: choices.isEmpty ? min(height + 300, 700) : suggestions.frame.minY, width: width, height: 180)
     }
     private func style() {
         guard !styling, !textView.hasMarkedText() else { return }
@@ -290,23 +308,47 @@ import AppKit
     override func draw(_ dirtyRect: NSRect) {
         guard !isFree else { return }
         NSColor.separatorColor.setStroke()
-        let path = NSBezierPath(); path.move(to: CGPoint(x: 10, y: 40)); path.line(to: CGPoint(x: 10, y: 100)); path.move(to: CGPoint(x: pageWidth - 10, y: 40)); path.line(to: CGPoint(x: pageWidth - 10, y: 100)); path.lineWidth = 6; path.stroke()
+        let path = NSBezierPath()
+        let top: CGFloat = resizing ? 0 : 40, bottom: CGFloat = resizing ? bounds.height : 100
+        for x in [columnLeft - 90, columnRight + 90] { path.move(to: CGPoint(x: x, y: top)); path.line(to: CGPoint(x: x, y: bottom)) }
+        path.lineWidth = 6; path.stroke()
+    }
+    /// Left of the left border mark and right of the right one: the strips that move the column's edges.
+    private func border(at p: CGPoint) -> Bool? {
+        guard !isFree else { return nil }
+        if p.x < columnLeft - 50 { return true }
+        if p.x > columnRight + 50 { return false }
+        return nil
+    }
+    override func resetCursorRects() {
+        guard !isFree else { return }
+        addCursorRect(CGRect(x: 0, y: 0, width: max(0, columnLeft - 50), height: bounds.height), cursor: .resizeLeftRight)
+        addCursorRect(CGRect(x: columnRight + 50, y: 0, width: 50, height: bounds.height), cursor: .resizeLeftRight)
     }
     override func mouseDown(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
-        if p.y < 180 && (p.x < 60 || p.x > pageWidth - 60) {
-            if event.clickCount == 2 { onWidth?(1600) }
-            else { resizing = true; resizingLeft = p.x < 60; resizeStartX = p.x; resizeStartWidth = pageWidth }
+        if let left = border(at: p) {
+            if event.clickCount == 2 { resetBorder(left: left) }
+            else { resizing = true; resizingLeft = left; resizeStartX = p.x; resizeStartEdge = left ? columnLeft : columnRight; needsDisplay = true }
         } else if p.y > 180 { window?.makeFirstResponder(textView) }
     }
-    override func mouseDragged(with event: NSEvent) {
-        if resizing {
-            let x = convert(event.locationInWindow, from: nil).x
-            pageWidth = min(2400, max(700, resizingLeft ? resizeStartWidth - (x - resizeStartX) : x))
-            resizeText(); needsDisplay = true; onWidthPreview?()
-        }
+    private func resetBorder(left: Bool) {
+        // Back to the default edge, saved as "no preference" for that edge only.
+        try? AppPreferences.shared.update { if left { $0.columnLeft = nil } else { $0.columnRight = nil } }
     }
-    override func mouseUp(with event: NSEvent) { if resizing { resizing = false; onWidth?(pageWidth) } }
+    override func mouseDragged(with event: NSEvent) {
+        guard resizing else { return }
+        let x = convert(event.locationInWindow, from: nil).x, moved = resizeStartEdge + (x - resizeStartX)
+        if resizingLeft { columnLeft = min(max(Self.defaultLeft, moved), columnRight - 600) }
+        else { columnRight = min(3000, max(columnLeft + 600, moved)) }
+        pageWidth = columnRight + 100
+        resizeText(); needsDisplay = true; window?.invalidateCursorRects(for: self); onWidthPreview?()
+    }
+    override func mouseUp(with event: NSEvent) {
+        guard resizing else { return }
+        resizing = false; needsDisplay = true
+        onColumn?(resizingLeft ? columnLeft : nil, resizingLeft ? nil : columnRight)
+    }
     override func scrollWheel(with event: NSEvent) {
         let (x, y) = AppPreferences.shared.canvasScroll(event)
         onScroll?(x, y)

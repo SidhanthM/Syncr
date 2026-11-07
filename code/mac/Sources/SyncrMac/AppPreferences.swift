@@ -19,9 +19,12 @@ struct AppPreferenceValues: Codable, Equatable {
     var spellCheck = true
     var restoreSession = true
     var naturalScroll = true
+    /// Text column edges in canvas units, set by dragging the borders; nil is the default layout.
+    var columnLeft: Double?
+    var columnRight: Double?
 
     init() {}
-    private enum CodingKeys: CodingKey { case appearance, textSize, lineSpacing, reduceMotion, spellCheck, restoreSession, naturalScroll }
+    private enum CodingKeys: CodingKey { case appearance, textSize, lineSpacing, reduceMotion, spellCheck, restoreSession, naturalScroll, columnLeft, columnRight }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         appearance = (try? c.decode(Appearance.self, forKey: .appearance)) ?? .system
@@ -31,6 +34,8 @@ struct AppPreferenceValues: Codable, Equatable {
         spellCheck = (try? c.decode(Bool.self, forKey: .spellCheck)) ?? true
         restoreSession = (try? c.decode(Bool.self, forKey: .restoreSession)) ?? true
         naturalScroll = (try? c.decode(Bool.self, forKey: .naturalScroll)) ?? true
+        columnLeft = try? c.decodeIfPresent(Double.self, forKey: .columnLeft)
+        columnRight = try? c.decodeIfPresent(Double.self, forKey: .columnRight)
     }
 }
 

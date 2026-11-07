@@ -11,6 +11,17 @@ import Foundation
 }
 
 @MainActor func settingsChecks() throws {
+    var margins = CompanionMarginLayout(columnLeft: 100, columnRight: 1500, width: 1000)
+    let first = margins.place(top: 300, height: 400)
+    let second = margins.place(top: 300, height: 200)
+    let third = margins.place(top: 310, height: 100)
+    precondition(first.x == -1040 && second.x == 1640, "Annotations use both margins, including negative canvas coordinates")
+    precondition(first.y == 300 && second.y == 300 && third.x == second.x && third.y == 524,
+                 "Independent lanes avoid overlap and keep notes near their passage")
+    for width: CGFloat in [1000, 3000, 5000] {
+        let left = CompanionMarginLayout.centeredLeft(columnLeft: 100, columnRight: 1500, visibleWidth: width)
+        precondition(abs((800 - left) - width / 2) < 0.001, "Text stays centered at every viewport width")
+    }
     let fm = FileManager.default
     let root = fm.temporaryDirectory.appendingPathComponent("syncr-settings-checks-\(UUID().uuidString)")
     try fm.createDirectory(at: root, withIntermediateDirectories: true)
@@ -111,5 +122,6 @@ import Foundation
         try check(editor.textView.selectedRange() == selection, "preference change preserves selection")
         try check(document.text == original && document.writes == 0, "presentation changes do not write note content or operations")
     }
+    try inlineCompanionSettingsChecks()
     print("Settings checks: OK (persistence, fallback, failed writes, search, two-axis natural scrolling, live editor presentation)")
 }

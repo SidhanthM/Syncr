@@ -22,6 +22,8 @@ import AppKit
     private var selectedPage: Page = .general
     var onCommand: ((AppCommand) -> Void)?
     var libraryFolder: (() -> URL)?
+    var companionContent: (() -> CompanionSettingsView?)?
+    private var companionPage: CompanionSettingsView?
 
     init(store: HotkeyStore, preferences: AppPreferences = .shared) {
         self.store = store; self.preferences = preferences
@@ -104,7 +106,9 @@ import AppKit
     }
     private func addContent(_ view: NSView) {
         contentStack.addArrangedSubview(view)
-        view.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
+        if !contentStack.constraints.contains(where: { $0.firstItem as? NSView === view && $0.firstAttribute == .width && $0.secondItem as? NSView === contentStack }) {
+            view.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
+        }
     }
     private var query: String { globalSearch.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) }
     private func renderContent() {
@@ -125,6 +129,14 @@ import AppKit
         for category in Page.allCases {
             let items = matches.filter { $0.category == category }
             guard !items.isEmpty else { continue }
+            if category == .companion {
+                if companionPage == nil { companionPage = companionContent?() }
+                if let companionPage {
+                    companionPage.present(sections: Set(items.map(\.id)))
+                    addContent(companionPage)
+                }
+                continue
+            }
             let group = NSStackView(); group.orientation = .vertical; group.alignment = .leading; group.spacing = 10
             let caption = SettingsUI.label(searching ? category.title.uppercased() : sectionTitle(category), size: 10, colour: Theme.muted, weight: .medium)
             group.addArrangedSubview(caption)
@@ -149,7 +161,10 @@ import AppKit
         if searching, matches.isEmpty && commands.isEmpty {
             addContent(SettingsCard(rows: [SettingsUI.row(title: "No settings found", detail: "Try “dark”, “font”, “shortcuts” or “models”. Search looks at setting names and descriptions, not your notes or credentials.", control: NSView(), separator: false)]))
         }
-        addContent(SettingsUI.label(searching ? "Search never includes your notes, API keys or account secrets." : "Changes save automatically · Just for this Mac", size: 10.5, colour: Theme.muted))
+        let footer = searching ? "Search never includes your notes, API keys or account secrets."
+            : selectedPage == .companion ? "Companion settings apply to this library. API keys stay in macOS Keychain."
+            : "Changes save automatically · Just for this Mac"
+        addContent(SettingsUI.label(footer, size: 10.5, colour: Theme.muted))
         contentStack.needsLayout = true
     }
     private func sectionTitle(_ category: Page) -> String {
@@ -187,7 +202,7 @@ import AppKit
             case .revealLibrary: "Show in Finder ↗"
             case .importNote, .importMarkdown: "Import…"
             case .hotkeys: "Customize →"
-            default: "Configure ↗"
+            default: "Open"
             }
             let button = ActionButton(link: title, size: 12) { [weak self] in self?.activate(item.id) }
             button.setAccessibilityLabel("\(title) \(item.title)")
@@ -204,7 +219,7 @@ import AppKit
     private func activate(_ id: SettingItem.ID) {
         switch id {
         case .hotkeys: select(.hotkeys)
-        case .provider, .models, .readers, .limits: onCommand?(.companionSettings)
+        case .provider, .models, .readers, .limits, .voice: select(.companion)
         case .libraryFolder: onCommand?(.chooseFolder)
         case .revealLibrary: if let folder = libraryFolder?() { NSWorkspace.shared.open(folder) }
         case .importNote: onCommand?(.importExport)
@@ -353,7 +368,10 @@ import AppKit
     func controlTextDidChange(_ obj: Notification) {
         if obj.object as? NSSearchField === globalSearch { globalSearchChanged() } else { reload() }
     }
-    func windowWillClose(_ notification: Notification) { recorder?.finish() }
+    func windowWillClose(_ notification: Notification) {
+        recorder?.finish()
+        companionPage?.clearSensitiveInput()
+    }
 }
 
 private final class FilterChip: NSButton {

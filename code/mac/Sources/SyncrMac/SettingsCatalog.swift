@@ -17,7 +17,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
 }
 
 struct SettingItem: Identifiable {
-    enum ID: String { case restoreSession, appearance, reduceMotion, textSize, lineSpacing, spellCheck, naturalScroll, hotkeys, provider, models, readers, limits, libraryFolder, revealLibrary, importNote, importMarkdown }
+    enum ID: String { case restoreSession, appearance, reduceMotion, textSize, lineSpacing, spellCheck, naturalScroll, hotkeys, provider, models, readers, limits, voice, libraryFolder, revealLibrary, importNote, importMarkdown }
     let id: ID
     let category: SettingsCategory
     let title: String
@@ -38,10 +38,11 @@ enum SettingsCatalog {
         .init(id: .spellCheck, category: .editor, title: "Check spelling as you type", detail: "Underline possible spelling mistakes without replacing your words.", keywords: "spellcheck spelling language proofread"),
         .init(id: .naturalScroll, category: .editor, title: "Natural canvas scrolling", detail: "Move the note with your fingers when scrolling. Turn off for the opposite direction. Pinch-to-zoom stays the same.", keywords: "trackpad gestures scroll direction invert pan zoom"),
         .init(id: .hotkeys, category: .hotkeys, title: "Customize hotkeys", detail: "Find any command, record a shortcut or restore its default.", keywords: "keyboard shortcuts bindings keys commands"),
-        .init(id: .provider, category: .companion, title: "Provider & sign-in", detail: "Connect your Codex subscription or manage your Claude API key.", keywords: "AI authentication account keychain credentials"),
+        .init(id: .provider, category: .companion, title: "Provider & sign-in", detail: "Connect Codex, Claude or OpenAI. API keys stay in macOS Keychain.", keywords: "AI authentication account keychain credentials"),
         .init(id: .models, category: .companion, title: "Reading & asking models", detail: "Choose models for reading along, answering and drawing.", keywords: "AI inference model refresh"),
-        .init(id: .readers, category: .companion, title: "Readers", detail: "Configure companion readers and their instructions.", keywords: "AI reader personas descriptions JSON"),
-        .init(id: .limits, category: .companion, title: "Daily usage & experiments", detail: "Manage token budgets, request limits and pictures.", keywords: "AI budget tokens requests limits drawings"),
+        .init(id: .readers, category: .companion, title: "Readers", detail: "Configure companion readers and their instructions.", keywords: "AI reader personas descriptions instructions name"),
+        .init(id: .limits, category: .companion, title: "Usage & pictures", detail: "Set daily token and unmetered request limits, pictures and hand-drawn lines.", keywords: "AI budget tokens requests limits drawings experiments style"),
+        .init(id: .voice, category: .companion, title: "Voice", detail: "Choose a read-aloud voice and speech speed.", keywords: "speech audio dictation microphone slower faster rate"),
         .init(id: .libraryFolder, category: .library, title: "Library folder", detail: "Choose which library to open. Existing notes are not moved.", keywords: "storage location directory files path"),
         .init(id: .revealLibrary, category: .library, title: "Show library in Finder", detail: "Open your current library folder in Finder.", keywords: "storage location directory files reveal path"),
         .init(id: .importNote, category: .library, title: "Import a phone export", detail: "Bring a saved .syncr export into this library using a validated copy.", keywords: "import backup saved snapshot phone"),
