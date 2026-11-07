@@ -68,6 +68,8 @@ final class LinkSession: @unchecked Sendable {
         /// Sends one file chunk and calls back when it has left, so control and preview messages queue behind at most one chunk.
         /// nil: no pacing (checks); every chunk is sent at once.
         var sendBulk: ((Data, @escaping @Sendable () -> Void) -> Void)? = nil
+        /// True while the phone's pen is writing or hovering. File chunks wait meanwhile; `tick` resumes them.
+        var penActive: (() -> Bool)? = nil
     }
 
     /// The same note and operation set is not transferred more than this many times a minute in one direction.
@@ -256,6 +258,7 @@ final class LinkSession: @unchecked Sendable {
             if ns &- lastInboundNs > LinkLimits.idleTimeoutNs { log("idle"); shutdown(bye: nil); return }
             if ns >= nextPingNs { sendPing(at: ns) }
             retryDeferred(at: ns)
+            pumpChunks()
             if let out = outgoing, let ended = out.endedNs, ns &- ended > Self.outgoingTimeoutNs {
                 log("out-timeout id=\(out.offer.id)"); finishOutgoing(); pumpWanted()
             }
@@ -375,6 +378,8 @@ final class LinkSession: @unchecked Sendable {
     /// One chunk at a time when the socket can say it has sent it; then `file_end`.
     private func pumpChunks() {
         while phase == .ready, var out = outgoing, out.endedNs == nil, !chunkInFlight {
+            // A note copy must not compete with live ink for the phone's radio; the next tick looks again.
+            if io.penActive?() == true { return }
             if out.nextIndex >= out.offer.chunks {
                 send(.fileEnd(xfer: out.offer.xfer))
                 out.endedNs = nowNs; outgoing = out

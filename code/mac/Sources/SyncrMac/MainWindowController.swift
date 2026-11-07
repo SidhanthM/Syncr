@@ -77,6 +77,7 @@ import UniformTypeIdentifiers
             }
         }
         settingsWindow.onCommand = { [weak self] in self?.run($0) }
+        settingsWindow.companionContent = { [weak self] in self?.companion.makeSettingsView() }
         settingsWindow.libraryFolder = { [weak self] in self?.model.folder ?? FileManager.default.homeDirectoryForCurrentUser }
         ribbon.onSettings = { [weak self] in self?.run(.settings) }
         hotkeys.onChange = { [weak self] in self?.hotkeysChanged() }
@@ -143,9 +144,9 @@ import UniformTypeIdentifiers
             guard let self, let id = self.workspace.active else { return }
             self.notebook.rename(id, to: title)
         }
-        detail.documentEditor.onWidth = { [weak self] width in
-            guard let self, let id = self.workspace.active else { return }
-            self.notebook.setWidth(note: id, width: width)
+        detail.documentEditor.onColumn = { [weak self] left, right in
+            do { try AppPreferences.shared.update { if let left { $0.columnLeft = Double(left) }; if let right { $0.columnRight = Double(right) } } }
+            catch { self?.fail(error) }
         }
         detail.documentEditor.resolve = { [weak self] in self?.model.notebookIndex.resolve($0) != nil }
         detail.documentEditor.complete = { [weak self] in self?.model.notebookIndex.completions($0).map(\.title) ?? [] }
@@ -157,7 +158,7 @@ import UniformTypeIdentifiers
             let blocks = self.model.drawing?.textBlocks.filter { $0.role == .free && !$0.tombstone } ?? []
             if index < blocks.count { self.notebook.moveFree(note: id, block: blocks[index], x: x, y: y) }
         }
-        _ = companion
+        companion.onShowSettings = { [weak self] in self?.settingsWindow.show(page: .companion) }
     }
 
     private func syncNotebook() {

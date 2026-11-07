@@ -11,32 +11,6 @@ import SyncrCompanion
     }
 }
 
-@MainActor final class ActionButton: NSButton {
-    var run: (() -> Void)?
-    convenience init(_ title: String, action: @escaping () -> Void) {
-        self.init(title: title, target: nil, action: nil)
-        target = self
-        self.action = #selector(clicked)
-        run = action
-        bezelStyle = .rounded
-        controlSize = .small
-    }
-    /// A borderless text action in quiet sans.
-    convenience init(link title: String, size: CGFloat, colour: NSColor = Theme.muted, action: @escaping () -> Void) {
-        self.init(title, action: action)
-        isBordered = false
-        attributedTitle = NSAttributedString(string: title, attributes: [.font: NSFont.systemFont(ofSize: size), .foregroundColor: colour])
-    }
-    convenience init(symbol: String, label: String, action: @escaping () -> Void) {
-        self.init("", action: action)
-        image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
-        isBordered = false
-        contentTintColor = Theme.muted
-        toolTip = label
-    }
-    @objc private func clicked() { run?() }
-}
-
 /// A quiet text menu, "Reader: Staff engineer ▾": muted text that opens a menu of choices.
 @MainActor final class QuietMenu: NSButton {
     var prefix = ""
@@ -107,6 +81,8 @@ import SyncrCompanion
     var voiceChanged: ((Bool) -> Void)?
     private let name = NSButton(title: "", target: nil, action: nil)
     private let status = NSTextField(labelWithString: "")
+    /// A short line of drifting stipple beside the step's name while the companion works.
+    private let working = DitherLines(width: 30, lines: 1, lineHeight: 8, cellPoints: 2)
     private var askLink: ActionButton!
     private weak var hotkeys: HotkeyStore?
     private var colourIndex = 0
@@ -119,8 +95,8 @@ import SyncrCompanion
     var lastRequest: (() -> Void)?
     /// The day's budget, for the window's status bar: text, tooltip, paused.
     var onBudget: ((String, String, Bool) -> Void)?
-    /// The companion is working: the mode mark pulses.
-    var thinking = false { didSet { if thinking != oldValue { pulse() } } }
+    /// The companion is working: the strip names the step.
+    var thinking = false { didSet { if thinking != oldValue { pulse(); working.isHidden = !thinking } } }
     private(set) lazy var height = heightAnchor.constraint(equalToConstant: Self.height)
     override var isHidden: Bool { didSet { height.constant = isHidden ? 0 : Self.height } }
 
@@ -161,7 +137,10 @@ import SyncrCompanion
         askLink.toolTip = "Ask about the selection"
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
-        let top = NSStackView(views: [name, mode, NSStackView(views: [webLabel, web]), NSStackView(views: [voiceLabel, voice]), reader, spacer, status, askLink])
+        working.translatesAutoresizingMaskIntoConstraints = false
+        working.widthAnchor.constraint(equalToConstant: 30).isActive = true; working.heightAnchor.constraint(equalToConstant: 8).isActive = true
+        working.isHidden = true
+        let top = NSStackView(views: [name, mode, NSStackView(views: [webLabel, web]), NSStackView(views: [voiceLabel, voice]), reader, spacer, working, status, askLink])
         top.spacing = 16
 
         let pen = NSTextField(labelWithString: "✎ Tell Syncr")
@@ -254,19 +233,9 @@ import SyncrCompanion
         }
     }
 
-    private var pulseTimer: Timer?
+    /// While the companion works the mode mark is steady and the strip names the step; nothing flashes.
     private func pulse() {
-        let base = mode.indexOfSelectedItem == 0 ? Theme.muted : Theme.thinking
-        mode.mark = base
-        pulseTimer?.invalidate()
-        pulseTimer = nil
-        guard thinking else { return }
-        pulseTimer = Timer.scheduledTimer(withTimeInterval: 0.6, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.mode.mark = AppPreferences.shared.reducedMotion ? base : (self.mode.mark == base ? base.withAlphaComponent(0.35) : base)
-            }
-        }
+        mode.mark = mode.indexOfSelectedItem == 0 ? Theme.muted : Theme.thinking
     }
 
     /// The settings the controls currently show.
@@ -295,8 +264,9 @@ import SyncrCompanion
 
     /// The status goes on the strip (it is what changed); the budget goes to the status bar.
     func show(meter value: BudgetMeter, status text: String) {
-        status.stringValue = text == "Ready" ? "" : text
-        status.textColor = text.hasPrefix("Choose") || text.hasPrefix("Turn on") ? Theme.needsYou : Theme.muted
+        let shown = text == "Ready" ? "" : text
+        if status.stringValue != shown { status.stringValue = shown; if !shown.isEmpty { Dither.fade(status) } }
+        status.textColor = text.hasPrefix("Choose") || text.hasPrefix("Turn on") ? Theme.needsYou : (thinking ? Theme.ink : Theme.muted)
         let share = Int((Double(value.tokens) / Double(max(1, value.tokenLimit)) * 100).rounded())
         let budget = value.reached ? "Syncr paused: today's budget is used" : "Syncr \(share)% of today's budget"
         onBudget?(budget, "\(value.tokens) of \(value.tokenLimit) tokens today\n\(value.unmeteredRequests) of \(value.requestLimit) unmetered requests", value.reached)
@@ -328,11 +298,11 @@ import SyncrCompanion
         dot.radius = 10
         dot.frame = CGRect(x: 0, y: 26, width: 20, height: 20)
         addSubview(dot)
-        let label = NSTextField(wrappingLabelWithString: text)
-        label.font = Theme.serif(50)
-        label.textColor = Theme.ink
-        label.preferredMaxLayoutWidth = inner
-        label.isSelectable = true
+        let label = RichTextView()
+        let labelHeight = label.show(text, size: 50, width: inner)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.widthAnchor.constraint(equalToConstant: inner).isActive = true
+        label.heightAnchor.constraint(equalToConstant: labelHeight).isActive = true
         var views: [NSView] = [label]
         if !sources.isEmpty {
             let list = NSTextField(wrappingLabelWithString: sources.map { "↗ \($0.title) — \(URL(string: $0.url)?.host ?? $0.url)" }.joined(separator: "\n"))

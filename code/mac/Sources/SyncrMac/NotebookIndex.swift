@@ -6,6 +6,79 @@ struct IndexedNote: Equatable, Sendable {
     var text: String
     var writable: Bool
 }
+/// Disposable per-note snapshot cache. Ownership and publication are main-confined; the supplied
+/// reader keeps note handles on LibraryModel's worker. At most one read is queued per pass.
+@MainActor final class NotebookIndexUpdater {
+    struct Revision: Equatable {
+        var id: String
+        var sequence: UInt64
+        var title: String
+        var writable: Bool
+    }
+    struct Source: Equatable { var folder: URL; var notes: [Revision] }
+    typealias Reader = (String, @escaping @MainActor (Result<IndexedNote, Error>) -> Void) -> Void
+    private let source: () -> Source
+    private let read: Reader
+    private let publish: ([IndexedNote]) -> Void
+    private var cache: [String: (revision: Revision, note: IndexedNote)] = [:]
+    private var published: Source?
+    private var cacheFolder: URL?
+    private var pass: UUID?
+    private var recover = false
+
+    init(source: @escaping () -> Source, read: @escaping Reader, publish: @escaping ([IndexedNote]) -> Void) {
+        self.source = source; self.read = read; self.publish = publish
+    }
+    func reset() {
+        // Invalidate even an A -> B -> A folder switch while an old read is returning.
+        pass = nil; published = nil; cacheFolder = nil; cache = [:]; recover = false
+    }
+    func refresh(force: Bool = false) {
+        if pass != nil { recover = recover || force; return }
+        let wanted = source()
+        guard force || wanted != published else { return }
+        if force || wanted.folder != cacheFolder { cache = [:] }
+        cacheFolder = wanted.folder
+        let ids = Set(wanted.notes.map(\.id))
+        cache = cache.filter { ids.contains($0.key) }
+        let token = UUID(); pass = token
+        var entries: [IndexedNote] = []
+        func next(_ start: Int) {
+            guard pass == token else { return }
+            var i = start
+            while i < wanted.notes.count {
+                let revision = wanted.notes[i]
+                if let cached = cache[revision.id], cached.revision == revision {
+                    entries.append(cached.note); i += 1; continue
+                }
+                if !revision.writable {
+                    let note = IndexedNote(id: revision.id, title: revision.title, text: "", writable: false)
+                    cache[revision.id] = (revision, note); entries.append(note); i += 1; continue
+                }
+                let following = i + 1
+                read(revision.id) { [self] result in
+                    guard pass == token else { return }
+                    // Never carry a previous successful entry across a failed changed-note read.
+                    cache[revision.id] = nil
+                    if case .success(let note) = result {
+                        cache[revision.id] = (revision, note); entries.append(note)
+                    }
+                    next(following)
+                }
+                return
+            }
+            pass = nil
+            let forceNext = recover; recover = false
+            // Edits/deletes arriving during the pass must not publish stale entries. Reconcile
+            // from live metadata even if no refresh notification was delivered during the read.
+            guard source() == wanted else { refresh(force: forceNext); return }
+            published = wanted; publish(entries)
+            if forceNext { refresh(force: true) }
+        }
+        next(0)
+    }
+}
+
 struct NotebookMatch: Equatable {
     var id: String
     var title: String

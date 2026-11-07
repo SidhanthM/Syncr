@@ -14,6 +14,24 @@ enum CompanionStore {
     static func unpinned(_ snapshot: NoteSnapshot) -> Int {
         snapshot.companionItems.filter { if case .marginNote(_, _, _, _, .open, _) = $0.body { return !$0.tombstone }; return false }.count
     }
+    /// A direct question: the thread the owner's ask started. Its parent note is a question by "You"; the ask itself is
+    /// the thread's first message and the companion's answers follow it. It shows under its passage, not in the margin.
+    static let askReader = "You"
+    static func isAsk(_ item: CompanionItemView) -> Bool {
+        if case .marginNote(_, .question, _, askReader, _, _) = item.body { return true }
+        return false
+    }
+    /// Creates the ask thread: an anchor on the passage, its parent note and the owner's words as message 0.
+    static func addAsk(threadID: String, span: ByteSpan, ask: String, note: Note) throws {
+        let s = try note.snapshot()
+        guard let block = s.textBlocks.first(where: { $0.role == .document && !$0.tombstone }) else { return }
+        let anchorID = newId()
+        _ = try note.submit(command: Command(operationId: newId(), dependencies: [block.head.operationId], body: .companionMarks(mutations: [
+            CompanionMutation(id: anchorID, base: .absent, tombstone: false, body: .anchor(target: .text(blockId: block.id, start: UInt32(span.start), end: UInt32(span.end), detached: false))),
+            CompanionMutation(id: threadID, base: .absent, tombstone: false, body: .marginNote(anchorId: anchorID, kind: .question, text: "Question", reader: askReader, state: .open, sources: [])),
+            CompanionMutation(id: newId(), base: .absent, tombstone: false, body: .threadMessage(marginId: threadID, order: 0, who: .you, text: String(ask.prefix(4000)), sources: []))
+        ])))
+    }
     static func saveSettings(_ settings: CompanionSettings, note: Note) throws {
         let s = try note.snapshot()
         guard let initial = s.sheets.first?.creationOperationId else { return }

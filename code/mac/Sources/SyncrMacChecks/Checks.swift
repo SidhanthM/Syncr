@@ -167,6 +167,7 @@ func viewportAndOffscreenMeshPixels() throws {
             if CommandLine.arguments.contains("--hotkeys") { try hotkeyChecks(); return }
             if CommandLine.arguments.contains("--settings") { try settingsChecks(); return }
             if CommandLine.arguments.contains("--companion-v2") { try companionV2Checks(); return }
+            if CommandLine.arguments.contains("--round2") { try notebookRound2Checks(); return }
             try notebookLogicChecks()
             try markdownMappingChecks()
             try notebookCoreN1Checks()
@@ -175,6 +176,7 @@ func viewportAndOffscreenMeshPixels() throws {
             try companionDrawingChecks()
             try pictureSurfaceChecks()
             try companionV2Checks()
+            try notebookRound2Checks()
             try importMigratesOnlyLocalCopy()
             try asyncImportKeepsMainThreadFree()
             try viewportAndOffscreenMeshPixels()

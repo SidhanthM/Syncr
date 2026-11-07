@@ -41,8 +41,13 @@ import SyncrCore
         messages.arrangedSubviews.forEach { messages.removeArrangedSubview($0); $0.removeFromSuperview() }
         let width = max(300,window.contentView!.bounds.width-64)
         for (who,text,companion) in rows {
-            let label = NSTextField(wrappingLabelWithString: who + "\n" + text)
-            label.font = Theme.serif(16); label.textColor = Theme.ink; label.isSelectable = true; label.preferredMaxLayoutWidth = width
+            let name = NSTextField(labelWithString: who)
+            name.font = .systemFont(ofSize: 12, weight: .medium); name.textColor = Theme.muted
+            let label = RichTextView(), height = label.show(text, size: 16, width: width)
+            label.translatesAutoresizingMaskIntoConstraints = false
+            label.widthAnchor.constraint(equalToConstant: width).isActive = true
+            label.heightAnchor.constraint(equalToConstant: height).isActive = true
+            messages.addArrangedSubview(name); messages.setCustomSpacing(4, after: name)
             messages.addArrangedSubview(label)
             if companion { messages.addArrangedSubview(ActionButton(link: "Read aloud",size: 12) { [weak self] in self?.read(text) }) }
         }

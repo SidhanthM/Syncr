@@ -106,22 +106,60 @@ struct PenStrokes {
         return fit
     }
 
-    static func draw(_ picture: MacPicture, in rect: CGRect, through step: Int, progress: Double = 1, handDrawn: Bool? = nil) {
+    /// Picture units to the drawing rectangle: `point * scale + (tx, ty)` after subtracting the bounds' origin.
+    static func fit(_ picture: MacPicture, in rect: CGRect) -> (scale: CGFloat, tx: CGFloat, ty: CGFloat, bounds: CGRect) {
+        let bounds = bounds(picture), scale = min(rect.width / max(1, bounds.width), rect.height / max(1, bounds.height))
+        return (scale, rect.minX + (rect.width-bounds.width*scale)/2, rect.minY, bounds)
+    }
+
+    /// A label that can be drawn as selectable text: only plain rotations with a uniform scale. Anything else stays drawn.
+    nonisolated static func selectable(_ t: MacPicture.Transform) -> Bool {
+        let sx = hypot(t.a, t.b), sy = hypot(t.c, t.d)
+        return sx > 0.001 && abs(sx - sy) < 0.001 && abs(t.a*t.c + t.b*t.d) < 0.001 && t.a*t.d - t.b*t.c > 0
+    }
+
+    /// Labels showing at `step`, as `draw` would paint them, for the card to lay real text over the picture.
+    struct Label {
+        var key: String; var text: String; var token: String; var size: Double; var fill: String
+        var x: Double; var y: Double; var anchor: String; var baseline: String; var transform: MacPicture.Transform; var alpha: Double
+    }
+    static func labels(_ picture: MacPicture, through step: Int, progress: Double = 1) -> [Label] {
+        var out: [Label] = []
+        func add(_ items: [MacPicture.Item], group: String, alpha: Double) {
+            for (index, item) in items.enumerated() {
+                guard case .text(let t, let x, let y, let a, let f, let s, let fill, let tr, let b, _) = item, selectable(tr) else { continue }
+                out.append(Label(key: "\(group)-\(index)", text: t, token: f, size: s, fill: fill, x: x, y: y, anchor: a, baseline: b, transform: tr, alpha: alpha))
+            }
+        }
+        var hidden = Set<Int>(), dimmed = Set<Int>()
+        let count = min(max(0, step), picture.steps.count)
+        for current in picture.steps.prefix(count) { hidden.formUnion(current.hide); dimmed.formUnion(current.dim) }
+        add(picture.always, group: "a", alpha: 1)
+        for (index, current) in picture.steps.prefix(count).enumerated() where !hidden.contains(index+1) {
+            let fraction = index == count-1 ? max(0, min(1, progress)) : 1
+            let fade = max(0, min(1, (fraction-0.8)/0.2))
+            add(current.items, group: "s\(index)", alpha: (dimmed.contains(index+1) ? 0.22 : 1) * fade)
+        }
+        return out
+    }
+
+    /// `overlay`: label glyphs of selectable labels are left out (a card lays real text over them); their halos stay.
+    static func draw(_ picture: MacPicture, in rect: CGRect, through step: Int, progress: Double = 1, handDrawn: Bool? = nil, overlay: Bool = false) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         let hand = handDrawn ?? Self.handDrawn
-        let bounds = bounds(picture), scale = min(rect.width / max(1, bounds.width), rect.height / max(1, bounds.height))
+        let (scale, tx, ty, bounds) = fit(picture, in: rect)
         context.saveGState()
-        context.translateBy(x: rect.minX + (rect.width-bounds.width*scale)/2, y: rect.minY)
+        context.translateBy(x: tx, y: ty)
         context.scaleBy(x: scale, y: scale); context.translateBy(x: -bounds.minX, y: -bounds.minY)
         var hidden = Set<Int>(), dimmed = Set<Int>()
         let count = min(max(0, step), picture.steps.count)
         for current in picture.steps.prefix(count) { hidden.formUnion(current.hide); dimmed.formUnion(current.dim) }
-        drawGroup(picture.always, salt: 0, context: context, fraction: 1, labels: 1, hand: hand)
+        drawGroup(picture.always, salt: 0, context: context, fraction: 1, labels: 1, hand: hand, overlay: overlay)
         for (index, current) in picture.steps.prefix(count).enumerated() where !hidden.contains(index+1) {
             context.saveGState(); context.setAlpha(dimmed.contains(index+1) ? 0.22 : 1)
             context.beginTransparencyLayer(auxiliaryInfo: nil)
             let fraction = index == count-1 ? max(0, min(1, progress)) : 1
-            drawGroup(current.items, salt: (index+1)*10_000, context: context, fraction: min(1, fraction/0.8), labels: max(0, (fraction-0.8)/0.2), hand: hand)
+            drawGroup(current.items, salt: (index+1)*10_000, context: context, fraction: min(1, fraction/0.8), labels: max(0, (fraction-0.8)/0.2), hand: hand, overlay: overlay)
             context.endTransparencyLayer(); context.restoreGState()
         }
         context.restoreGState()
@@ -129,7 +167,7 @@ struct PenStrokes {
 
     /// One step: every stroke in order along its length, then every label's page outline, then every label's fill,
     /// so one label's outline never covers another label's glyphs.
-    private static func drawGroup(_ items: [MacPicture.Item], salt: Int, context: CGContext, fraction: Double, labels: Double, hand: Bool) {
+    private static func drawGroup(_ items: [MacPicture.Item], salt: Int, context: CGContext, fraction: Double, labels: Double, hand: Bool, overlay: Bool) {
         var pens: [Int: PenStrokes] = [:]
         var total = 0.0
         for (index, item) in items.enumerated() {
@@ -171,6 +209,7 @@ struct PenStrokes {
         context.saveGState(); context.setAlpha(labels)
         for halo in [true, false] {
             for (text, x, y, anchor, token, size, fill, transform, baseline) in texts {
+                if !halo, overlay, selectable(transform) { continue }
                 let l = layout(text, token: token, size: size, anchor: anchor, baseline: baseline)
                 context.saveGState()
                 context.translateBy(x: x, y: y); context.concatenate(transform.cg)

@@ -8,8 +8,10 @@ func monotonicNs() -> UInt64 { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
 
 extension Viewport {
     /// View-relative units are the 4800 x 3000 reference window at this zoom, anchored at the
-    /// viewport's top-left. Independent of the actual pixel size of the view.
-    func canvasPoint(_ x: Float, _ y: Float) -> (Float, Float) { (left + x / zoom, top + y / zoom) }
+    /// viewport's top-left. Independent of the actual pixel size of the view. The centred document
+    /// view shows space left of the canvas (`left` below zero); that space is not paper, so a point
+    /// there lands on the canvas's left edge and ink never leaves the 0...4800 the phone can show.
+    func canvasPoint(_ x: Float, _ y: Float) -> (Float, Float) { (max(0, left + x / zoom), top + y / zoom) }
 }
 
 /// What a live-ink frame is allowed to draw into: the note open in the active tab, if writable.
@@ -219,6 +221,13 @@ final class LiveInk: @unchecked Sendable {
     // Guarded by `lock`.
     private var inbox: [Item] = []
     private var draining = false
+    private var lastReceiveNs: UInt64 = 0
+    /// True while the phone's pen is writing or hovering: a live frame arrived within `ns`. The link holds its bulk
+    /// traffic (note copies) back meanwhile, because it shares the phone's radio and its one connection with the ink.
+    func penActive(within ns: UInt64 = 400_000_000) -> Bool {
+        lock.lock(); let last = lastReceiveNs; lock.unlock()
+        return last != 0 && monotonicNs() &- last < ns
+    }
     private var target = LiveTarget(noteId: nil, writable: false)
     private var view = Viewport()
     private var viewsByRev: [UInt32: Viewport] = [:]
@@ -295,6 +304,7 @@ final class LiveInk: @unchecked Sendable {
     /// The only input: one encoded frame and when it arrived (`monotonicNs()` clock).
     func receive(_ bytes: Data, at ns: UInt64) {
         lock.lock()
+        lastReceiveNs = ns
         inbox.append(Item(bytes: bytes, ns: ns, view: view))
         let schedule = !draining
         draining = true

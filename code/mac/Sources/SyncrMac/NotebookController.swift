@@ -8,9 +8,22 @@ import SyncrCore
     let workspace: Workspace
     private var sessions: [String: TextSession] = [:]
     private var blockIDs: [String: String] = [:]
-    private var indexRevision = ""
-    private var indexing = false
-    private var reindex = false
+    private lazy var indexUpdater = NotebookIndexUpdater(source: { [model] in
+        .init(folder: model.folder, notes: model.notes.map {
+            .init(id: $0.id, sequence: $0.localSequence, title: $0.title, writable: model.isWritable($0.id))
+        })
+    }, read: { [weak self] id, done in
+        guard let self else { done(.failure(ViewerError.unavailable)); return }
+        model.readSnapshot(id: id) { result in
+            done(result.map { snapshot in
+                IndexedNote(id: id, title: snapshot.title,
+                            text: snapshot.textBlocks.first { $0.role == .document && !$0.tombstone }?.text ?? "", writable: true)
+            })
+        }
+    }, publish: { [weak self] entries in
+        guard let self else { return }
+        model.notebookIndex = NotebookIndex(notes: entries); onChange?()
+    })
     var onChange: (() -> Void)?
     var onState: ((String) -> Void)?
     var onHistory: (() -> Void)?
@@ -22,7 +35,7 @@ import SyncrCore
         loadSlashCommands()
     }
     func resetForFolder() {
-        sessions = [:]; blockIDs = [:]; indexRevision = ""; model.notebookIndex = NotebookIndex()
+        sessions = [:]; blockIDs = [:]; indexUpdater.reset(); model.notebookIndex = NotebookIndex()
         loadSlashCommands(); refreshIndex(force: true)
     }
     private func loadSlashCommands() {
@@ -67,7 +80,7 @@ import SyncrCore
             }, completion: { [weak self] result in
                 switch result {
                 case .success(let snapshot):
-                    self?.model.publishText(snapshot); self?.refreshIndex(force: true)
+                    self?.model.publishText(snapshot); self?.refreshIndex()
                     done(.success(()))
                 case .failure(let error): done(.failure(error))
                 }
@@ -102,7 +115,7 @@ import SyncrCore
             case .success(let snapshot):
                 for block in snapshot.textBlocks where !block.tombstone { self.sessions[self.key(note, block)]?.adopt(block.text) }
                 if !snapshot.textBlocks.contains(where: { $0.role == .document && !$0.tombstone }) { self.sessions[note + ":document"]?.adopt("") }
-                self.model.reloadInPlace(id: note); self.refreshIndex(force: true); self.onHistory?()
+                self.model.reloadInPlace(id: note); self.refreshIndex(); self.onHistory?()
             case .failure(let error): self.onError?(error)
             }
         })
@@ -149,28 +162,7 @@ import SyncrCore
         })
     }
     func refreshIndex(force: Bool = false) {
-        let revision = model.folder.path + model.notes.map { $0.id + ":" + String($0.localSequence) + ":" + $0.title }.joined(separator: "|")
-        if indexing { reindex = reindex || force || revision != indexRevision; return }
-        guard force || revision != indexRevision else { return }
-        indexRevision = revision; indexing = true
-        let notes = model.notes, folder = model.folder
-        var entries: [IndexedNote] = []
-        func next(_ i: Int) {
-            guard model.folder == folder else { indexing = false; refreshIndex(force: true); return }
-            guard i < notes.count else {
-                model.notebookIndex = NotebookIndex(notes: entries); indexing = false; onChange?()
-                if reindex { reindex = false; refreshIndex(force: true) }; return
-            }
-            let note = notes[i], writable = model.isWritable(note.id)
-            if !writable { entries.append(IndexedNote(id: note.id, title: note.title, text: "", writable: false)); next(i + 1); return }
-            model.readSnapshot(id: note.id) { result in
-                if case .success(let snapshot) = result {
-                    entries.append(IndexedNote(id: note.id, title: snapshot.title, text: snapshot.textBlocks.first { $0.role == .document && !$0.tombstone }?.text ?? "", writable: true))
-                }
-                next(i + 1)
-            }
-        }
-        next(0)
+        indexUpdater.refresh(force: force)
     }
     func openLink(_ title: String, newTab: Bool) throws {
         if let found = model.notebookIndex.resolve(title) { workspace.open(found.id, newTab: newTab) }
@@ -191,7 +183,7 @@ import SyncrCore
             do { try self.workspace.rename(id, to: title) } catch { self.onError?(error); done(false); return }
             let new = self.workspace.title(of: id), notes = self.model.notes.filter { self.model.isWritable($0.id) }
             @MainActor func next(_ i: Int) {
-                guard i < notes.count else { self.refreshIndex(force: true); done(true); return }
+                guard i < notes.count else { self.refreshIndex(); done(true); return }
                 let note = notes[i]
                 self.model.editNote(id: note.id, work: { handle in
                     let snapshot = try handle.snapshot()
@@ -222,7 +214,7 @@ import SyncrCore
                 case .failure(let error): done(.failure(error))
                 case .success(let mapped):
                     @MainActor func next(_ i: Int) {
-                        guard i < mapped.entries.count else { self.workspace.libraryChanged(); self.refreshIndex(force: true); done(.success(mapped)); return }
+                        guard i < mapped.entries.count else { self.workspace.libraryChanged(); self.refreshIndex(); done(.success(mapped)); return }
                         let entry = mapped.entries[i]
                         do {
                             if let notebook = entry.notebook, !self.model.notebooks.contains(where: { $0.name == notebook }) { try self.model.createNotebook(name: notebook) }

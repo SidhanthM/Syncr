@@ -13,11 +13,37 @@ import SyncrCore
     private var viewport = Viewport() { didSet { live?.viewChanged(viewport); positionText() } }
     private var pinchStart: Viewport?
     private var pinchAnchor = SIMD2<Float>(0.5, 0.5)
+    /// The document view keeps the text column in the middle of the window by showing space left of the canvas (a
+    /// negative `left`): ink and text shift together, so nothing moves relative to anything else. The side notes keep
+    /// their room on the right, so in a narrow view the column sits left of the middle rather than pushing them off.
+    /// The view follows the window, the zoom and the column's borders until the owner pans sideways.
+    private var centred = false
+    private var slide: Timer?
     let documentEditor = DocumentEditor()
     let companionStrip = CompanionStrip()
     private let companionOverlay = CompanionOverlay()
     private let streamOverlay = CompanionOverlay()
     private var streamPicture: PictureCard?
+    private var streamAnswer: AnswerCard?
+    /// The ask thread whose answer is being written: its stored card waits until the pass ends.
+    var streamingAsk: String? { didSet { if streamingAsk != oldValue { onStreamingAskChanged?() } } }
+    var onStreamingAskChanged: (() -> Void)?
+    private var companionGaps: [Int: CGFloat] = [:]
+    private var streamGap: (offset: Int, height: CGFloat)?
+    /// What the answer being written last showed, so an unchanged refresh leaves the card and its stipple alone.
+    private var streamShown: (end: Int, text: String, step: String?)?
+    /// When the answer's card and its first words arrived: the card is rebuilt as the text grows, and a dissolve
+    /// under way carries on in the new one.
+    private var streamArrived: (card: CFTimeInterval, words: CFTimeInterval?)?
+    /// The words of an answer whose pass just ended: its stored card shows them until the stored reply arrives.
+    private var finishedAnswer: (thread: String, text: String, at: CFTimeInterval)?
+    /// Companion items already on screen for this note; nil until its first load. Only later arrivals dissolve in.
+    private var knownItems: Set<String>?
+    /// Paragraph gaps as laid out right now, gliding towards `targetGaps` when an answer grows or settles.
+    private var shownGaps: [Int: CGFloat] = [:]
+    private var targetGaps: [Int: CGFloat] = [:]
+    private var openingGap: Int?
+    private var glide: Timer?
     private var pictureCache: [String: MacPicture] = [:]
     private var shownPictures = Set<String>()
     private var streamText: NSTextField?
@@ -156,8 +182,13 @@ import SyncrCore
     func showDocument(_ document: (any TextDocument)?, title: String, width: CGFloat = 1600, opening: Bool = false) {
         documentVisible = document != nil
         documentEditor.isHidden = document == nil
+        if document == nil {
+            knownItems = nil; finishedAnswer = nil
+            centred = false; slide?.invalidate(); slide = nil
+            if viewport.left < 0 { viewport.left = 0 }
+        }
         if let document { documentEditor.show(document: document, title: title, width: width) }
-        if opening && document != nil { documentView() }
+        if opening && document != nil { documentView() } else { recentre() }
         positionText()
     }
     func showFree(_ blocks: [(CGFloat, CGFloat, CGFloat, any TextDocument)]) {
@@ -181,7 +212,12 @@ import SyncrCore
             window?.makeFirstResponder(last.editor.textView)
         }
     }
-    func refreshTextPreview() { documentEditor.refreshPreview(); freeEditors.forEach { $0.editor.refreshPreview() }; positionText() }
+    func refreshTextPreview() {
+        documentEditor.refreshPreview(); freeEditors.forEach { $0.editor.refreshPreview() }
+        // A border was let go or reset: the column glides back to the middle.
+        recentre(animated: true)
+        positionText()
+    }
     func debugDragFree(_ index: Int, dx: CGFloat, dy: CGFloat) {
         if freeEditors.indices.contains(index) { freeEditors[index].editor.debugDragFree(dx: dx, dy: dy) }
     }
@@ -196,7 +232,38 @@ import SyncrCore
             if block.editor.textView.string.isEmpty { block.editor.onEndEditing?() }
         }
     }
-    func documentView() { viewport = Viewport(zoom: 1.5); requestRedraw() }
+    func documentView() {
+        slide?.invalidate(); slide = nil
+        centred = documentVisible
+        viewport = Viewport(left: centredLeft(zoom: 1.5), zoom: 1.5); requestRedraw()
+    }
+    /// Center the document itself, leaving equal usable annotation space on either side.
+    private func centredLeft(zoom: Float) -> Float {
+        guard documentVisible, canvas.bounds.width > 0, canvas.bounds.height > 0 else { return 0 }
+        let visible = CGFloat(Viewport(zoom: zoom).visibleSize(canvas.bounds.size).x)
+        return Float(CompanionMarginLayout.centeredLeft(columnLeft: documentEditor.columnLeft,
+            columnRight: documentEditor.columnRight, visibleWidth: visible))
+    }
+    /// Puts a centred view back in the middle after the window, the zoom or a border changed.
+    private func recentre(animated: Bool = false) {
+        guard centred else { return }
+        let target = centredLeft(zoom: viewport.zoom)
+        guard abs(target - viewport.left) > 0.5 else { return }
+        slide?.invalidate(); slide = nil
+        guard animated, window != nil, !AppPreferences.shared.reducedMotion else { viewport.left = target; requestRedraw(); return }
+        let from = viewport.left, start = CACurrentMediaTime()
+        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] timer in
+            let finished = MainActor.assumeIsolated {
+                guard let self, self.centred else { return true }
+                let t = min(1, (CACurrentMediaTime() - start) / 0.24), eased = Float(1 - pow(1 - t, 3))
+                self.viewport.left = from + (target - from) * eased; self.requestRedraw()
+                if t >= 1 { self.slide = nil }
+                return t >= 1
+            }
+            if finished { timer.invalidate() }
+        }
+        RunLoop.main.add(timer, forMode: .common); slide = timer
+    }
     private func ensureTextVisible(_ offset: Int) {
         let view = documentEditor.textView
         guard offset < view.string.utf16.count, let manager = view.layoutManager else { return }
@@ -209,11 +276,11 @@ import SyncrCore
     func revealText(_ offset: Int) {
         documentEditor.reveal(offset)
         let page = DocumentPage(title: "", text: documentEditor.textView.string)
-        if let line = DocumentLayout.lines(note: page, width: documentEditor.pageWidth - 200).first(where: { NSLocationInRange(offset, $0.range) || $0.range.location == offset }) {
+        if let line = DocumentLayout.lines(note: page, width: documentEditor.textWidth).first(where: { NSLocationInRange(offset, $0.range) || $0.range.location == offset }) {
             viewport.top = offset == 0 ? 0 : Float(max(0, line.rect.minY - 120)); requestRedraw()
         }
     }
-    override func layout() { super.layout(); positionText() }
+    override func layout() { super.layout(); recentre(); positionText() }
     private func positionText() {
         guard textLayer.bounds.width > 0 else { return }
         let visible = viewport.visibleSize(textLayer.bounds.size)
@@ -226,10 +293,13 @@ import SyncrCore
         if documentVisible { place(documentEditor, x: 0, y: 0, width: documentEditor.pageWidth) }
         for b in freeEditors { place(b.editor, x: b.x, y: b.y, width: b.width) }
         let overlayHeight = max(8000, documentEditor.textView.frame.maxY + 3000)
-        companionOverlay.frame = CGRect(x: -CGFloat(viewport.left) * scale, y: -CGFloat(viewport.top) * scale, width: 4800 * scale, height: overlayHeight * scale)
-        companionOverlay.bounds = CGRect(x: 0, y: 0, width: 4800, height: overlayHeight)
+        // Include negative canvas coordinates so left-margin cards both draw and receive clicks.
+        let overlayLeft = min(0, documentEditor.columnLeft - 140 - MarginCard.width)
+        let overlayWidth = max(4800, documentEditor.columnRight + 140 + PictureCard.width) - overlayLeft
+        companionOverlay.frame = CGRect(x: (overlayLeft - CGFloat(viewport.left)) * scale, y: -CGFloat(viewport.top) * scale, width: overlayWidth * scale, height: overlayHeight * scale)
+        companionOverlay.bounds = CGRect(x: overlayLeft, y: 0, width: overlayWidth, height: overlayHeight)
         streamOverlay.frame = companionOverlay.frame; streamOverlay.bounds = companionOverlay.bounds
-        streamText?.frame = CGRect(x: documentEditor.pageWidth+40,y: 260,width: 1000,height: 360)
+        streamText?.frame = CGRect(x: documentEditor.columnLeft - 140 - MarginCard.width,y: 260,width: MarginCard.width,height: 360)
         if let card = streamPicture {
             card.frame = CGRect(x: documentEditor.pageWidth+40,y: streamText == nil ? 260 : 660,width: PictureCard.width,height: card.fittedHeight)
         }
@@ -242,17 +312,20 @@ import SyncrCore
 
     func showCompanion(items: [CompanionItemView], colour: NSColor, controller: CompanionController, drawings: Bool = false, images: [ImageMarkView] = [], warnings: [String: String] = [:]) {
         companionOverlay.subviews.forEach { $0.removeFromSuperview() }; companionCards = []
+        let fresh = knownItems.map { Set(items.map(\.id)).subtracting($0) } ?? []
+        knownItems = Set(items.map(\.id))
+        var arrivals: [NSView] = []
         guard !items.isEmpty || !images.isEmpty else {
-            documentEditor.drawingHeights = [:]; documentEditor.imageGaps = [:]
+            documentEditor.drawingHeights = [:]; companionGaps = [:]; applyGaps()
             documentEditor.textView.passages = []
             return
         }
         let text = documentEditor.textView.string
         var heights: [String: CGFloat] = [:]
-        let inlineRatio = min(1,(documentEditor.pageWidth-200)/1100)
+        let inlineRatio = min(1,documentEditor.textWidth/1100)
         pictureCache = pictureCache.filter { id, _ in items.contains { $0.id == id } }
         if drawings { for item in items where !item.tombstone {
-            if case .drawing(_,_,let width,let height,_) = item.body { heights[item.id] = (height + 180) * min(1,(documentEditor.pageWidth-200)/max(1100,width)) }
+            if case .drawing(_,_,let width,let height,_) = item.body { heights[item.id] = (height + 180) * min(1,documentEditor.textWidth/max(1100,width)) }
             if case .picture(_,_,let svg) = item.body {
                 if pictureCache[item.id] == nil { pictureCache[item.id] = try? CorePictureInspector.mac(svg: svg) }
                 if let picture = pictureCache[item.id] { heights[item.id] = PictureCard.fittedHeight(picture) * inlineRatio }
@@ -270,21 +343,46 @@ import SyncrCore
             let at = utf16(end > 0 ? end - 1 : 0)
             gaps[at, default: 0] += CGFloat(height) + 40; imageSpots.append((image, at))
         }
-        documentEditor.imageGaps = gaps
+        // Direct answers: each takes its height as space after the paragraph it answers.
+        var answerSpots: [(AnswerCard, Int)] = []
+        let itemByID = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
+        for item in items where !item.tombstone && CompanionStore.isAsk(item) && item.id != streamingAsk {
+            guard case .marginNote(let a, _, _, _, let state, _) = item.body, state != .dismissed, let anchor = itemByID[a], !anchor.tombstone,
+                  case .anchor(.text(_, _, let end, let lost)) = anchor.body, !lost else { continue }
+            let thread = items.compactMap { m -> (UInt32, String, String)? in
+                guard !m.tombstone, case .threadMessage(let id, let order, let who, let t, _) = m.body, id == item.id else { return nil }
+                return (order, who == .you ? "You" : "Syncr", t)
+            }.sorted { $0.0 < $1.0 }
+            let replies = thread.dropFirst()
+            let first = Array(replies.prefix { $0.1 == "Syncr" }), rest = replies.dropFirst(first.count)
+            let at = utf16(end > 0 ? end - 1 : 0), id = item.id
+            var answer = first.map(\.2).joined(separator: "\n\n")
+            if first.isEmpty, rest.isEmpty, let kept = finishedAnswer, kept.thread == id, CACurrentMediaTime() - kept.at < Self.keptAnswerSeconds { answer = kept.text }
+            else if finishedAnswer?.thread == id { finishedAnswer = nil }
+            let card = AnswerCard(text: answer.isEmpty && rest.isEmpty ? "No answer yet." : answer, step: nil, width: documentEditor.textWidth,
+                                  more: rest.map { ($0.1, $0.2) },
+                                  writeBack: { [weak controller] in controller?.openThread(id) },
+                                  dismiss: { [weak controller] in controller?.setState(id, .dismissed) },
+                                  read: { [weak controller] in controller?.readAloud(.threadMessage(marginId: id, order: 0, who: .companion, text: first.map(\.2).joined(separator: " "), sources: [])) },
+                                  open: { AnswerPopup.show(id: id, title: "Syncr", messages: thread.dropFirst().map { ($0.1, $0.2) }, writeBack: { [weak controller] in controller?.openThread(id) }) })
+            gaps[at, default: 0] += card.fittedHeight + 40; answerSpots.append((card, at))
+        }
+        companionGaps = gaps; applyGaps()
         var page = DocumentPage(title: "", text: text); page.drawingHeights = heights; page.imageGaps = gaps
-        let lines = DocumentLayout.lines(note: page, width: documentEditor.pageWidth-200)
+        let lines = DocumentLayout.lines(note: page, width: documentEditor.textWidth)
         func y(_ offset: Int) -> CGFloat { lines.first(where: { NSLocationInRange(offset, $0.range) || $0.range.location == offset })?.rect.minY ?? 260 }
         let byID = Dictionary(uniqueKeysWithValues: items.map { ($0.id,$0) })
         func passageTop(_ item:CompanionItemView) -> CGFloat {
             guard case .marginNote(let id,_,_,_,_,_) = item.body, let anchor = byID[id], case .anchor(let target) = anchor.body else { return 260 }
             switch target { case .text(_,let start,_,_): return y(utf16(start)); case .canvas(_,_,let cy,_,_): return cy }
         }
-        let margins = items.filter { if case .marginNote = $0.body { return !$0.tombstone }; return false }.sorted { let a = passageTop($0), b = passageTop($1); return a == b ? $0.id < $1.id : a < b }
+        let margins = items.filter { if case .marginNote = $0.body { return !$0.tombstone && !CompanionStore.isAsk($0) }; return false }.sorted { let a = passageTop($0), b = passageTop($1); return a == b ? $0.id < $1.id : a < b }
         // The passage a note answers carries a thin muted underline: the only link between text and margin.
         let whole = NSRange(location: 0, length: documentEditor.textView.string.utf16.count)
         var passages: [NSRange] = []
         defer { documentEditor.textView.passages = passages }
-        var bottom: CGFloat = 240
+        var marginLayout = CompanionMarginLayout(columnLeft: documentEditor.columnLeft,
+            columnRight: documentEditor.columnRight, width: MarginCard.width)
         for item in margins {
             guard case .marginNote(let a,let kind,let body,let reader,let state,let urls) = item.body, state != .dismissed else { continue }
             let anchor = byID[a].flatMap { $0.tombstone ? nil : $0 }
@@ -295,7 +393,6 @@ import SyncrCore
                 case .canvas(_,_,let cy,_,_): top = cy
                 }
             } else { detached = true }
-            top = max(top, bottom + 24)
             if range.length > 0, NSMaxRange(range) <= whole.length { passages.append(range) }
             let caption = [detached ? "Detached" : nil, state == .pinned ? "Pinned" : nil, reader, String(describing: kind).capitalized].compactMap { $0 }.joined(separator: " · ")
             let card = MarginCard(text: body, caption: caption, sources: urls, colour: colour,
@@ -311,15 +408,16 @@ import SyncrCore
                 if on && NSMaxRange(range) <= view.string.utf16.count { layout.addTemporaryAttribute(.backgroundColor, value: colour.withAlphaComponent(0.15), forCharacterRange: range) }
             }
             companionOverlay.addSubview(card)
-            companionCards.append((card, documentEditor.pageWidth + 40, top, MarginCard.width, card.fittedHeight))
-            bottom = top + card.fittedHeight
+            let spot = marginLayout.place(top: top, height: card.fittedHeight)
+            companionCards.append((card, spot.x, spot.y, MarginCard.width, card.fittedHeight))
+            if fresh.contains(item.id) { arrivals.append(card) }
         }
         if drawings { for item in items where !item.tombstone {
             let embed = "![[syncr-drawing:\(item.id)]]"
             if let range = text.range(of:embed), let drawing = CompanionStore.drawing(item.body) {
-                let card = DrawingCard(drawing), ratio = min(1,(documentEditor.pageWidth-200)/max(1100,drawing.width))
+                let card = DrawingCard(drawing), ratio = min(1,documentEditor.textWidth/max(1100,drawing.width))
                 card.bounds = CGRect(x:0,y:0,width:max(1100,drawing.width),height:drawing.height+180)
-                companionOverlay.addSubview(card); companionCards.append((card,170,y(text[..<range.lowerBound].utf16.count),max(1100,drawing.width)*ratio,(drawing.height+180)*ratio))
+                companionOverlay.addSubview(card); companionCards.append((card,documentEditor.columnLeft + 70,y(text[..<range.lowerBound].utf16.count),max(1100,drawing.width)*ratio,(drawing.height+180)*ratio))
                 continue
             }
             guard case .picture(let anchorID,_,_) = item.body, let picture = pictureCache[item.id] else { continue }
@@ -329,26 +427,134 @@ import SyncrCore
             card.bounds = CGRect(x:0,y:0,width:PictureCard.width,height:height)
             if let range = text.range(of:embed) {
                 // Inline: under the passage, on the page, where its embed line holds the space.
-                companionOverlay.addSubview(card); companionCards.append((card,170,y(text[..<range.lowerBound].utf16.count),PictureCard.width*inlineRatio,height*inlineRatio))
+                companionOverlay.addSubview(card); companionCards.append((card,documentEditor.columnLeft + 70,y(text[..<range.lowerBound].utf16.count),PictureCard.width*inlineRatio,height*inlineRatio))
             } else {
                 // Its embed line is gone: the picture waits in the margin beside the passage it explains.
-                var top = bottom + 24
+                var top: CGFloat = 260
                 if let end = anchorEnd[anchorID] { top = max(top, y(utf16(end > 0 ? end - 1 : 0))) }
                 let ratio = MarginCard.width / PictureCard.width
-                companionOverlay.addSubview(card); companionCards.append((card,documentEditor.pageWidth + 40,top,MarginCard.width,height*ratio)); bottom = top + height*ratio
+                let spot = marginLayout.place(top: top, height: height * ratio)
+                companionOverlay.addSubview(card); companionCards.append((card,spot.x,spot.y,MarginCard.width,height*ratio))
             }
         }}
+        for (card, at) in answerSpots {
+            companionOverlay.addSubview(card); companionCards.append((card, documentEditor.columnLeft, paragraphBottom(at, lines: lines, text: text) + 16, documentEditor.textWidth, card.fittedHeight))
+        }
         for (image, at) in imageSpots {
             guard case .text(_, let width, let height) = image.placement else { continue }
             let paragraph = (text as NSString).paragraphRange(for: NSRange(location: min(at, max(0, (text as NSString).length - 1)), length: 0))
             let lastLine = lines.filter { NSIntersectionRange($0.range, paragraph).length > 0 || $0.range.location == paragraph.location }.map { $0.rect.maxY }.max() ?? y(at)
             let view = StoredImageView(image: controller.storedImage(image.id), seen: image.seenByCompanion)
-            companionOverlay.addSubview(view); companionCards.append((view,170,lastLine + 16,CGFloat(width),CGFloat(height)))
+            companionOverlay.addSubview(view); companionCards.append((view,documentEditor.columnLeft + 70,lastLine + 16,CGFloat(width),CGFloat(height)))
         }
         positionText()
+        arrivals.forEach { Dither.reveal($0) }
+    }
+    /// How long a finished answer's words stand in for the stored reply before the card says there is none.
+    private static let keptAnswerSeconds: CFTimeInterval = 6
+
+    private func paragraphBottom(_ at: Int, lines: [DocumentLayoutLine], text: String) -> CGFloat {
+        let ns = text as NSString
+        guard ns.length > 0 else { return 260 }
+        let paragraph = ns.paragraphRange(for: NSRange(location: min(at, ns.length - 1), length: 0))
+        return lines.filter { NSIntersectionRange($0.range, paragraph).length > 0 || $0.range.location == paragraph.location }.map { $0.rect.maxY }.max()
+            ?? lines.first(where: { NSLocationInRange(at, $0.range) })?.rect.minY ?? 260
+    }
+    /// Space the document leaves under paragraphs for stored images and answers, with the answer being written.
+    /// Offsets are folded to their paragraph, which is where the layout applies the space.
+    private func applyGaps() {
+        let ns = documentEditor.textView.string as NSString
+        var merged: [Int: CGFloat] = [:]
+        var all = companionGaps
+        if let streamGap { all[streamGap.offset, default: 0] += streamGap.height }
+        for (offset, gap) in all {
+            let start = ns.length > 0 ? ns.paragraphRange(for: NSRange(location: min(max(0, offset), ns.length - 1), length: 0)).location : 0
+            merged[start, default: 0] += gap
+        }
+        targetGaps = merged
+        // A gap whose height changes glides (an answer growing line by line, or settling into its stored card), and so
+        // does the one an answer opens as it starts. Any other gap is set at once: typing moves their offsets, and a
+        // note being opened should not slide into place.
+        let still = AppPreferences.shared.reducedMotion || window == nil || ns.length > 20_000
+        var next: [Int: CGFloat] = [:]
+        for (start, gap) in merged { next[start] = still ? gap : shownGaps[start] ?? (start == openingGap ? 0 : gap) }
+        openingGap = nil
+        shownGaps = next
+        documentEditor.imageGaps = next
+        if next == merged { glide?.invalidate(); glide = nil } else if glide == nil {
+            let timer = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] timer in
+                let finished = MainActor.assumeIsolated {
+                    guard let self else { return true }
+                    for (start, gap) in self.shownGaps {
+                        let target = self.targetGaps[start] ?? gap
+                        self.shownGaps[start] = abs(target - gap) < 2 ? target : gap + (target - gap) * 0.45
+                    }
+                    self.documentEditor.imageGaps = self.shownGaps
+                    self.positionText()
+                    if self.shownGaps == self.targetGaps { self.glide = nil; return true }
+                    return false
+                }
+                if finished { timer.invalidate() }
+            }
+            RunLoop.main.add(timer, forMode: .common); glide = timer
+        }
+    }
+    /// The answer being written, under the passage it answers, with the named step. `passageEnd` is a UTF-16 offset in
+    /// the text; nil clears it.
+    func showStreamAnswer(passageEnd: Int?, text: String, step: String?, thread: String? = nil, keep: Bool = false) {
+        guard let end = passageEnd else {
+            if keep, let asked = streamingAsk, let shown = streamShown, !shown.text.isEmpty {
+                finishedAnswer = (asked, shown.text, CACurrentMediaTime())
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.keptAnswerSeconds + 0.1) { [weak self] in
+                    MainActor.assumeIsolated {
+                        guard let self, self.finishedAnswer?.thread == asked else { return }
+                        self.finishedAnswer = nil; self.onStreamingAskChanged?()
+                    }
+                }
+            }
+            streamAnswer?.removeFromSuperview(); streamAnswer = nil; streamShown = nil; streamArrived = nil
+            // The stored card is laid out as the ask is released, before the gap is applied again: the space the
+            // answer held glides to the stored card's height and never closes in between.
+            let held = streamGap != nil
+            streamGap = nil
+            if streamingAsk != nil { streamingAsk = nil }
+            if held { applyGaps() }
+            return
+        }
+        if streamingAsk != thread { streamingAsk = thread }
+        // Nothing new: the card and its drifting stipple are left alone.
+        if let shown = streamShown, streamAnswer != nil, shown.end == end, shown.text == text, shown.step == step { return }
+        let before = streamShown
+        streamAnswer?.removeFromSuperview(); streamAnswer = nil
+        let card = AnswerCard(text: text, step: step, width: documentEditor.textWidth)
+        let at = max(0, end - 1), height = card.fittedHeight + 40
+        if streamGap == nil { openingGap = paragraphStart(at) }
+        if streamGap?.offset != at || abs((streamGap?.height ?? 0) - height) > 1 { streamGap = (at, height); applyGaps() }
+        let string = documentEditor.textView.string
+        var page = DocumentPage(title: "", text: string); page.drawingHeights = documentEditor.drawingHeights; page.imageGaps = documentEditor.imageGaps
+        let lines = DocumentLayout.lines(note: page, width: documentEditor.textWidth)
+        card.frame.origin = CGPoint(x: documentEditor.columnLeft, y: paragraphBottom(at, lines: lines, text: string) + 16)
+        streamOverlay.addSubview(card); streamAnswer = card
+        streamShown = (end, text, step)
+        positionText()
+        // The card dissolves in when it arrives and its words when the first of them do; a change of step fades the
+        // name in, and growing text just grows.
+        let now = CACurrentMediaTime()
+        if before == nil { streamArrived = (now, text.isEmpty ? nil : now) }
+        else if streamArrived?.words == nil, !text.isEmpty { streamArrived?.words = now }
+        if let arrived = streamArrived {
+            if now - arrived.card < Dither.revealSeconds { Dither.reveal(card, elapsed: now - arrived.card) }
+            else if let words = arrived.words, now - words < Dither.revealSeconds { card.revealWords(elapsed: now - words) }
+        }
+        if before != nil, before?.step != step { card.fadeStep() }
+    }
+    private func paragraphStart(_ offset: Int) -> Int {
+        let ns = documentEditor.textView.string as NSString
+        return ns.length > 0 ? ns.paragraphRange(for: NSRange(location: min(max(0, offset), ns.length - 1), length: 0)).location : 0
     }
 
     func showStreamText(_ text: String?) {
+        let arriving = streamText == nil
         streamText?.removeFromSuperview(); streamText = nil
         if let text {
             let label = NSTextField(wrappingLabelWithString: text)
@@ -356,6 +562,7 @@ import SyncrCore
             streamOverlay.addSubview(label); streamText = label
         }
         positionText()
+        if arriving, let streamText { Dither.reveal(streamText) }
     }
     func showStreamPicture(_ picture: MacPicture?, step: Int? = nil, animate: Bool = true) {
         streamPicture?.removeFromSuperview(); streamPicture = nil
@@ -366,7 +573,8 @@ import SyncrCore
         }
         positionText()
     }
-    func clearStream() { showStreamText(nil); showStreamPicture(nil) }
+    /// `keepAnswer`: the pass ended with an answer to store, so its words stay up until the stored reply arrives.
+    func clearStream(keepAnswer: Bool = false) { showStreamText(nil); showStreamPicture(nil); showStreamAnswer(passageEnd: nil, text: "", step: nil, keep: keepAnswer) }
     func debugDrawing(_ action:String) {
         if let streamPicture { streamPicture.debug(action) }
         else if let card = companionOverlay.subviews.first(where: { $0 is PictureCard }) as? PictureCard { card.debug(action) }
@@ -377,7 +585,7 @@ import SyncrCore
 
     var debugViewport: Viewport {
         get { viewport }
-        set { viewport = newValue; requestRedraw() }
+        set { centred = false; slide?.invalidate(); slide = nil; viewport = newValue; requestRedraw() }
     }
 
     /// Draws the shown note and the live layer into a small offscreen texture and counts the pixels that are
@@ -398,7 +606,7 @@ import SyncrCore
         for i in stride(from: 0, to: bytes.count, by: 4) where Array(bytes[i..<i + 4]) != paper { n += 1 }
         return n
     }
-    func resetViewport() { viewport = Viewport(); requestRedraw() }
+    func resetViewport() { centred = false; slide?.invalidate(); slide = nil; viewport = Viewport(); requestRedraw() }
 
     /// With live ink wired, every draw goes through the display link: a layer driven by a
     /// CAMetalDisplayLink must not have `nextDrawable` called by anyone else (MTKView would trap). The
@@ -517,12 +725,20 @@ import SyncrCore
     }
 
     private func move(_ x: Float, _ y: Float) {
-        viewport.left += x
-        viewport.top += y
-        viewport.clamp(pixels: canvas.drawableSize, bottom: max(model.drawing?.lowestInk ?? 0, documentVisible ? Float(documentEditor.textView.frame.maxY) : 0))
+        var next = viewport
+        next.left += x
+        next.top += y
+        let minLeft = documentVisible
+            ? min(centredLeft(zoom: next.zoom), Float(documentEditor.columnLeft - 140 - MarginCard.width - 20))
+            : 0
+        next.clamp(pixels: canvas.drawableSize, bottom: max(model.drawing?.lowestInk ?? 0, documentVisible ? Float(documentEditor.textView.frame.maxY) : 0), minLeft: minLeft)
+        if next != viewport { viewport = next }
         requestRedraw()
     }
     private func scroll(x: Float, y: Float) {
+        var x = x
+        // A centred column stays put under a mostly vertical swipe; a deliberate sideways one pans the canvas.
+        if centred { if abs(x) > abs(y) * 2 { centred = false; slide?.invalidate(); slide = nil } else { x = 0 } }
         let offset = viewport.scrollOffset(x: x, y: y, pixels: canvas.drawableSize)
         move(offset.x, offset.y)
     }
@@ -531,6 +747,7 @@ import SyncrCore
             guard !canvas.isHidden, canvas.bounds.width > 0, canvas.bounds.height > 0 else { return }
             let point = gesture.location(in: canvas)
             guard canvas.bounds.contains(point) else { return }
+            centred = false; slide?.invalidate(); slide = nil
             pinchStart = viewport
             pinchAnchor = SIMD2(Float(point.x / canvas.bounds.width),
                                 Float(1 - point.y / canvas.bounds.height))
@@ -542,8 +759,16 @@ import SyncrCore
             pinchStart = nil
         }
     }
-    @objc func zoomIn() { viewport.zoom = min(8, viewport.zoom * 1.25); move(0, 0) }
-    @objc func zoomOut() { viewport.zoom = max(1, viewport.zoom / 1.25); move(0, 0) }
+    @objc func zoomIn() { zoom(to: min(8, viewport.zoom * 1.25)) }
+    @objc func zoomOut() { zoom(to: max(1, viewport.zoom / 1.25)) }
+    private func zoom(to value: Float) {
+        slide?.invalidate(); slide = nil
+        var next = viewport
+        next.zoom = value
+        if centred { next.left = centredLeft(zoom: value) }
+        viewport = next
+        move(0, 0)
+    }
     @objc func fit() { resetViewport() }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) { requestRedraw() }

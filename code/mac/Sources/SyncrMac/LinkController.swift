@@ -260,7 +260,8 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
                 liveReceive: { engine.receive($0, at: $1) },
                 liveReset: { engine.reset(epoch: $0, wait: true) },
                 run: { block in connection.queue.async(execute: block) },
-                sendBulk: { connection.sendBulk($0, done: $1) })
+                sendBulk: { connection.sendBulk($0, done: $1) },
+                penActive: { engine.penActive() })
             let session = LinkSession(config: .init(macName: name, macId: macId, epoch: epoch, stagingDir: staging), store: store, io: io)
             session.host = bridge
             bridge.track(session)
@@ -488,7 +489,19 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
         DispatchQueue.main.asyncAfter(deadline: .now() + wait / 1000, execute: work)
     }
 
+    /// While the phone's pen is on the pad (or was, this recently) an announcement waits: each one costs the phone a
+    /// whole-note transfer and merge, which stalls the ink it is sending. Never held longer than the cap.
+    static let penQuietMs = 2500.0, penHoldCapMs = 30_000.0
+
     private func flushAnnouncements() {
+        let now = Double(monotonicNs()) / 1e6
+        if live.engine.penActive(within: UInt64(Self.penQuietMs * 1e6)), let since = dirtySince, now - since < Self.penHoldCapMs {
+            announceWork?.cancel()
+            let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.flushAnnouncements() } }
+            announceWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+            return
+        }
         let ids = dirty
         dirty = []; dirtySince = nil; announceWork = nil
         guard !ids.isEmpty else { return }

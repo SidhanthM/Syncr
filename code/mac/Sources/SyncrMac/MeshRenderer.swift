@@ -29,9 +29,10 @@ struct Viewport: Equatable, Sendable {
         result.top += fraction.y * (before.y - after.y)
         return result
     }
-    mutating func clamp(pixels: CGSize, bottom: Float) {
+    /// `minLeft` below zero lets the view show space left of the canvas (the centred document view).
+    mutating func clamp(pixels: CGSize, bottom: Float, minLeft: Float = 0) {
         let size = visibleSize(pixels)
-        left = min(max(0, left), max(0, canvasSize().width - size.x))
+        left = min(max(minLeft, left), max(minLeft, canvasSize().width - size.x))
         top = min(max(0, top), max(0, bottom))
     }
 }

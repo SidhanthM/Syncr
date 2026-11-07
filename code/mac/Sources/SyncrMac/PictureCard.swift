@@ -1,12 +1,70 @@
 import AppKit
 
+/// One label of a picture as real text: select a word, or drag across it, and copy. Only one label holds a selection.
+@MainActor final class PictureLabelView: NSTextView {
+    var onFocus: (() -> Void)?
+    override var acceptsFirstResponder: Bool { true }
+    override func mouseDown(with event: NSEvent) { onFocus?(); super.mouseDown(with: event) }
+    override func becomeFirstResponder() -> Bool { onFocus?(); return super.becomeFirstResponder() }
+    override func scrollWheel(with event: NSEvent) { nextResponder?.scrollWheel(with: event) }
+    override func resetCursorRects() { addCursorRect(visibleRect, cursor: .iBeam) }
+}
+
 @MainActor final class PictureCanvas: NSView {
-    var picture = MacPicture.fixture { didSet { needsDisplay = true } }
-    var step = 1 { didSet { needsDisplay = true } }
-    var progress = 1.0 { didSet { needsDisplay = true } }
+    var picture = MacPicture.fixture { didSet { needsDisplay = true; syncLabels() } }
+    var step = 1 { didSet { needsDisplay = true; syncLabels() } }
+    var progress = 1.0 { didSet { needsDisplay = true; syncLabels() } }
+    private var labels: [String: PictureLabelView] = [:]
+    private var placed: [String: String] = [:]
+    var labelViews: [PictureLabelView] { Array(labels.values) }
     override var isFlipped: Bool { true }
-    override func draw(_ dirtyRect: NSRect) { PictureRenderer.draw(picture, in: bounds, through: step, progress: progress) }
-    override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); needsDisplay = true }
+    override func draw(_ dirtyRect: NSRect) { PictureRenderer.draw(picture, in: bounds, through: step, progress: progress, overlay: true) }
+    override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); needsDisplay = true; syncLabels(force: true) }
+    override func layout() { super.layout(); syncLabels() }
+
+    /// Real text over the drawn shapes, at the position, font, colour and fade the renderer would have painted.
+    private func syncLabels(force: Bool = false) {
+        guard bounds.width > 1, bounds.height > 1 else { return }
+        let fit = PictureRenderer.fit(picture, in: bounds)
+        let wanted = PictureRenderer.labels(picture, through: step, progress: progress)
+        for key in labels.keys where !wanted.contains(where: { $0.key == key }) { labels[key]?.removeFromSuperview(); labels[key] = nil; placed[key] = nil }
+        for label in wanted {
+            let t = label.transform, layout = PictureRenderer.layout(label.text, token: label.token, size: label.size, anchor: label.anchor, baseline: label.baseline)
+            let view: PictureLabelView
+            if let existing = labels[label.key] { view = existing } else {
+                view = PictureLabelView(frame: .zero)
+                view.drawsBackground = false; view.isEditable = false; view.isSelectable = true
+                view.textContainerInset = .zero; view.textContainer?.lineFragmentPadding = 0
+                view.textContainer?.widthTracksTextView = false; view.isHorizontallyResizable = false; view.isVerticallyResizable = false
+                view.textContainer?.containerSize = CGSize(width: 100_000, height: 100_000)
+                view.selectedTextAttributes = [.backgroundColor: Theme.voice.withAlphaComponent(0.3)]
+                view.onFocus = { [weak self, weak view] in self?.clearSelections(except: view) }
+                addSubview(view); labels[label.key] = view
+            }
+            let sig = "\(label.text)|\(label.token)|\(label.size)|\(label.fill)|\(bounds.size)|\(layout.width)"
+            if force || placed[label.key] != sig {
+                placed[label.key] = sig
+                let scale = fit.scale, k = CGFloat(hypot(t.a, t.b))
+                let w = layout.width + 2, h = layout.bottom - layout.top
+                // Centre of the label's box in picture units, then in this view.
+                let local = CGPoint(x: -layout.offset + w / 2, y: layout.top + h / 2)
+                let cx = CGFloat(label.x) + t.cg.a * local.x + t.cg.c * local.y, cy = CGFloat(label.y) + t.cg.b * local.x + t.cg.d * local.y
+                let centre = CGPoint(x: fit.tx + (cx - fit.bounds.minX) * scale, y: fit.ty + (cy - fit.bounds.minY) * scale)
+                if view.frameCenterRotation != 0 { view.frameCenterRotation = 0 }
+                view.frame = CGRect(x: centre.x - w * k * scale / 2, y: centre.y - h * k * scale / 2, width: w * k * scale, height: h * k * scale)
+                view.bounds = CGRect(x: 0, y: 0, width: w, height: h)
+                // Picture space is y-down like this flipped view: a positive angle turns clockwise on screen.
+                let angle = -CGFloat(atan2(t.b, t.a)) * 180 / .pi
+                if abs(angle) > 0.001 { view.frameCenterRotation = angle }
+                view.textStorage?.setAttributedString(NSAttributedString(string: label.text, attributes: [.font: layout.font, .foregroundColor: PictureRenderer.colour(label.fill)]))
+            }
+            view.alphaValue = CGFloat(label.alpha)
+            view.isHidden = label.alpha < 0.01
+        }
+    }
+    private func clearSelections(except keep: PictureLabelView?) {
+        for view in labels.values where view !== keep && view.selectedRange().length > 0 { view.setSelectedRange(NSRange(location: 0, length: 0)) }
+    }
 }
 
 @MainActor final class PictureCard: NSView {

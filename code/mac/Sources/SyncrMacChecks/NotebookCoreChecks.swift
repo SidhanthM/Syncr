@@ -23,6 +23,97 @@ import SyncrCore
     try check(ok == true, "save failed: \(session.status)")
 }
 
+/// The same reader seam used by NotebookController; completions are held to exercise interleavings
+/// without opening a real note or depending on worker timing.
+@MainActor private func incrementalIndexChecks() throws {
+    typealias Revision = NotebookIndexUpdater.Revision
+    let a = Revision(id: "a", sequence: 1, title: "Alpha", writable: true)
+    let b = Revision(id: "b", sequence: 1, title: "Beta", writable: true)
+    let c = Revision(id: "c", sequence: 1, title: "Locked", writable: false)
+    var source = NotebookIndexUpdater.Source(folder: URL(fileURLWithPath: "/disposable-A"), notes: [a, b, c])
+    var reads: [String] = [], waiting: [(String, @MainActor (Result<IndexedNote, Error>) -> Void)] = []
+    var publications: [[IndexedNote]] = []
+    let updater = NotebookIndexUpdater(source: { source }, read: { id, done in
+        reads.append(id); waiting.append((id, done))
+    }, publish: { publications.append($0) })
+    func finish(_ title: String, _ text: String = "") {
+        let (id, done) = waiting.removeFirst()
+        done(.success(IndexedNote(id: id, title: title, text: text, writable: true)))
+    }
+    updater.refresh(); finish("Alpha", "[[Beta]] #tag\nneedle"); finish("Beta")
+    try check(reads == ["a", "b"] && publications.last?.count == 3, "initial index reads only writable notes")
+    let initial = reads.count
+    updater.refresh(); updater.refresh()
+    try check(reads.count == initial, "unchanged index performs zero snapshot reads")
+    source.notes[0].sequence += 1
+    updater.refresh(); finish("Alpha", "[[Beta]] #updated\nnew needle")
+    let index = NotebookIndex(notes: publications.last!)
+    try check(reads.count == initial + 1 && reads.last == "a", "one-note update reads exactly one snapshot")
+    try check(index.tags.first?.0 == "updated" && index.backlinks(to: "Beta").first?.id == "a" && index.search("new needle").first?.id == "a", "incremental tags, backlinks and search")
+    source.notes[1].title = "Renamed" // Include title even if a metadata producer did not bump sequence.
+    updater.refresh(); finish("Renamed")
+    try check(reads.last == "b" && NotebookIndex(notes: publications.last!).resolve("Renamed")?.id == "b", "rename invalidates just its note")
+    let beforeDelete = reads.count
+    source.notes.remove(at: 1); updater.refresh()
+    try check(reads.count == beforeDelete && publications.last?.contains { $0.id == "b" } == false, "delete removes entry without rereads")
+    source.notes[0].writable = false; updater.refresh()
+    try check(reads.count == beforeDelete && publications.last?.first?.text == "" && publications.last?.first?.writable == false, "writability loss removes indexed text without reading")
+    source.notes[0].writable = true; updater.refresh(); finish("Alpha", "restored")
+    try check(reads.count == beforeDelete + 1, "writability gain reads the document")
+
+    // Two changes to the same note while reading: old data never publishes, next pass reads it once.
+    source.notes[0].sequence += 1; updater.refresh()
+    let beforeStale = publications.count
+    source.notes[0].sequence += 1; updater.refresh(); updater.refresh()
+    finish("Alpha", "stale")
+    try check(publications.count == beforeStale && waiting.count == 1, "stale pass is not published; in-flight refreshes coalesce")
+    finish("Alpha", "latest")
+    try check(publications.last?.first?.text == "latest", "edit during pass is reindexed")
+    // Also reconcile live metadata with no refresh notification.
+    source.notes[0].sequence += 1; updater.refresh(); source.notes.removeFirst()
+    finish("Alpha", "deleted during read")
+    try check(publications.last?.map(\.id) == ["c"], "delete during pass cannot resurrect a note")
+
+    source.notes = [a, b]; updater.refresh()
+    let beforeSwitch = publications.count
+    source.folder = URL(fileURLWithPath: "/disposable-B"); source.notes = [a]
+    updater.reset(); updater.refresh()
+    finish("Old library", "stale")
+    try check(publications.count == beforeSwitch, "old library result ignored after reset")
+    finish("New library", "new body")
+    try check(publications.last?.first?.title == "New library", "same ID/sequence in a new library rereads")
+    source.notes[0].sequence += 1; updater.refresh()
+    // Return to A while a B read is in flight, with the same metadata as the first A load.
+    source.folder = URL(fileURLWithPath: "/disposable-A"); source.notes = [a]
+    updater.reset(); updater.refresh(); finish("Late B"); finish("Back to A")
+    try check(publications.last?.first?.title == "Back to A", "A-B-A switch rejects stale result by generation")
+
+    // Failed changed-note reads must not keep old searchable text; explicit recovery retries.
+    source.notes[0].sequence += 1; updater.refresh()
+    let (_, failed) = waiting.removeFirst(); failed(.failure(ViewerError.unavailable))
+    try check(publications.last?.isEmpty == true, "read failure does not retain stale entry")
+    updater.refresh(force: true); finish("Recovered", "recovered")
+    try check(publications.last?.first?.text == "recovered", "explicit recovery rebuilds")
+    source.notes = [a, b]; updater.refresh()
+    let beforeRecovery = reads.count
+    updater.refresh(force: true); updater.refresh(force: true)
+    finish("Alpha"); finish("Beta")
+    // Exactly one pending recovery, not one full pass per refresh.
+    finish("Alpha"); finish("Beta")
+    try check(reads.count == beforeRecovery + 3 && waiting.isEmpty, "forced recovery during a pass is coalesced")
+    source.notes = (0..<64).map { Revision(id: "bulk-\($0)", sequence: 1, title: "Note \($0)", writable: true) }
+    let beforeBulk = reads.count
+    updater.refresh()
+    for i in 0..<64 { finish("Note \(i)", "body \(i)") }
+    try check(reads.count == beforeBulk + 64 && waiting.isEmpty, "64-note initial load reads 64 snapshots")
+    source.notes[17].sequence += 1
+    updater.refresh(); finish("Note 17", "changed")
+    try check(reads.count == beforeBulk + 65 && publications.last?[17].text == "changed", "64-note library: one-note change reads 1, not 64 snapshots")
+    source.notes.reverse(); updater.refresh()
+    try check(reads.count == beforeBulk + 65 && publications.last?.first?.id == "bulk-63", "enumeration reorder reuses all snapshots")
+    print("Incremental index: OK (64-note load 64 reads; unchanged 0; one-note change 1; rename/delete/writability, stale/in-flight, library generations, failure/recovery)")
+}
+
 @MainActor func notebookCoreN1Checks() throws {
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent("syncr-notebook-n1-" + UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: dir) }
@@ -118,6 +209,7 @@ import SyncrCore
 }
 
 @MainActor func notebookCoreN2N3Checks() throws {
+    try incrementalIndexChecks()
     let dir = FileManager.default.temporaryDirectory.appendingPathComponent("syncr-notebook-n23-" + UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: dir) }
     let vault = dir.appendingPathComponent("Vault"), nested = vault.appendingPathComponent("Projects/Work")

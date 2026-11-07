@@ -2,35 +2,6 @@ import AppKit
 import SyncrCore
 import SyncrCompanion
 
-struct CompanionPreferences: Codable {
-    var provider = "codex"
-    /// The gate model (reading along) and the answer model (asking, replying, pictures).
-    var readingModel = ""
-    var askingModel = ""
-    /// Pictures: on by default (owner, 2026-11-16, after the second sketch trial). Stored as `pictures`, so a `drawings`
-    /// false saved while they were an off-by-default experiment does not keep them off.
-    var drawings = true
-    var tokenLimit = 100000
-    var requestLimit = 100
-    /// Hand-drawn pen style for pictures (Excalidraw-like wobble); clean strokes when off.
-    var handDrawn = true
-    enum CodingKeys: String, CodingKey {
-        case provider, readingModel, askingModel, tokenLimit, requestLimit, handDrawn
-        case drawings = "pictures"
-    }
-    init() {}
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        provider = try c.decodeIfPresent(String.self, forKey: .provider) ?? provider
-        readingModel = try c.decodeIfPresent(String.self, forKey: .readingModel) ?? ""
-        askingModel = try c.decodeIfPresent(String.self, forKey: .askingModel) ?? ""
-        drawings = try c.decodeIfPresent(Bool.self, forKey: .drawings) ?? true
-        tokenLimit = try c.decodeIfPresent(Int.self, forKey: .tokenLimit) ?? tokenLimit
-        requestLimit = try c.decodeIfPresent(Int.self, forKey: .requestLimit) ?? requestLimit
-        handDrawn = try c.decodeIfPresent(Bool.self, forKey: .handDrawn) ?? true
-    }
-}
-
 /// One engine pass for the open note: what streamed in, what is staged to be written, and its timings.
 @MainActor final class CompanionPass {
     let noteID: String; let reader: Reader; let text: String; let generation: Int; let reading: Bool
@@ -42,10 +13,12 @@ struct CompanionPreferences: Codable {
     var start = 0.0
     var firstText: Double?; var firstStep: Double?; var gateSeconds: Double?
     var ended = false
+    /// A direct ask: the thread the answer goes to, the UTF-16 offset where the asked passage ends, and the named step.
+    var askThread: String?; var passageEnd = 0; var step: String?
     var done: (() -> Void)?
     init(noteID: String, reader: Reader, text: String, generation: Int, reading: Bool) { self.noteID = noteID; self.reader = reader; self.text = text; self.generation = generation; self.reading = reading }
 }
-@MainActor final class CompanionController {
+@MainActor final class CompanionController: CompanionSettingsSource {
     let model: LibraryModel; let workspace: Workspace; let notebook: NotebookController
     let detail: NoteDetailView
     private(set) var snapshot: NoteSnapshot?
@@ -63,7 +36,15 @@ struct CompanionPreferences: Codable {
     /// Ink-only notes have no text to quote, so the engine (quotes only) cannot answer them: the one-shot session path stays for those.
     private var inkSession: CompanionSession
     private var revision = ""; private var noteID: String?; private var requestGeneration = 0
-    private var timer: Timer?; private var prefsWindow: CompanionSettingsWindow?
+    private var timer: Timer?
+    private weak var settingsView: CompanionSettingsView?
+    var onShowSettings: (() -> Void)?
+    private var catalogGeneration = 0
+    private(set) var settingsProviderState = "Not checked"
+    var settingsModels: [ProviderModel] { catalog }
+    var settingsMeter: BudgetMeter {
+        var meter = shownMeter; meter.rollover(day: BudgetMeter.dayKey()); return meter
+    }
     private var previousPassText = ""
     private var lastActivity = -TimeInterval.infinity; private var pendingChange = false
     private var changedSincePause = false; private var lastPause = -TimeInterval.infinity
@@ -161,7 +142,10 @@ struct CompanionPreferences: Codable {
             inkSession = CompanionSession(budget: state.meter)
             loadVoice(); images.forget(); pictureWarnings = [:]
             savedBudget = nil; renderColour = nil
-            prefsWindow?.close(); prefsWindow = nil; catalog = []; debugProvider = nil
+            catalogGeneration += 1; catalog = []; debugProvider = nil
+            settingsProviderState = "Not checked"
+            settingsView?.reloadFromSource()
+            if settingsView?.window?.isVisible == true { refreshModels() }
         }
         // A closed tab takes its engine (and its pi child) with it.
         closeEngines(except: Set(workspace.tabs).union(noteID.map { [$0] } ?? []))
@@ -271,7 +255,7 @@ struct CompanionPreferences: Codable {
         detail.documentEditor.flush()
         notebook.flushAll { [weak self] ok in
             guard let self, ok else { return }
-            guard all else { self.startPass(.ask, draw: draw); return }
+            guard all else { if draw { self.startPass(.ask, draw: true) } else { self.startDirectAsk() }; return }
             let text = self.detail.documentEditor.textView.string
             self.askReaders(self.readers, text: text, passage: self.selection(in: text), generation: self.requestGeneration)
         }
@@ -293,7 +277,33 @@ struct CompanionPreferences: Codable {
 
     private enum PassKind { case ask, reply(String), pause }
 
-    private func startPass(_ kind: PassKind, draw: Bool = false, reader explicit: Reader? = nil, passage: ByteSpan? = nil, confirmed: Bool = false, done: (() -> Void)? = nil) {
+    /// The named step as the strip and the answer show it.
+    static func stepLabel(_ step: CompanionStep) -> String {
+        switch step {
+        case .deciding: "Deciding"
+        case .thinking: "Thinking"
+        case .writing: "Writing"
+        case .sketching: "Sketching"
+        case .checking: "Checking the picture"
+        case .fixing: "Fixing the picture"
+        }
+    }
+
+    /// ⌘J: the owner's passage becomes a thread (the ask is its first message), then the model answers on it and the
+    /// answer appears directly under the passage. Without text to quote, or without a model chosen, the old path runs.
+    private func startDirectAsk() {
+        let text = detail.documentEditor.textView.string
+        guard pass == nil, !inkBusy, let id = noteID, model.isWritable(id), !text.isEmpty, let span = selection(in: text),
+              debugProvider != nil || (!preferences.readingModel.isEmpty && !preferences.askingModel.isEmpty) else { startPass(.ask); return }
+        let bytes = Array(text.utf8), ask = String(decoding: bytes[span.start..<min(bytes.count, span.end)], as: UTF8.self)
+        let thread = newId()
+        edit(id, work: { try CompanionStore.addAsk(threadID: thread, span: span, ask: ask, note: $0) }, done: { [weak self] in
+            self?.bindScript(thread: thread)
+            self?.startPass(.ask, passage: span, askThread: thread)
+        })
+    }
+
+    private func startPass(_ kind: PassKind, draw: Bool = false, reader explicit: Reader? = nil, passage: ByteSpan? = nil, confirmed: Bool = false, askThread: String? = nil, done: (() -> Void)? = nil) {
         guard pass == nil, !inkBusy, let s = snapshot, let id = noteID, model.isWritable(id) else { done?(); return }
         let settings = CompanionStore.settings(s)
         guard settings.mode != .off else { done?(); return }
@@ -316,17 +326,25 @@ struct CompanionPreferences: Codable {
         case .reply(let thread): instruction = "Reply to thread_id \(thread), using reply."
         case .pause: instruction = "Read along quietly. Only speak if it sharpens this thought; at most one margin note."
         case .ask:
-            if draw { instruction = "Explain the selected passage with a step-by-step picture, then two or three sentences on how to read it." }
+            if let askThread { instruction = "Answer the owner's question in the selected passage on thread_id \(askThread), using reply." }
+            else if draw { instruction = "Explain the selected passage with a step-by-step picture, then two or three sentences on how to read it." }
             else if explicit != nil { instruction = "Return one margin note on the selected passage as this reader." }
             else { instruction = "Respond to the selected passage with one margin note." }
         }
         if !preferences.drawings { instruction += " Answer in words only; do not draw a picture." }
         var input = RequestInput(tell: settings.tell, reader: reader, markdown: text, changed: nil, selection: passage ?? selection(in: text),
-                                 threads: conversations(s, text: text), instruction: instruction, web: settings.web, pagePNG: nil)
+                                 threads: conversations(s, text: text), instruction: instruction, web: settings.web, pagePNG: nil, askThreadID: askThread)
         let state = CompanionPass(noteID: id, reader: reader, text: text, generation: requestGeneration, reading: reading)
         state.done = done
+        if let askThread, let span = input.selection {
+            state.askThread = askThread
+            state.passageEnd = String(decoding: Array(text.utf8)[..<min(text.utf8.count, span.end)], as: UTF8.self).utf16.count
+        }
         pass = state
+        detail.onStreamingAskChanged = { [weak self] in self?.showAll() }
         detail.companionStrip.thinking = true
+        setStatus(reading ? "Deciding…" : "Thinking…"); state.step = reading ? "Deciding" : "Thinking"
+        if askThread != nil { scheduleStreamRefresh(state) }
         let engine = self.engine(for: id), previous = previousPassText
         let event: (RequestInput) -> EngineEvent = { value in
             switch kind { case .ask: .ask(value); case .reply: .reply(value); case .pause: .pause(value) }
@@ -366,7 +384,7 @@ struct CompanionPreferences: Codable {
                     alert.informativeText = "Reading along is paused until tomorrow. Send this request anyway?"
                     alert.addButton(withTitle: "Send Request")
                     alert.addButton(withTitle: "Cancel")
-                    if alert.runModal() == .alertFirstButtonReturn { self.startPass(kind, draw: draw, reader: explicit, passage: passage, confirmed: true, done: done) }
+                    if alert.runModal() == .alertFirstButtonReturn { self.startPass(kind, draw: draw, reader: explicit, passage: passage, confirmed: true, askThread: askThread, done: done) }
                 } else { self.setStatus(error.localizedDescription) }
             }
         }
@@ -380,6 +398,7 @@ struct CompanionPreferences: Codable {
         if let trace {
             let name: String
             switch output {
+            case .step(let step): name = "step(\(step.rawValue))"
             case .firstToken: name = "firstToken"; case .textPreview(let p): name = "textPreview(\(p?.text.count ?? -1))"
             case .item(let i): name = "item(\(String(describing: i).prefix(24)))"; case .pictureStep(_, _, let n): name = "pictureStep(\(n))"
             case .pictureReplace(_, let svg, let f): name = "pictureReplace(svg=\(svg != nil) findings=\(f.map(\.rule)))"
@@ -390,6 +409,7 @@ struct CompanionPreferences: Codable {
         }
         guard pass === state, !state.ended else { return }
         switch output {
+        case .step(let step): state.step = Self.stepLabel(step); setStatus(Self.stepLabel(step) + "…"); scheduleStreamRefresh(state)
         case .firstToken(let seconds): state.firstText = seconds
         case .textPreview(let preview):
             state.preview = preview; scheduleStreamRefresh(state)
@@ -425,17 +445,20 @@ struct CompanionPreferences: Codable {
                 guard let self else { return }
                 self.streamRefresh = nil
                 guard let state = self.pass, !state.ended else { return }
-                var margin: [String] = []
+                var margin: [String] = [], answer: [String] = []
                 for item in state.staged {
                     switch item {
                     case .margin(_, _, let text): margin.append(text)
-                    case .reply(let id, let text): self.openThread(id, provisional: text)
+                    case .reply(let id, let text):
+                        if id == state.askThread { answer.append(text) } else { self.openThread(id, provisional: text) }
                     default: break
                     }
                 }
                 if let preview = state.preview {
-                    if let id = preview.threadID { self.openThread(id, provisional: preview.text) } else { margin.append(preview.text) }
+                    if let id = preview.threadID, id == state.askThread { answer.append(preview.text) }
+                    else if let id = preview.threadID { self.openThread(id, provisional: preview.text) } else { margin.append(preview.text) }
                 }
+                if state.askThread != nil { self.detail.showStreamAnswer(passageEnd: state.passageEnd, text: answer.joined(separator: "\n\n"), step: state.step, thread: state.askThread) }
                 self.detail.showStreamText(margin.isEmpty ? nil : margin.joined(separator: "\n\n"))
             }
         }
@@ -450,8 +473,9 @@ struct CompanionPreferences: Codable {
     private func end(_ state: CompanionPass, commit: Bool, cancelEngine: Bool = false) {
         guard pass === state, !state.ended else { return }
         state.ended = true
+        if status.hasSuffix("…") { setStatus("Ready") }
         streamRefresh?.cancel(); streamRefresh = nil
-        detail.clearStream()
+        detail.clearStream(keepAnswer: commit)
         pass = nil
         detail.companionStrip.thinking = false
         if cancelEngine, let engine = engines[state.noteID] { Task { await engine.cancel() } }
@@ -514,6 +538,7 @@ struct CompanionPreferences: Codable {
             model.writeState("companion-budget.json", data)
         }
         shownMeter = meter
+        settingsView?.updateUsage()
         updateStatus()
     }
     private func setStatus(_ text: String) {
@@ -669,24 +694,37 @@ struct CompanionPreferences: Codable {
             lastWireWindow = window
         }
     }
-    func showSettings() {
-        if prefsWindow == nil { prefsWindow = CompanionSettingsWindow(controller:self) }
-        prefsWindow?.show(); refreshModels()
+    func showSettings() { onShowSettings?() }
+    func makeSettingsView() -> CompanionSettingsView {
+        let view = CompanionSettingsView(source: self)
+        settingsView = view
+        view.update(models: catalog, state: settingsProviderState)
+        return view
     }
     func refreshModels() {
+        catalogGeneration += 1
+        let generation = catalogGeneration, library = folder
         let provider = makeProvider()
+        settingsProviderState = "Checking connection…"
+        settingsView?.update(models: catalog, state: settingsProviderState)
         Task {
             let state = await provider.signInState()
             do {
-                catalog = try await provider.models()
+                let offered = try await provider.models()
+                guard catalogGeneration == generation, folder == library, model.folder == library else { return }
+                catalog = offered
                 if preferences.readingModel.isEmpty || preferences.askingModel.isEmpty, let defaults = try? ModelSettings.defaults(from: catalog) {
                     if preferences.readingModel.isEmpty { preferences.readingModel = defaults.gate }
                     if preferences.askingModel.isEmpty { preferences.askingModel = defaults.answer }
                     persistPreferences()
                 }
-                prefsWindow?.update(models: catalog, state: state)
+                settingsProviderState = state
+                settingsView?.update(models: catalog, state: state)
             } catch {
-                prefsWindow?.update(models: [], state: state + " · " + error.localizedDescription)
+                guard catalogGeneration == generation, folder == library, model.folder == library else { return }
+                settingsProviderState = state + " · " + error.localizedDescription
+                catalog = []
+                settingsView?.update(models: [], state: settingsProviderState)
             }
         }
     }
@@ -706,7 +744,7 @@ struct CompanionPreferences: Codable {
             await updateMeter()
         }
         persistPreferences()
-        prefsWindow?.update(models: catalog, state: status)
+        settingsView?.reloadPreferences()
         if changedProvider { refreshModels() }
         if changedStyle { renderDrawings = !preferences.drawings }
         updateUI()
@@ -718,7 +756,8 @@ struct CompanionPreferences: Codable {
 
     func debugMode(_ mode:Int) { detail.companionStrip.mode.selectItem(at:mode); stripChanged() }
     /// Replays recorded provider text, one pass per `-----` line, delivered in small chunks so streaming is visible.
-    func debugScript(_ script: String, chunk: Int = 24, delayMs: Int = 12, askNow: Bool = true, all: Bool = false, draw: Bool = false) {
+    private var debugScriptSource: (script: String, chunk: Int, delayMs: Int)?
+    private func scriptProvider(_ script: String, chunk: Int, delayMs: Int) -> RecordedStreamProvider {
         let passes = script.components(separatedBy: "\n-----\n").map { text -> RecordedStreamPass in
             let characters = Array(text.hasSuffix("\n") ? text : text + "\n")
             var frames: [RecordedStreamFrame] = []
@@ -728,7 +767,17 @@ struct CompanionPreferences: Codable {
             frames.append(RecordedStreamFrame(.usage(Usage(input: 10, output: 5))))
             return RecordedStreamPass(frames: frames)
         }
-        debugProvider = RecordedStreamProvider(passes: Array(repeating: passes, count: 16).flatMap { $0 })
+        return RecordedStreamProvider(passes: Array(repeating: passes, count: 16).flatMap { $0 })
+    }
+    /// A recorded script may name the ask thread as `{{thread}}`; the id exists only once the ask has been stored.
+    private func bindScript(thread: String) {
+        guard let source = debugScriptSource, source.script.contains("{{thread}}"), let id = noteID else { return }
+        debugProvider = scriptProvider(source.script.replacingOccurrences(of: "{{thread}}", with: thread), chunk: source.chunk, delayMs: source.delayMs)
+        closeEngines(); _ = engine(for: id)
+    }
+    func debugScript(_ script: String, chunk: Int = 24, delayMs: Int = 12, askNow: Bool = true, all: Bool = false, draw: Bool = false) {
+        debugScriptSource = (script, chunk, delayMs)
+        debugProvider = scriptProvider(script, chunk: chunk, delayMs: delayMs)
         closeEngines()
         if let id = noteID { _ = engine(for: id) }
         updateUI()
