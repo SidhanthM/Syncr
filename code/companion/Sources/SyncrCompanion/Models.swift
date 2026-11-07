@@ -83,11 +83,14 @@ public struct RequestInput: Codable, Sendable {
     public var instruction: String; public var web: Bool; public var pagePNG: Data?
     public var pageRegion: CanvasRegion? = nil
     public var images: [NoteImage] = []
+    /// A direct ask that carries its own thread: the answer comes as `reply` items on this thread ID (long form), not as margin items.
+    public var askThreadID: String? = nil
     public var attachments: [NoteImage] { images + (pagePNG.map { [NoteImage(id: "ink-page", data: $0)] } ?? []) }
-    public init(tell: String = "", reader: Reader = Reader.starters[0], markdown: String, changed: ByteSpan? = nil, selection: ByteSpan? = nil, threads: [Conversation] = [], instruction: String = "Ask a question that sharpens this thought.", web: Bool = false, pagePNG: Data? = nil, images: [NoteImage] = []) {
+    public init(tell: String = "", reader: Reader = Reader.starters[0], markdown: String, changed: ByteSpan? = nil, selection: ByteSpan? = nil, threads: [Conversation] = [], instruction: String = "Ask a question that sharpens this thought.", web: Bool = false, pagePNG: Data? = nil, images: [NoteImage] = [], askThreadID: String? = nil) {
+        self.askThreadID = askThreadID
         self.tell = tell; self.reader = reader; self.markdown = markdown; self.changed = changed; self.selection = selection; self.threads = threads; self.instruction = instruction; self.web = web; self.pagePNG = pagePNG; self.images = images
     }
-    private enum CodingKeys: String, CodingKey { case tell, reader, markdown, changed, selection, threads, instruction, web, pagePNG, pageRegion, images }
+    private enum CodingKeys: String, CodingKey { case tell, reader, markdown, changed, selection, threads, instruction, web, pagePNG, pageRegion, images, askThreadID }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         tell = try c.decodeIfPresent(String.self, forKey: .tell) ?? ""
@@ -99,6 +102,7 @@ public struct RequestInput: Codable, Sendable {
         web = try c.decodeIfPresent(Bool.self, forKey: .web) ?? false
         pagePNG = try c.decodeIfPresent(Data.self, forKey: .pagePNG); pageRegion = try c.decodeIfPresent(CanvasRegion.self, forKey: .pageRegion)
         images = try c.decodeIfPresent([NoteImage].self, forKey: .images) ?? []
+        askThreadID = try c.decodeIfPresent(String.self, forKey: .askThreadID)
     }
 }
 public struct CompanionRequest: Sendable {

@@ -12,11 +12,11 @@ mod note;
 mod notebooks;
 pub(crate) mod sync;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 mod trash;
 
 use crate::{
-    error::{internal, invalid, io, locked, storage, unsupported},
+    error::{invalid, io, locked, storage, unsupported},
     files, store, validation, *,
 };
 use catalog::Catalog;
@@ -57,8 +57,27 @@ pub struct Note {
     runtime: Mutex<note::Runtime>,
 }
 
-fn lock<T>(value: &Mutex<T>) -> CoreResult<MutexGuard<'_, T>> {
-    value.lock().map_err(|_| internal())
+/// State behind a mutex that a panic may have left half-updated. `recover` runs on the guard of
+/// a poisoned mutex, before anyone else sees it, and puts the state back to what is durable.
+trait Recover {
+    fn recover(&mut self) {}
+}
+
+/// Locks `value`. A mutex is poisoned when a thread panicked while holding it. The panic itself
+/// is already reported to its caller; refusing every later call would turn one failed
+/// operation into a dead library, with no way back short of restarting the process. So the
+/// state is made consistent again (`Recover`), the poison is cleared and the call proceeds.
+/// Callers never see `Internal` from this function.
+fn lock<T: Recover>(value: &Mutex<T>) -> CoreResult<MutexGuard<'_, T>> {
+    match value.lock() {
+        Ok(guard) => Ok(guard),
+        Err(poisoned) => {
+            let mut guard = poisoned.into_inner();
+            guard.recover();
+            value.clear_poison();
+            Ok(guard)
+        }
+    }
 }
 
 /// Rejects paths the core cannot use directly, such as Android SAF `content:` URIs.

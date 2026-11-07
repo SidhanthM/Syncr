@@ -9,6 +9,8 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.locks.LockSupport
 
+const val SEND_BUFFER_BYTES = 128 * 1024
+
 /** Opens the byte stream. TCP today; the TLS design of `pairing-security.md` slots in here later. */
 fun interface Transport {
     fun connect(endpoint: Endpoint, timeoutMs: Int): Socket
@@ -17,6 +19,8 @@ fun interface Transport {
         val TCP = Transport { endpoint, timeoutMs ->
             Socket().apply {
                 tcpNoDelay = true
+                // A small send buffer: a pen frame queues behind at most this much of a note copy, not megabytes.
+                sendBufferSize = SEND_BUFFER_BYTES
                 connect(InetSocketAddress(endpoint.host, endpoint.port), timeoutMs)
             }
         }
@@ -114,7 +118,8 @@ class LinkClient(
         if (running) return
         running = true
         cfg.feed.wake = wake
-        thread = Thread(::run, "syncr-link").apply { isDaemon = true; start() }
+        // The pen's frames leave on this thread: it must not wait behind sync or UI work for a core.
+        thread = Thread(::run, "syncr-link").apply { isDaemon = true; priority = Thread.MAX_PRIORITY; start() }
         Thread(::watchdog, "syncr-link-watchdog").apply { isDaemon = true; start() }
     }
 

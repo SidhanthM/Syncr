@@ -31,6 +31,10 @@ pub(super) struct Catalog {
     notes: BTreeMap<Id, Weak<Note>>,
 }
 
+/// A catalog transaction rolls back when its panic unwinds, and the handle map only caches
+/// weak references that `open_handle` re-checks, so nothing needs repair.
+impl super::Recover for Catalog {}
+
 impl Catalog {
     pub(super) fn new(db: Connection) -> Self {
         Catalog {

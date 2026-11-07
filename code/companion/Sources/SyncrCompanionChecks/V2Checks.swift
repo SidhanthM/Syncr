@@ -29,6 +29,14 @@ func runV2Checks(tmp: URL) async throws {
     try eofParser.append(String(margin.dropLast())) { eofItems.append($0) }
     try eofParser.finish { eofItems.append($0) }
     check(eofItems.contains { if case .item(.margin) = $0 { return true }; return false }, "successful provider EOF delimits final complete header")
+    let longMargin = "{\"type\":\"margin\",\"quote\":\"cache\",\"kind\":\"explanation\",\"text\":\"" + Array(repeating: "word", count: 100).joined(separator: " ") + "\"}\n"
+    var askParser = ItemStreamParser(input: input, marginWords: 150); var askItems: [ParsedStreamEvent] = []
+    try askParser.append(longMargin) { askItems.append($0) }
+    check(askItems.contains { if case .item(.margin) = $0 { return true }; return false }, "direct ask accepts a 100-word margin")
+    do { var strict = ItemStreamParser(input: input); try strict.append(longMargin) { _ in }; fatalError("read-along accepted a 100-word margin") } catch {}
+    // Asking for a longer reply lifts the length limit only; the thread must still exist.
+    var longAsk = input; longAsk.instruction = "Reply with more than 150 words"
+    do { var p = ItemStreamParser(input: longAsk); try p.append("{\"type\":\"reply\",\"threadID\":\"invented\",\"text\":\"No\"}\n") { _ in }; fatalError("reply to an unknown thread accepted") } catch {}
     var items: [ParsedStreamEvent] = []; parser = ItemStreamParser(input: input)
     do { try parser.append(margin + "{\"type\":\"evil\"}\n") { items.append($0) }; fatalError("malformed stream accepted") } catch {}
     check(items.count == 1, "complete valid item preserved in malformed chunk")
@@ -194,6 +202,78 @@ func runV2Checks(tmp: URL) async throws {
     let cancelledSteps=await stepReader.value
     check(cancelledSteps.contains { if case .pictureStep = $0 { return true }; return false } && cancelledSteps.contains { if case .pictureReplace(_,nil,_) = $0 { return true }; return false },"cancel removes complete provisional steps, stores no partial picture")
 
+    // Notebook round 2, part A: long-form answers on an ask thread, and named steps.
+    func replyLine(_ id: String, _ text: String) throws -> String {
+        // Header order as the prompt gives it (type, threadID, text); previews depend on text coming last.
+        func j(_ v: String) throws -> String { String(decoding: try JSONSerialization.data(withJSONObject: v, options: [.fragmentsAllowed]), as: UTF8.self) }
+        return "{\"type\":\"reply\",\"threadID\":\(try j(id)),\"text\":\(try j(text))}\n"
+    }
+    func stepNames(_ out: [EngineOutput]) -> [String] { out.compactMap { if case .step(let s) = $0 { return s.rawValue }; return nil } }
+    let askID = "ask-thread-1"
+    let askThread = Conversation(id: askID, quote: "cache", kind: "question", text: "Run me through caching", reader: "r", state: "open", messages: [ConversationMessage(who: "You", text: "Run me through caching")])
+    var askInput = input; askInput.threads = [askThread]; askInput.askThreadID = askID
+    check(try JSONDecoder().decode(RequestInput.self, from: JSONEncoder().encode(askInput)).askThreadID == askID, "askThreadID round-trips")
+    let answer = "Two sum asks for two indices whose values add to the target.\n\n1. Walk the array once.\n2. Keep a dictionary from value to index.\n3. If target minus the current value is in it, return both indices.\n\n```python\ndef two_sum(nums, target):\n    seen = {}\n    for i, n in enumerate(nums):\n        if target - n in seen:\n            return [seen[target - n], i]\n        seen[n] = i\n```\n\nUse `seen` for O(1) lookups; the whole pass is O(n)."
+    let answerLine = try replyLine(askID, answer)
+    let answerProvider = RecordedStreamProvider(passes: [RecordedStreamPass(frames: stride(from: 0, to: answerLine.count, by: 40).map { RecordedStreamFrame(.text(String(answerLine.dropFirst($0).prefix(40)))) } + [RecordedStreamFrame(.usage(Usage(input: 10, output: 5)))])])
+    let answerEngine = CompanionEngine(provider: answerProvider, models: ModelSettings(gate: "s", answer: "a"))
+    let answerOut = try await collect(answerEngine, .ask(askInput))
+    let replies: [String] = answerOut.compactMap { if case .item(.reply(let id, let t)) = $0, id == askID { return t }; return nil }
+    check(replies == [answer] && replies[0].contains("```python") && replies[0].contains("1. Walk"), "ask thread answer with list and code block arrives intact")
+    check(!answerOut.contains { if case .item(.margin) = $0 { return true }; return false } && answerOut.contains { if case .finished = $0 { return true }; return false }, "ask thread answer is reply items, no margin")
+    let growing: [String] = answerOut.compactMap { if case .textPreview(let p?) = $0, p.threadID == askID, p.kind == "reply" { return p.text }; return nil }
+    check(growing.count > 3 && growing.first!.count < growing.last!.count && zip(growing, growing.dropFirst()).allSatisfy { $1.hasPrefix($0) } && answer.hasPrefix(growing.last!), "reply text previews grow while streaming")
+    check(stepNames(answerOut) == ["thinking", "writing"], "steps for a text-only ask: \(stepNames(answerOut))")
+    let sent = await answerEngine.lastRequest ?? ""
+    check(sent.contains("Asked directly in thread \(askID)") && sent.contains("at most about 400 words"), "ask thread instruction in the request")
+    // Hard bound: 600 and 700 words are kept, 701 is not, and what came before survives.
+    for (n, kept) in [(600, true), (700, true), (701, false)] {
+        let provider = RecordedStreamProvider(passes: [RecordedStreamPass(text: try replyLine(askID, "First part.") + (try replyLine(askID, Array(repeating: "word", count: n).joined(separator: " "))))])
+        let out = try await collect(CompanionEngine(provider: provider, models: ModelSettings(gate: "s", answer: "a")), .ask(askInput))
+        let got = out.compactMap { if case .item(.reply(_, let t)) = $0 { return t }; return nil }
+        check(kept ? got.count == 2 : got == ["First part."] && out.contains { if case .failed = $0 { return true }; return false }, "ask reply bound at \(n) words")
+    }
+    var tooBig = ItemStreamParser(input: askInput)
+    do { try tooBig.append(try replyLine(askID, String(repeating: "a", count: ItemStreamParser.askReplyByteLimit + 1))) { _ in }; fatalError("oversized reply accepted") } catch {}
+    var otherThread = ItemStreamParser(input: askInput)
+    do { try otherThread.append(try replyLine("elsewhere", "No.")) { _ in }; fatalError("reply to unknown thread accepted") } catch {}
+    var unthreaded = ItemStreamParser(input: input)
+    do { try unthreaded.append(try replyLine(askID, "No.")) { _ in }; fatalError("reply on a thread the request lacks accepted") } catch {}
+    // An ask without a thread keeps today's behaviour.
+    let plainEngine = CompanionEngine(provider: RecordedStreamProvider(passes: [RecordedStreamPass(text: longMargin)]), models: ModelSettings(gate: "s", answer: "a"))
+    let plainOut = try await collect(plainEngine, .ask(input))
+    let plainSent = await plainEngine.lastRequest ?? ""
+    check(plainOut.contains { if case .item(.margin) = $0 { return true }; return false } && plainSent.contains("Asked directly: answer in margin items"), "ask without a thread unchanged")
+    // Steps for an ask with a picture and one repair, and for a read-along pass.
+    let stepProvider2 = RecordedStreamProvider(passes: [RecordedStreamPass(text: try replyLine(askID, "Here is the board.") + brokenFormatted), RecordedStreamPass(text: formatted)])
+    let stepOut = try await collect(CompanionEngine(provider: stepProvider2, models: ModelSettings(gate: "s", answer: "a"), inspector: inspector), .ask(askInput))
+    check(stepNames(stepOut) == ["thinking", "writing", "sketching", "writing", "checking", "fixing", "checking"], "steps in order for an ask with a picture and a repair: \(stepNames(stepOut))")
+    check(stepOut.contains { if case .item(.picture) = $0 { return true }; return false } && stepOut.contains { if case .item(.reply) = $0 { return true }; return false }, "ask thread answer plus repaired picture")
+    let readProvider = RecordedStreamProvider(passes: [RecordedStreamPass(text: "{\"decision\":\"speak\",\"reason\":\"r\",\"kind\":\"question\"}\n"), RecordedStreamPass(text: margin)])
+    let readEngine = CompanionEngine(provider: readProvider, models: ModelSettings(gate: "s", answer: "a"))
+    await readEngine.configure(mode: .thinksWithYou, unpinnedNotes: 0); await readEngine.activity(at: 0)
+    let readOut = try await collect(readEngine, .pause(askInput), at: 3)
+    check(stepNames(readOut) == ["deciding", "thinking", "writing"] && readOut.contains { if case .item(.margin) = $0 { return true }; return false }, "read-along steps: \(stepNames(readOut))")
+    let readSent = await readEngine.lastRequest ?? ""
+    check(!readSent.contains("Asked directly") && !readSent.contains("Asked directly in thread"), "read-along ignores askThreadID")
+    var readLong = ItemStreamParser(input: askInput)
+    do { try readLong.append(longMargin) { _ in }; fatalError("margin over 60 words accepted next to an ask thread") } catch {}
+
+    // Live confirmation, only when asked for (SYNCR_LIVE_ASK=<ledger path>): one real ask on the two-sum note.
+    if let ledger = ProcessInfo.processInfo.environment["SYNCR_LIVE_ASK"] {
+        let note = "Run me through the most basic leetcode problem, twosum"
+        let provider = CodexProvider(); let models = try await provider.models()
+        guard let model = CodexProvider.newestSol(models) else { fatalError("no Sol model") }
+        let entry = try JSONSerialization.data(withJSONObject: ["agent": "engine-3", "model": model, "purpose": "two-sum ask on thread", "time": ISO8601DateFormatter().string(from: Date())], options: [.sortedKeys]) + Data([10])
+        if let h = FileHandle(forWritingAtPath: ledger) { try h.seekToEnd(); try h.write(contentsOf: entry); try h.close() }
+        let thread = Conversation(id: "live-ask", quote: note, kind: "question", text: note, reader: "r", state: "open", messages: [ConversationMessage(who: "You", text: note)])
+        let liveInput = RequestInput(markdown: note, selection: ByteSpan(start: 0, end: note.utf8.count), threads: [thread], instruction: note, askThreadID: "live-ask")
+        let engine = CompanionEngine(provider: provider, models: ModelSettings(gate: model, answer: model), inspector: ReferencePictureInspector())
+        let out = try await collect(engine, .ask(liveInput), at: 0)
+        let text = out.compactMap { if case .item(.reply(_, let t)) = $0 { return t }; return nil }
+        print("LIVE steps:", stepNames(out), "replies:", text.count, "words:", text.map { ItemStreamParser.words($0) }, "codeBlock:", text.contains { $0.contains("```") }, "failed:", out.contains { if case .failed(let m) = $0 { print(m); return true }; return false })
+        print("LIVE text:\n" + text.joined(separator: "\n---\n"))
+    }
     let setFolder=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Judgment")
     let cases=try JudgmentCase.load(folder:setFolder); check(cases.count == 24,"authored judgment set")
     var judgePasses:[RecordedStreamPass]=[]; var seededFalseAlarm=false
@@ -274,5 +354,6 @@ func runV2Checks(tmp: URL) async throws {
     let cancelStart=Date(); await stalled.cancel(); await blockedReader.value
     check(Date().timeIntervalSince(cancelStart) < 2,"cancellation unblocks a full stdin pipe, not just text generation")
     await stalled.shutdown()
+    try await codexIdleChecks(tmp: tmp)
     print("PASS v2: incremental/strict parser, both SSE routes, persistent pi reset/death/restart/abort, cancellation; hour=180 gates/60 answers; 12 patterns, six seeded picture faults, one repair, local feedback")
 }

@@ -40,6 +40,15 @@ class FeedPump(
 
     private var stroke: Stroke? = null
     private var hoverSequence = 0L
+    private var lastPenMs = Long.MIN_VALUE
+
+    /**
+     * True while the pen wrote or hovered within [graceMs] (longer inside an open stroke: a pen held still sends
+     * nothing). File chunks wait meanwhile: they share the socket, so whatever is already in its send buffer goes out
+     * ahead of the next pen frame.
+     */
+    fun penActive(graceMs: Long = PEN_GRACE_MS): Boolean =
+        lastPenMs != Long.MIN_VALUE && clock.nowMs() - lastPenMs < if (stroke != null) OPEN_STROKE_MS else graceMs
     private val retryCommits = ArrayDeque<StrokeCommit>()
 
     /** Event times of preview frames pushed and not yet written, for pen-to-write latency. */
@@ -82,6 +91,7 @@ class FeedPump(
     }
 
     private fun handle(slot: PenFeed.Slot) {
+        lastPenMs = clock.nowMs()
         when (slot.kind) {
             PenFeed.Kind.BEGIN -> begin(slot)
             PenFeed.Kind.SAMPLES -> samples(slot)
@@ -218,5 +228,7 @@ class FeedPump(
     private companion object {
         const val BODY_SAMPLES = 2
         const val MAX_PENDING = 512
+        const val PEN_GRACE_MS = 400L
+        const val OPEN_STROKE_MS = 3_000L
     }
 }

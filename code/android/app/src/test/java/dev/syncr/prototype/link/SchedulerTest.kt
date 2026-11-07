@@ -35,6 +35,21 @@ class SchedulerTest {
         assertEquals(Wire.KIND_CONTROL, kind(scheduler.next()))
         assertEquals(Wire.KIND_PREVIEW, kind(scheduler.next())) // Begin
         assertEquals(Wire.KIND_PREVIEW, kind(scheduler.next())) // Samples
+        assertNull(scheduler.next()) // the pen is down: no chunk yet
+        feed.end()
+        assertEquals(Wire.KIND_PREVIEW, kind(scheduler.next())) // End
+        assertNull(scheduler.next()) // still within the grace after pen-up
+        clock.now += 400
+        assertEquals(Wire.KIND_FILE, kind(scheduler.next()))
+    }
+
+    @Test fun aPenHeldStillDoesNotHoldChunksBackForEver() {
+        scheduler.file = fileOf(2)
+        feed.begin("n", "s", "id", brush, CoordinateSpace.CANVAS, 0, false, false, false)
+        assertEquals(Wire.KIND_PREVIEW, kind(scheduler.next()))
+        clock.now += 2_999
+        assertNull(scheduler.next())
+        clock.now += 1
         assertEquals(Wire.KIND_FILE, kind(scheduler.next()))
     }
 
@@ -43,9 +58,13 @@ class SchedulerTest {
         assertEquals(Wire.KIND_FILE, kind(scheduler.next())) // chunk 0 is on the wire
         feed.begin("n", "s", "id", brush, CoordinateSpace.CANVAS, 0, false, false, false)
         feed.sample(1f, 2f, .5f, 0f, 0f, 10); feed.flush()
-        // The very next message is the preview, not chunk 1.
+        // The very next message is the preview, not chunk 1, and chunk 1 waits for the pen to go quiet.
         assertEquals(Wire.KIND_PREVIEW, kind(scheduler.next()))
         assertEquals(Wire.KIND_PREVIEW, kind(scheduler.next()))
+        assertNull(scheduler.next())
+        feed.end()
+        assertEquals(Wire.KIND_PREVIEW, kind(scheduler.next()))
+        clock.now += 400
         assertEquals(Wire.KIND_FILE, kind(scheduler.next()))
     }
 
@@ -74,6 +93,9 @@ class SchedulerTest {
         feed.begin("n", "s", "id", brush, CoordinateSpace.CANVAS, 0, false, false, false)
         assertEquals(Wire.KIND_PREVIEW, kind(scheduler.next()))
         assertEquals(Wire.KIND_STROKE, kind(scheduler.next()))
+        feed.cancel()
+        assertEquals(Wire.KIND_PREVIEW, kind(scheduler.next()))
+        clock.now += 400
         assertEquals(Wire.KIND_FILE, kind(scheduler.next()))
     }
 

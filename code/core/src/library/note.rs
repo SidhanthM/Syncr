@@ -45,6 +45,26 @@ impl Runtime {
     }
 }
 
+/// A command changes the live state only after its transaction commits, and an unwinding
+/// panic rolls the transaction back, so the file is always whole. The memory copy can differ
+/// only if the panic fell between the commit and the assignment, so it is read back from the
+/// file. The event ring and the digest cache are dropped: a new stream makes every
+/// outstanding cursor ask for a resync, which is the contract for a changed stream.
+impl super::Recover for Runtime {
+    fn recover(&mut self) {
+        if let Some(db) = &self.db
+            && let Ok(mut state) = store::load(db)
+        {
+            state.text_effects.clear();
+            self.state = state;
+        }
+        self.digest = None;
+        self.events.clear();
+        self.sequence = 0;
+        self.stream = new_id();
+    }
+}
+
 impl Note {
     pub(super) fn new(
         library: Arc<SyncrLibrary>,

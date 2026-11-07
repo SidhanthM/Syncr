@@ -840,3 +840,45 @@ fn two_hundred_random_exchanges_converge_without_duplicates() {
     let again = merge(&a, &b);
     assert_eq!(again.applied, 0);
 }
+
+// ---- a panic inside the core must not end sync --------------------------------------------
+
+#[test]
+fn poisoned_locks_recover_and_sync_continues() {
+    let (a, b, r) = pair();
+    stroke(&a, &r, 1.0);
+    let tmp = tempfile::tempdir().unwrap();
+    let copy = tmp.path().join("a.syncr");
+    a.note.export_copy(path(&copy)).unwrap();
+
+    // The catalog lock, then the open note's lock; the note's in-memory state is also left
+    // damaged (a stroke missing, a stale digest, a stale sequence) as a mid-update panic could.
+    crate::library::tests::poison_catalog(&b.lib);
+    crate::library::tests::poison_note(&b.note);
+
+    // Every sync call works again, and the state is what the file holds.
+    let report = b.note.merge_copy(path(&copy)).unwrap();
+    assert_eq!((report.applied, report.rejected.len()), (1, 0));
+    assert_eq!(b.note.snapshot().unwrap().strokes.len(), 1);
+    assert_eq!(b.note.sync_digest().unwrap(), a.note.sync_digest().unwrap());
+    assert_eq!(
+        b.lib.note_sync_digest(r.note_id.clone()).unwrap(),
+        a.note.sync_digest().unwrap()
+    );
+    // Writes after the recovery commit normally.
+    stroke(&b, &r, 2.0);
+    assert_eq!(b.note.snapshot().unwrap().strokes.len(), 2);
+    assert_eq!(b.lib.list_notes().unwrap().len(), 1);
+
+    // Poisoned again, and a copy still installs and rebases.
+    crate::library::tests::poison_catalog(&b.lib);
+    let c = tempfile::tempdir().unwrap();
+    let other = open_library(path(c.path())).unwrap();
+    let copy2 = tmp.path().join("b.syncr");
+    b.note.export_copy(path(&copy2)).unwrap();
+    other.install_copy(path(&copy2)).unwrap();
+    b.note.close_note().unwrap();
+    b.lib
+        .rebase_onto_copy(r.note_id.clone(), path(&copy))
+        .unwrap();
+}

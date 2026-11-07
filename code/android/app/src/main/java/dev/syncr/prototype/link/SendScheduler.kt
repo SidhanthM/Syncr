@@ -48,6 +48,7 @@ class FileStream(private val file: File, private val xfer: Long, val chunks: Lon
  * Link thread: picks the next message to write, by wifi-link-v0 §2's priority. Control first, then preview and
  * stroke-commit frames (pumped from the pen's ring into the core's send queue, then popped), then file chunks. Called
  * once per write, so a preview that arrives while a chunk is being written waits for that one chunk and no more.
+ * No chunk is started while the pen is writing or hovering ([FeedPump.penActive]): the link loop looks again shortly.
  */
 class SendScheduler(private val out: PreviewOut, private val pump: FeedPump) {
     private val control = ConcurrentLinkedQueue<ByteArray>()
@@ -67,6 +68,7 @@ class SendScheduler(private val out: PreviewOut, private val pump: FeedPump) {
         control.poll()?.let { return it }
         pump.pump()
         out.pop()?.let { return it }
+        if (pump.penActive()) return null
         val f = file ?: return null
         val message = f.next()
         if (f.finished) file = null

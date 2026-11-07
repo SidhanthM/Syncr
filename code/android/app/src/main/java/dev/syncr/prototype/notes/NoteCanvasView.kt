@@ -90,6 +90,13 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
 
     private val scene = CanvasScene()
     private val viewport = CanvasViewport()
+
+    /** The note's text and the companion's comments under the ink, built and recorded off the main thread. */
+    private var textBottom = 0f
+    private val text = TextLayer(invalidate = ::invalidate, onExtent = { bottom ->
+        textBottom = bottom
+        viewport.setLayout(CanvasLayout(maxOf(scene.lowestInk(), textBottom)))
+    })
     private val panZoom = PanZoomTracker()
     private val pen = PenCapture(scene, lassoStepPx = density)
     private val selection = CanvasSelection(
@@ -185,7 +192,8 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         dark = night
         scene.load(state)
         selection.dropIfStale()
-        viewport.setLayout(CanvasLayout(scene.lowestInk()))
+        viewport.setLayout(CanvasLayout(maxOf(scene.lowestInk(), textBottom)))
+        text.show(state.snapshot, night)
         dry.show(scene.previews, night)
         invalidate()
     }
@@ -267,6 +275,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     }
 
     override fun onDetachedFromWindow() {
+        text.clear()
         cancelGesture()
         wet.clear()
         dry.cancel()
@@ -298,9 +307,10 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         canvas.withClip(pageRect) {
             translate(m.tx, m.ty)
             scale(m.scale, m.scale)
+            viewRect.set(-m.tx / m.scale, -m.ty / m.scale, (width - m.tx) / m.scale, (height - m.ty) / m.scale)
+            text.draw(this, viewRect) // finished bands only; never waits for layout
             trace(TraceNames.DRY_DRAW) {
                 // The visible part of the canvas, to skip strokes wholly off screen.
-                viewRect.set(-m.tx / m.scale, -m.ty / m.scale, (width - m.tx) / m.scale, (height - m.ty) / m.scale)
                 dry.previews.forEach { drawStroke(this, it, m.scale) }
                 scene.strokeHandoffs.forEach { handoff ->
                     if (dry.previews.none { it.id == handoff.id }) drawStroke(this, handoff, m.scale)

@@ -1,7 +1,10 @@
 import Foundation
 
 public enum EngineEvent: Sendable { case ask(RequestInput), reply(RequestInput), pause(RequestInput) }
+/// The named stage a pass is in. Reported through `EngineOutput.step`, at each change only.
+public enum CompanionStep: String, Sendable, Equatable { case deciding, thinking, writing, sketching, checking, fixing }
 public enum EngineOutput: Sendable {
+    case step(CompanionStep)
     case firstToken(seconds: Double)
     case textPreview(StreamTextPreview?)
     case item(StreamItem)
@@ -17,7 +20,7 @@ public actor CompanionEngine {
     private var trigger = TriggerMachine(); private var budget: BudgetMeter
     private var task: Task<Void, Never>?; private var active: UUID?; private var cancelling = false; private var readingPass = false
     private var sink: AsyncStream<EngineOutput>.Continuation?
-    private var previews = Set<String>()
+    private var previews = Set<String>(); private var lastStep: CompanionStep?
     public private(set) var lastRequest: String?
     public init(provider: CompanionProvider, models: ModelSettings, inspector: PictureInspector? = nil, stateFolder: URL? = nil, budget: BudgetMeter = BudgetMeter(day: BudgetMeter.dayKey())) {
         self.provider = provider; self.models = models; self.inspector = inspector; self.budget = budget; self.stateFolder = stateFolder
@@ -51,7 +54,7 @@ public actor CompanionEngine {
         if reading {
             guard trigger.tick(at: time) else { return AsyncStream { $0.finish() } }
         } else { try trigger.ask(at: time, confirmedBudget: confirmedBudget) }
-        let id = UUID(); active = id; readingPass = reading
+        let id = UUID(); active = id; readingPass = reading; lastStep = nil
         return AsyncStream { continuation in
             sink = continuation
             continuation.onTermination = { [weak self] reason in if case .cancelled = reason { Task { await self?.cancelIfActive(id) } } }
@@ -61,10 +64,12 @@ public actor CompanionEngine {
     private func cancelIfActive(_ id: UUID) async { if active == id { await cancel() } }
     private func alive(_ id: UUID) throws { guard active == id, !Task.isCancelled else { throw CancellationError() } }
     private func emit(_ event: EngineOutput, id: UUID) throws { try alive(id); sink?.yield(event) }
+    private func step(_ value: CompanionStep, id: UUID) throws { guard lastStep != value else { return }; try emit(.step(value), id: id); lastStep = value }
     private func run(id: UUID, input original: RequestInput, reading: Bool) async {
         do {
             var input = original
             if reading {
+                try step(.deciding, id: id)
                 let start = Date(); var gateInput = input; gateInput.web = false; gateInput.pagePNG = nil; gateInput.images = []
                 let request = try StreamRequest(model: models.gate, input: gateInput, purpose: .gate, patterns: [])
                 let text = try await collect(request, id: id, limit: 2048)
@@ -75,13 +80,18 @@ public actor CompanionEngine {
                 // Budget includes the gate. Never silently run an answer beyond its limit.
                 if budget.reached { throw CompanionError.budget }
                 input.instruction = "Read along: add at most one margin note. Give a \(decision.kind) about this passage. " + input.instruction
+            } else if let thread = input.askThreadID {
+                input.instruction = "Asked directly in thread \(thread): answer with reply items whose threadID is \"\(thread)\", not margin items. At most about 400 words in all: short paragraphs, lists, inline code and fenced code blocks with a language tag; split a longer walkthrough into several reply items in order. Add a picture only if it helps; margin items only for brief side notes of at most 60 words. " + input.instruction
+            } else {
+                input.instruction = "Asked directly: answer in margin items of at most 150 words each, kind explanation; split a longer walkthrough into several in order. " + input.instruction
             }
             let pinned = try stateFolder.map { try PatternBook.loadPinned(at: $0) } ?? []
             let patterns = PatternBook.closest(to: input.instruction, additional: pinned)
             let request = try StreamRequest(model: models.answer, input: input, patterns: patterns)
-            var parser = ItemStreamParser(input: input); var pending: [StreamItem] = []; var deferred = false; var marginCount = 0
+            var parser = ItemStreamParser(input: input, marginWords: reading || input.askThreadID != nil ? 60 : 150); var pending: [StreamItem] = []; var deferred = false; var marginCount = 0
             let start = Date(); var first = true; var metered = false
             lastRequest = try provider.streamPreview(request)
+            try step(.thinking, id: id)
             do {
                 for try await event in provider.stream(request) {
                     try alive(id)
@@ -128,12 +138,14 @@ public actor CompanionEngine {
     private func consume(_ parsed: [ParsedStreamEvent], id: UUID, reading: Bool, pending: inout [StreamItem], deferred: inout Bool, marginCount: inout Int) async throws {
         for value in parsed {
             switch value {
-            case .textPreview(let preview): try emit(.textPreview(preview), id: id)
+            case .textPreview(let preview): if preview != nil { try self.step(.writing, id: id) }; try emit(.textPreview(preview), id: id)
+            case .pictureStart: try step(.sketching, id: id)
             case .pictureStep(let pictureID, let svg, let step):
                 if let inspector, let clean = try? inspector.filter(svg: svg), let list = try? inspector.displayList(svg: clean), PictureCheck.acceptable(PictureCheck.inspect(list)) {
                     previews.insert(pictureID); try emit(.pictureStep(id: pictureID, svg: clean, step: step), id: id)
                 }
             case .item(let item):
+                switch item { case .margin, .reply: try step(.writing, id: id); default: break }
                 if case .picture = item { deferred = true }
                 if deferred { pending.append(item) }
                 else if !reading || marginCount < 1 {
@@ -164,10 +176,12 @@ public actor CompanionEngine {
         }
         var clean = svg; var findings: [PictureFinding] = []
         for round in 0...1 {
+            try step(.checking, id: id)
             do { clean = try inspector.filter(svg: clean); findings = PictureCheck.inspect(try inspector.displayList(svg: clean), commentary: commentary) }
             catch { findings = [PictureFinding(rule: "filter", step: 0, items: [], detail: "Picture filter rejected the SVG.")] }
             try await log?.append(LocalLogEntry(event: "picture-check", passage: quote, itemID: pictureID, findings: findings))
             if findings.isEmpty || round == 1 { break }
+            try step(.fixing, id: id)
             var repair = input
             let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
             repair.instruction = "Repair this SVG once. Return only a picture header with quote \(quote) and the repaired raw SVG; no other items. Findings: \(String(decoding: try encoder.encode(findings), as: UTF8.self))\nOriginal SVG:\n\(clean)\nCommentary that must remain true:\n\(commentary)"

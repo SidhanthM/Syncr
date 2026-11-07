@@ -32,6 +32,13 @@ actor PausedProvider: CompanionProvider {
 }
 @main struct Checks {
     static func main() async throws {
+        if CommandLine.arguments.contains("--codex-idle") {
+            let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("syncr-codex-idle-checks-" + UUID().uuidString)
+            try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: tmp) }
+            try await codexIdleChecks(tmp: tmp)
+            return
+        }
         let fixture = try Data(contentsOf: Bundle.module.url(forResource: "responses", withExtension: "json", subdirectory: "Fixtures")!)
         let provider = RecordedProvider(responses: Array(repeating: fixture, count: 8))
         let request = try CompanionRequest(model: "recorded", input: RequestInput(markdown: "A cache is always fresh.", changed: ByteSpan(start: 2, end: 7), selection: ByteSpan(start: 0, end: 23)))

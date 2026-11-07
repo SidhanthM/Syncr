@@ -283,3 +283,32 @@ fn note_retains_library_lock_and_connections_use_full_wal() {
         1
     );
 }
+
+/// Panics on another thread while it holds `mutex`, the way a bug inside a core call would.
+fn poison<T: Send>(mutex: &std::sync::Mutex<T>, damage: impl FnOnce(&mut T) + Send) {
+    std::thread::scope(|s| {
+        let joined = s
+            .spawn(|| {
+                let mut guard = mutex.lock().unwrap();
+                damage(&mut guard);
+                panic!("deliberate panic while holding a core lock");
+            })
+            .join();
+        assert!(joined.is_err());
+    });
+    assert!(mutex.is_poisoned());
+}
+pub(crate) fn poison_catalog(library: &SyncrLibrary) {
+    poison(&library.catalog, |_| {});
+}
+/// Also leaves the note's in-memory state damaged, as a panic in the middle of an update could.
+pub(crate) fn poison_note(note: &Note) {
+    poison(&note.runtime, |r| {
+        r.state.strokes.clear();
+        r.state.sequence = 0;
+        r.digest = Some(SyncDigest {
+            operation_count: 0,
+            digest: "stale".into(),
+        });
+    });
+}
