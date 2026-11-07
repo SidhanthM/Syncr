@@ -53,6 +53,28 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
 
     /** Finger-tap commands (undo/redo). FIT is handled here and also reported. */
     var onTap: (TapCommand) -> Unit = {}
+    var onContent: (ContentTarget) -> Unit = {}
+    private val textInput = CanvasTextInput(this)
+    private var lastTextTap: Pair<Float, Float>? = null
+    private var textSnapshot: dev.syncr.core.NoteSnapshot? = null
+
+    fun beginTextEditing(draft: TextDraft, value: String, changed: (String) -> Unit, selection: (Int, Int) -> Unit) {
+        textInput.changed = changed
+        textInput.selectionChanged = selection
+        val block = textSnapshot?.textBlocks?.firstOrNull { it.id == draft.blockId }
+        val document = block == null || block.role == dev.syncr.core.TextRole.DOCUMENT
+        val rect = draft.blockId?.let(text::bounds) ?: if (document) {
+            RectF(100f, 260f, (block?.width ?: 1600f) - 100f, 324f)
+        } else {
+            RectF(block!!.originX + block.transform.tx.toFloat(), block.originY + block.transform.ty.toFloat(),
+                block.originX + block.transform.tx.toFloat() + block.width, block.originY + block.transform.ty.toFloat() + 64f)
+        }
+        textInput.begin(value, rect, lastTextTap ?: (viewport.mapping?.toScreen(rect.left, rect.top) ?: (0f to 0f)))
+        lastTextTap = null
+    }
+
+    fun endTextEditing() = textInput.end()
+    fun setTextEditingEnabled(enabled: Boolean) = textInput.setEnabled(enabled)
 
     /** Any new touch on the paper, e.g. to collapse floating tool chrome. */
     var onTouchStart: () -> Unit = {}
@@ -190,6 +212,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         val noteId = state.snapshot?.noteId
         if (noteId != scene.noteId) startNote(noteId)
         dark = night
+        textSnapshot = state.snapshot
         scene.load(state)
         selection.dropIfStale()
         viewport.setLayout(CanvasLayout(maxOf(scene.lowestInk(), textBottom)))
@@ -262,6 +285,12 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         cancelGesture()
         viewport.resize(w, h, oldw)
+        textInput.bounds?.let { rect ->
+            viewport.mapping?.let { m ->
+                val (_, top) = m.toScreen(rect.left, rect.top)
+                if (top > h / 3f) viewport.navigate(0f, h / 3f - top, 1f, 0f, 0f)
+            }
+        }
     }
 
     override fun onAttachedToWindow() {
@@ -296,6 +325,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         canvas.drawColor(PaperPalette.desk(dark))
         val m = viewport.mapping ?: return
         scene.noteId?.let { onViewportChanged(it, m) }
+        textInput.position(m, dark)
         dry.beginFrame()
         // The paper: the canvas's width, from its top edge down past the bottom of the screen.
         pageRect.set(m.tx, m.ty, m.tx + CanvasLayout.WIDTH * m.scale, height.toFloat())
@@ -308,7 +338,10 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
             translate(m.tx, m.ty)
             scale(m.scale, m.scale)
             viewRect.set(-m.tx / m.scale, -m.ty / m.scale, (width - m.tx) / m.scale, (height - m.ty) / m.scale)
+            save()
+            textInput.bounds?.let { clipOutRect(it) }
             text.draw(this, viewRect) // finished bands only; never waits for layout
+            restore()
             trace(TraceNames.DRY_DRAW) {
                 // The visible part of the canvas, to skip strokes wholly off screen.
                 dry.previews.forEach { drawStroke(this, it, m.scale) }
@@ -362,7 +395,11 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     // ---- Input ----
 
     // Every touch and hover is ours; the wet-ink overlay only draws.
-    override fun onInterceptTouchEvent(event: MotionEvent) = true
+    override fun onInterceptTouchEvent(event: MotionEvent): Boolean {
+        // Finger selection/caret/IME gestures belong to the inline editor; a stylus still draws.
+        if (textInput.active && event.pointerCount == 1 && !isPenTool(event.getToolType(0))) return false
+        return true
+    }
 
     override fun onInterceptHoverEvent(event: MotionEvent) = true
 
@@ -684,7 +721,14 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
                 }
                 val start = tapStart
                 if (tapCandidate && start != null && event.eventTime - start.third < ViewConfiguration.getTapTimeout() * 3L) {
-                    viewport.mapping?.let { selection.tap(event.x, event.y, it) }
+                    viewport.mapping?.let { mapping ->
+                        val (x, y) = mapping.toSheet(event.x, event.y)
+                        val target = if (!lasso && !eraser && strokeAt(event.x, event.y) == null) text.hit(x, y) else null
+                        if (target != null) {
+                            lastTextTap = event.x to event.y
+                            onContent(target)
+                        } else selection.tap(event.x, event.y, mapping)
+                    }
                 }
                 fingerMode = FingerMode.NONE
                 tapCandidate = false
@@ -728,6 +772,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
                 if (activePointer != -1) return
                 if (tap.command == TapCommand.FIT) {
                     if (!doubleTapFit) return
+                    viewport.mapping?.toSheet(tap.x, tap.y)?.let { (x, y) -> if (text.hit(x, y) != null) return }
                     if (strokeAt(tap.x, tap.y) != null) return // design §8.4: double-tap acts on empty paper only
                     if (viewport.mapping == null) return
                     if (!viewport.zoomInFromFit(tap.x, tap.y)) fit()

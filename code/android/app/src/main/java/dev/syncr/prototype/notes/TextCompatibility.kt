@@ -2,7 +2,7 @@ package dev.syncr.prototype.notes
 
 import dev.syncr.core.NoteSnapshot
 
-/** Android ignores text. In particular, generic undo/redo must not accidentally edit a text or mixed batch. */
+/** The phone shows text read-only and never edits it: generic undo/redo must not accidentally edit a text or mixed batch. */
 internal fun handwritingHistoryAvailable(snapshot: NoteSnapshot, redo: Boolean): Boolean {
     val target = if (redo) snapshot.redoTarget else snapshot.undoTarget
     if (target == null) return false

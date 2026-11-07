@@ -201,6 +201,16 @@ internal class OpenNoteEditor(
         return true
     }
 
+    fun stageContent(noteId: String, build: (dev.syncr.core.NoteSnapshot) -> Command?): Boolean {
+        val state = session.current
+        require(!state.unsaved && !state.busy && !state.closing) { "Wait for the current changes to finish saving." }
+        val note = state.snapshot
+        require(note != null && note.noteId == noteId) { "The open note changed." }
+        val command = build(note) ?: return false
+        stageCommand(command)
+        return true
+    }
+
     fun message(text: String) = session.update { it.copy(error = text) }
 
     private fun stageCommand(command: Command) = stage(PendingEdit(command.operationId, command))

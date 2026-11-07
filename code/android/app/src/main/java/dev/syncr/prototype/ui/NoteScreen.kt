@@ -1,5 +1,7 @@
 package dev.syncr.prototype.ui
 
+import androidx.compose.ui.unit.dp
+
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.animation.AnimatedVisibility
@@ -14,6 +16,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -81,8 +84,11 @@ fun NoteScreen(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: Tool
     val c = Syncr.colors
     var view by remember { mutableStateOf<NoteCanvasView?>(null) }
     var selected by remember(snapshot.noteId) { mutableIntStateOf(0) }
-    Box(Modifier.fillMaxSize().background(c.desk)) {
-        NoteCanvas(vm, state, dark, tools, actions, onView = { view = it }, onSelection = { selected = it })
+    var contentId by androidx.compose.runtime.saveable.rememberSaveable(snapshot.noteId) { mutableStateOf<String?>(null) }
+    var response by androidx.compose.runtime.saveable.rememberSaveable(snapshot.noteId) { mutableStateOf(false) }
+    Box(Modifier.fillMaxSize().background(c.desk).imePadding()) {
+        NoteCanvas(vm, state, dark, tools, actions, onView = { view = it }, onSelection = { selected = it },
+            onContent = { if (contentId == null) { contentId = it.id; response = it.response } })
 
         Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().safeDrawingPadding()
             .padding(horizontal = Space.l, vertical = Space.s), verticalArrangement = Arrangement.spacedBy(Space.s)) {
@@ -106,14 +112,30 @@ fun NoteScreen(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: Tool
             }
         }
 
-        NoteBubble(state, tools, actions)
+        if (contentId != null && !response) {
+            Box(Modifier.align(Alignment.BottomCenter).safeDrawingPadding().padding(8.dp)) {
+                androidx.compose.runtime.key(snapshot.noteId, contentId) {
+                    MobileTextEditor(vm.repository, contentId?.ifEmpty { null }, view) { contentId = null }
+                }
+            }
+        } else {
+            androidx.compose.material3.FilledTonalButton(
+                onClick = { contentId = ""; response = false },
+                modifier = Modifier.align(Alignment.BottomCenter).safeDrawingPadding().padding(bottom = 80.dp),
+                enabled = !state.closing) { Text("Type") }
+            NoteBubble(state, tools, actions)
+        }
+    }
+    contentId?.let { id ->
+        if (response) ResponseInspector(vm.repository, snapshot, id) { contentId = null }
     }
 }
 
 /** The canvas view, wired to the repository and the tool state. */
 @Composable
 private fun NoteCanvas(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: ToolState, actions: NoteActions,
-    onView: (NoteCanvasView) -> Unit, onSelection: (Int) -> Unit) {
+    onView: (NoteCanvasView) -> Unit, onSelection: (Int) -> Unit,
+    onContent: (dev.syncr.prototype.notes.ContentTarget) -> Unit) {
     val repo = vm.repository
     val context = LocalContext.current
     val gestures by remember(context) { AppPreferencesStore.state(context) }.collectAsState()
@@ -146,6 +168,7 @@ private fun NoteCanvas(vm: NotesViewModel, state: NotesState, dark: Boolean, too
                     TapCommand.FIT -> Unit // already handled by the view
                 }
             }
+            canvas.onContent = onContent
             canvas.onSelection = onSelection
             canvas.onTouchStart = { if (tools.barOpen) actions.onTools(tools.folded()) }
             canvas.update(state, dark)

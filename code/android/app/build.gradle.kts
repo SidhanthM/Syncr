@@ -45,11 +45,19 @@ dependencies {
     // Pen-motion prediction for the wet layer only (never stored). Pinned exactly; 1.0.1 is the latest stable.
     implementation("androidx.input:input-motionprediction:1.0.1")
     implementation("net.java.dev.jna:jna:5.17.0@aar")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.nimbusds:nimbus-jose-jwt:10.5")
+    testImplementation("org.json:json:20250517")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     testImplementation("net.java.dev.jna:jna:5.17.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
+    androidTestImplementation(platform("androidx.compose:compose-bom:2025.10.01"))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
 
 // Opt-in real Rust host gate. Normal unit tests need neither a host core nor a device.

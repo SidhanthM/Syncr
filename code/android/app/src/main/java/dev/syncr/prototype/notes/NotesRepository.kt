@@ -136,6 +136,23 @@ class NotesRepository(
     /** Stages one atomic Marks command for a whole selection or eraser gesture. */
     fun stageMarks(edit: MarkEdit): Boolean = editor.stageMarks(edit)
 
+    fun textDraft(blockId: String? = null): TextDraft = TextCommands.draft(requireNotNull(state.value.snapshot), blockId)
+
+    suspend fun saveText(draft: TextDraft, text: String) {
+        if (editor.stageContent(draft.noteId) { TextCommands.save(it, draft, text, id) }) retry()
+        check(!state.value.unsaved) { state.value.error ?: "Text is queued but not yet saved. Retry saving from the note." }
+    }
+
+    suspend fun setResponseState(noteId: String, itemId: String, head: String, value: dev.syncr.core.MarginState) {
+        if (editor.stageContent(noteId) { TextCommands.state(it, itemId, head, value, id) }) retry()
+        check(!state.value.unsaved) { state.value.error ?: "Response change is queued but not yet saved." }
+    }
+
+    suspend fun saveExplanation(draft: TextDraft, start: Int, end: Int, answer: String) {
+        if (editor.stageContent(draft.noteId) { TextCommands.explanation(it, draft, start, end, answer, id) }) retry()
+        check(!state.value.unsaved) { state.value.error ?: "Response is queued but not yet saved." }
+    }
+
     /** Moves the OPEN note; like rename it waits for saved changes. */
     suspend fun moveOpenNote(notebook: String?) {
         if (editor.stageMetadata { base -> CommandBody.SetNotebook(notebook, base) }) retry()
