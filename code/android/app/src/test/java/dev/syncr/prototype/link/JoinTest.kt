@@ -163,6 +163,8 @@ class JoinTest(private val o: Options, private val print: (String) -> Unit) {
         val wanted = CopyOnWriteArrayList<String>()
         val delivered = CopyOnWriteArrayList<Pair<String, Long>>()
         val logs = CopyOnWriteArrayList<String>()
+        /** Pictures of what the pad covers: header, size of the whole message, whether the image starts as a JPEG does. */
+        val pictures = CopyOnWriteArrayList<Triple<Wire.PictureHeader, Int, Boolean>>()
         val transport = CuttingTransport()
         val outDir = File(work, "out-${sessions.size}")
         val feed = PenFeed()
@@ -184,6 +186,11 @@ class JoinTest(private val o: Options, private val print: (String) -> Unit) {
                     if (cutOnWant >= 0) { transport.current?.armIn(cutOnWant); cutOnWant = -1 }
                 }
                 override fun onDelivered(id: String, seq: Long) { delivered += id to seq }
+                override fun onPicture(message: ByteArray) {
+                    Wire.parsePicture(message)?.let {
+                        pictures += Triple(it, message.size, message[Wire.PICTURE_HEADER] == 0xff.toByte() && message[Wire.PICTURE_HEADER + 1] == 0xd8.toByte())
+                    }
+                }
             })
             sessions += this
         }
@@ -752,6 +759,86 @@ class JoinTest(private val o: Options, private val print: (String) -> Unit) {
                 check(cur.logs.none { it.contains("copy-") && it.contains(note2) }) { "the phone took a copy of its deleted note" }
             }
 
+
+            // ---------------------------------------------------------------- the pad's Local mode (rework-v1 §V)
+            step("p1 Local mode: the Mac answers padmode with a pen frame of the pad's shape inside its view") {
+                macNote(macNoteId)
+                control("view 0 0 1.5")
+                cur.client.setPad(true)
+                cur.client.setPadWish(PadWish(local = true, pics = true, aspect = 2.0))
+                check(poll { cur.target.usable && cur.target.frame != null && cur.target.view?.x == 0.0 }) { "no pen frame in the target, or the view never settled: ${cur.target}" }
+                val f = cur.target.frame!!; val v = cur.target.view!!
+                print("JOIN info p1 frame=$f view=$v page=${cur.target.pageHeight}")
+                check(Math.abs(f.w / f.h - 2.0) < 0.01) { "the frame is not the pad's shape: $f" }
+                check(f.x >= maxOf(0.0, v.x) - 0.5 && f.right <= v.right + 0.5 && f.y >= v.y - 0.5 && f.bottom <= v.bottom + 0.5) { "the frame $f is outside the view $v" }
+            }
+            step("p2 Local mode: a frame request is answered, and a stroke in canvas units lands inside the frame at the mapped place") {
+                val v = cur.target.view!!
+                val want = CanvasRect(maxOf(0.0, v.x) + 300, v.y + 200, 1000.0, 500.0)
+                cur.client.requestFrame(want)
+                fun near(a: CanvasRect, b: CanvasRect) = Math.abs(a.x - b.x) < 1 && Math.abs(a.y - b.y) < 1 && Math.abs(a.w - b.w) < 1 && Math.abs(a.h - b.h) < 1
+                check(poll { cur.target.frame?.let { near(it, want) } == true }) { "asked for $want, the Mac says ${cur.target.frame}" }
+                val f = cur.target.frame!!
+                val before = report().strokes
+                val m = mark()
+                val area = dev.syncr.prototype.tablet.PadRect(0.0, 0.0, 2000.0, 1000.0)
+                val pen = StreamPen(cur.feed, cur.ids, { cur.target }, { brush(colour = InkColour.INK) })
+                var started = false
+                play(120) { k, t, last ->
+                    val u = k / 119.0
+                    val (x, y) = FrameMapping.toCanvas(area, f, 200 + 1600 * u, 200 + 600 * u)
+                    if (!started) started = pen.down(x, y, 0.6f, 0f, 0f, t, false, false, dev.syncr.core.CoordinateSpace.CANVAS) else pen.move(x, y, 0.6f, 0f, 0f, t)
+                    if (last && started) pen.flush()
+                    // The Mac scrolls while the pen is down: the stroke keeps the frame it began with.
+                    if (k == 60) control("view 0 40 1.5")
+                }
+                check(started) { "the pad could not start a stroke: ${pen.problem()}" }
+                check(pen.up()) { "the stroke was cancelled by the Mac's scroll" }
+                awaitLog(m, "link: stroke-saved note=${cur.target.noteId} stroke=")
+                val r = awaitReport("the Local stroke never showed") { it.strokes == before + 1 && it.wet == 0 }
+                val b = r.lastStroke()!!
+                val wantBounds = listOf(f.x + 0.1 * f.w, f.y + 0.2 * f.h, f.x + 0.9 * f.w, f.y + 0.8 * f.h).map { it.toFloat() }
+                val off = b.zip(wantBounds).map { (a, w) -> Math.abs(a - w) }
+                print("JOIN info p2 stroke bounds=${b.joinToString(",")} expected~${wantBounds.joinToString(",")} off=${off.joinToString(",") { "%.1f".format(it) }}")
+                check(off.all { it <= 40f }) { "the stroke's canvas bounds $b are not near $wantBounds" }
+                control("view 0 0 1.5")
+            }
+            step("p3 pictures: one shows the frame with the saved stroke counted; none is sent while nothing changes") {
+                check(poll { cur.target.view?.y == 0.0 }) { "the view did not return: ${cur.target.view}" }
+                val f = cur.target.frame!!
+                check(poll(8_000) { cur.pictures.lastOrNull()?.let { (h, _, _) -> h.saved >= 1 && Math.abs(h.region.x - f.x) < 1 && Math.abs(h.region.y - f.y) < 1 && Math.abs(h.region.w - f.w) < 1 } == true }) {
+                    "no picture of the frame $f with the stroke in it; got ${cur.pictures.map { "${it.first.region} saved=${it.first.saved}" }}"
+                }
+                val (h, size, jpeg) = cur.pictures.last()
+                print("JOIN info p3 pictures=${cur.pictures.size} last=${size} bytes rev=${h.rev} saved=${h.saved} region=${h.region}")
+                check(jpeg && size <= Wire.MAX_MESSAGE) { "the picture is not a JPEG in one message (size $size)" }
+                Thread.sleep(600)
+                val n = cur.pictures.size
+                Thread.sleep(1_500)
+                check(cur.pictures.size == n) { "pictures kept arriving with nothing changing: $n -> ${cur.pictures.size}" }
+            }
+            step("p4 a frame asked for below the view makes the Mac's view follow; the frame stays in sight") {
+                val v = cur.target.view!!; val f = cur.target.frame!!
+                val n = cur.pictures.size
+                cur.client.requestFrame(CanvasRect(f.x, v.bottom + 200, f.w, f.h))
+                check(poll { cur.target.frame != f }) { "the Mac did not answer the request" }
+                Thread.sleep(300)
+                val t = cur.target; val nf = t.frame!!; val nv = t.view!!
+                print("JOIN info p4 view ${v.y} -> ${nv.y}, frame ${f.y} -> ${nf.y}")
+                check(nf.y >= nv.y - 0.5 && nf.bottom <= nv.bottom + 0.5 && nf.y > f.y) { "frame $nf is not inside the view $nv, or did not move down" }
+                check(poll(5_000) { cur.pictures.size > n }) { "no new picture after the frame moved" }
+            }
+            step("p5 whole view again: the frame goes; the second path was offered and the connection lost or doubled nothing") {
+                cur.client.setPadWish(PadWish(local = false, pics = true, aspect = 2.0))
+                check(poll { cur.target.frame == null && cur.target.view != null }) { "the frame stayed after padmode local=false: ${cur.target}" }
+                cur.client.setPad(false)
+                check(cur.logs.any { it.startsWith("second path on") }) { "the phone was never offered the datagram path; logs: ${cur.logs.filter { it.contains("path") }}" }
+                val m = mark()
+                cur.stop()
+                val line = awaitLog(m, "link: second-path frames=")
+                print("JOIN info p5 mac: $line; phone: ${cur.logs.lastOrNull { it.startsWith("second path closed") }}")
+                control("view 0 0 1")
+            }
 
             step("k rehearsal: the phone fixtures (two canvas notes, one pre-canvas v1 note) are adopted, edited on both sides and synced; every stroke is compared by count, ID and sample bytes") {
                 cur.stop()

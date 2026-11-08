@@ -95,8 +95,14 @@ class StreamPen(
         }
     }
 
-    /** Pen-down. False when nothing will be sent for this stroke. */
-    fun down(x: Float, y: Float, pressure: Float, tilt: Float, orientation: Float, timeMs: Long, hasTilt: Boolean, hasOrientation: Boolean): Boolean {
+    /**
+     * Pen-down. False when nothing will be sent for this stroke. [space] is what [x] and [y] are in: view-relative units
+     * (the pad is the whole view) or canvas units (Local mode: the pad mapped the point through the pen frame itself).
+     */
+    fun down(
+        x: Float, y: Float, pressure: Float, tilt: Float, orientation: Float, timeMs: Long, hasTilt: Boolean, hasOrientation: Boolean,
+        space: CoordinateSpace = CoordinateSpace.VIEW_RELATIVE,
+    ): Boolean {
         if (downTarget != null) cancel()
         val t = target()
         val reason = when {
@@ -107,7 +113,7 @@ class StreamPen(
         }
         if (reason != null) { skipped(reason); return false }
         val id = ids.poll() ?: run { skipped("no stroke ID available"); return false }
-        if (!feed.begin(t.noteId!!, t.sheetId!!, id, brush(), CoordinateSpace.VIEW_RELATIVE, t.rev, commit = true, hasTilt, hasOrientation)) {
+        if (!feed.begin(t.noteId!!, t.sheetId!!, id, brush(), space, t.rev, commit = true, hasTilt, hasOrientation)) {
             skipped("link disconnected or pen queue full"); return false
         }
         downTarget = t
@@ -120,19 +126,26 @@ class StreamPen(
     }
 
     fun flush() { if (stillWritable()) feed.flush() }
-    fun up() {
-        if (stillWritable()) { feed.end(); downTarget = null }
+    /** Pen-up. True when the stroke ended whole and its commit follows. */
+    fun up(): Boolean {
+        if (!stillWritable()) return false
+        feed.end(); downTarget = null
+        return true
     }
     fun cancel() {
         if (downTarget != null) feed.cancel()
         downTarget = null
     }
 
-    /** A new viewport/target or connection invalidates the whole gesture, never commits it against another mapping. */
+    /**
+     * A lost connection, another note or a note gone read-only ends the gesture unsaved. A scroll or zoom on the Mac
+     * does not: the stroke keeps the mapping of its Begin (the Mac places it with that `rev`, or in canvas units).
+     */
     private fun stillWritable(): Boolean {
         val frozen = downTarget ?: return false
-        if (!feed.enabled || target() != frozen) {
-            skipped(if (!feed.enabled) "connection lost mid-stroke" else "target changed mid-stroke (including rev)")
+        val now = target()
+        if (!feed.enabled || now.noteId != frozen.noteId || now.sheetId != frozen.sheetId || now.writable != frozen.writable) {
+            skipped(if (!feed.enabled) "connection lost mid-stroke" else "target note changed mid-stroke")
             cancel()
             return false
         }

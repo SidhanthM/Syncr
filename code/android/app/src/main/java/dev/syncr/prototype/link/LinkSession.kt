@@ -7,7 +7,13 @@ interface SessionEvents {
 
     /** The session is over on the Mac's say-so or ours. [fatal]: reconnecting cannot help until the user acts. */
     fun close(reason: String, fatal: Boolean)
+
+    /** The Mac also takes preview frames as datagrams on [port], each starting with [key]. */
+    fun datagrams(port: Int, key: Long) {}
 }
+
+/** What the pad asks of the Mac with `padmode`. */
+data class PadWish(val local: Boolean, val pics: Boolean, val aspect: Double)
 
 /**
  * The client side of one connection, as a state machine (wifi-link-v0 §3). Link thread only; it never touches a socket:
@@ -38,6 +44,7 @@ class LinkSession(
     private var openId: String? = null
     private var viewing: String? = null
     private var padOn = false
+    private var padWish: PadWish? = null
     private var sentToken: String? = null
     private var pendingToken: String? = null
     private var macName: String? = null
@@ -84,10 +91,13 @@ class LinkSession(
             is Control.FileEnd -> if (phase == Phase.CONNECTED) sync.receiver.onFileEnd(c.xfer)
             is Control.FileError -> if (phase == Phase.CONNECTED) sync.onFileError(c.xfer, c.id, c.reason)
             is Control.Target -> if (phase == Phase.CONNECTED) {
-                events.target(StreamTarget(c.note, c.sheet, c.writable, c.rev))
+                events.target(StreamTarget(c.note, c.sheet, c.writable, c.rev, c.frame, c.view, c.pageHeight))
+            }
+            is Control.Udp -> if (phase == Phase.CONNECTED && version >= 1) {
+                events.datagrams(c.port, java.lang.Long.parseUnsignedLong(c.key, 16))
             }
             // The Mac never sends these; a confused or hostile one is ignored rather than trusted.
-            is Control.Hello, is Control.Code, is Control.Viewing, is Control.Pad -> Unit
+            is Control.Hello, is Control.Code, is Control.Viewing, is Control.Pad, is Control.PadMode, is Control.Frame -> Unit
         }
     }
 
@@ -109,7 +119,12 @@ class LinkSession(
         events.status(SessionStatus(Phase.CONNECTED, c.mac))
         sync.onWelcome(source.list(), openId, minOf(c.v, version))
         viewing?.let { scheduler.sendControl(Control.Viewing(it)) }
-        if (padOn) scheduler.sendControl(Control.Pad(true))
+        if (padOn) { scheduler.sendControl(Control.Pad(true)); sendPadWish() }
+    }
+
+    private fun sendPadWish() {
+        val w = padWish ?: return
+        if (version >= 1) scheduler.sendControl(Control.PadMode(w.local, w.pics, w.aspect))
     }
 
     private fun onBye(c: Control.Bye) {
@@ -160,14 +175,27 @@ class LinkSession(
     fun setPad(on: Boolean) {
         if (padOn == on) return
         padOn = on
-        if (phase == Phase.CONNECTED) scheduler.sendControl(Control.Pad(on))
+        if (phase == Phase.CONNECTED) { scheduler.sendControl(Control.Pad(on)); if (on) sendPadWish() }
+    }
+
+    /** How the pad maps and whether it wants pictures; sent while the pad is open, and again after a reconnect. */
+    fun setPadWish(wish: PadWish?) {
+        if (padWish == wish) return
+        padWish = wish
+        if (phase == Phase.CONNECTED && padOn) sendPadWish()
+    }
+
+    /** Asks the Mac for this pen frame (a finger gesture on the pad). */
+    fun requestFrame(rect: CanvasRect) {
+        if (phase == Phase.CONNECTED && padOn && version >= 1) scheduler.sendControl(Control.Frame(rect))
     }
 
     /** The app's wishes survive a reconnect: [viewing] and [pad] are re-sent after the next welcome. */
-    fun adopt(viewing: String?, pad: Boolean, open: String?) {
+    fun adopt(viewing: String?, pad: Boolean, open: String?, wish: PadWish? = null) {
         this.viewing = viewing
         this.padOn = pad
         this.openId = open
+        this.padWish = wish
     }
 
     companion object {

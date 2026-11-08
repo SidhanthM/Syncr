@@ -64,6 +64,8 @@ data class TabletUiState(
     /** Stream: whether the Mac link is switched on, and one line about it. */
     val streamEnabled: Boolean = false,
     val streamSummary: String = "",
+    /** Stream: the pad writes inside a pen frame on the Mac's page (Local) rather than over the whole view. */
+    val streamLocal: Boolean = true,
 ) {
     val link: LinkState get() = if (linkChoice == TabletLink.STREAM) LinkStatus.streamState(host != null, problem) else LinkStatus.state(host, problem)
     val caption: String get() = if (linkChoice == TabletLink.STREAM) LinkStatus.padCaptionStream(host, problem) else LinkStatus.padCaption(host, problem)

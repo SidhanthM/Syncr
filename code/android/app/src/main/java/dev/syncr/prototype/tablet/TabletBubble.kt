@@ -30,6 +30,7 @@ class TabletBubbleActions(
     val open: () -> Unit,
     val close: () -> Unit,
     val toggleMapping: () -> Unit,
+    val toggleLocal: () -> Unit,
     val recentre: () -> Unit,
     val selectMac: () -> Unit,
     val settings: () -> Unit,
@@ -78,12 +79,16 @@ fun TabletBubble(state: TabletUiState, open: Boolean, actions: TabletBubbleActio
 private fun BubbleBarScope.TabletBar(state: TabletUiState, actions: TabletBubbleActions) {
     val pointer = state.linkChoice == TabletLink.POINTER
     val actual = pointer && state.mode == MappingMode.ACTUAL_SIZE
-    val count = if (pointer) (if (actual) 5 else 4) else 2
+    val count = if (pointer) (if (actual) 5 else 4) else 3
     var i = 0
     Row(Modifier.padding(horizontal = 6.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
         if (pointer) BubbleChip(if (actual) "Actual size" else "Whole screen", i++, count,
             description = "Mapping: ${if (actual) "Actual size" else "Whole screen"}. Switch to ${if (actual) "Whole screen" else "Actual size"}",
             onClick = actions.toggleMapping)
+        if (!pointer) BubbleChip(if (state.streamLocal) "Local" else "Whole view", i++, count,
+            description = if (state.streamLocal) "The pad writes inside a frame on the Mac's page; two fingers move it, a pinch resizes it. Switch to the whole view"
+            else "The pad covers the Mac's whole view. Switch to Local, a frame you move with two fingers",
+            onClick = actions.toggleLocal)
         if (actual) BubbleChip("Recentre", i++, count, description = "Recentre the window on the Mac screen", onClick = actions.recentre)
         if (pointer) BubbleChip(if (state.knownHost && state.host == null) "Reconnect" else "Choose Mac", i++, count,
             description = if (state.knownHost && state.host == null) "Reconnect to your Mac" else "Choose your paired Mac", onClick = actions.selectMac)

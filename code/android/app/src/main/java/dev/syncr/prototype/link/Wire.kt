@@ -11,12 +11,16 @@ object Wire {
     const val KIND_CONTROL = 0x4A
     const val KIND_FILE = 0x46
 
+    /** Mac to phone: a picture of what the pad covers (rework-v1 §V.4). */
+    const val KIND_PICTURE = 0x53
+    const val PICTURE_HEADER = 26
+
     /** Data bytes per file chunk. */
     const val FILE_CHUNK_DATA = 65_000
     const val FILE_HEADER = 9
     const val MAX_FILE_BYTES = 256L * 1024 * 1024
 
-    fun isKnownKind(kind: Int) = kind == KIND_PREVIEW || kind == KIND_STROKE || kind == KIND_CONTROL || kind == KIND_FILE
+    fun isKnownKind(kind: Int) = kind == KIND_PREVIEW || kind == KIND_STROKE || kind == KIND_CONTROL || kind == KIND_FILE || kind == KIND_PICTURE
 
     /** [message] with its length prefix, as one array so it goes out in one write. */
     fun frame(message: ByteArray): ByteArray {
@@ -76,6 +80,40 @@ object Wire {
         }
         return FileChunk(getU32(message, 1), getU32(message, 5), message.copyOfRange(FILE_HEADER, message.size))
     }
+
+    /** A picture's header: the target `rev` it was drawn at, pad strokes saved by then, and the pictured canvas region. */
+    class PictureHeader(val rev: Long, val saved: Long, val region: CanvasRect)
+
+    /** The header of a `0x53` message; the JPEG follows from [PICTURE_HEADER]. Null when it is not a usable picture. */
+    fun parsePicture(message: ByteArray): PictureHeader? {
+        if (kind(message) != KIND_PICTURE || message.size <= PICTURE_HEADER || message[1].toInt() != 1) return null
+        fun f(at: Int) = java.lang.Float.intBitsToFloat(getU32(message, at).toInt()).toDouble()
+        val region = CanvasRect(f(10), f(14), f(18), f(22))
+        if (listOf(region.x, region.y, region.w, region.h).any { !it.isFinite() } || region.w <= 0 || region.h <= 0) return null
+        return PictureHeader(getU32(message, 2), getU32(message, 6), region)
+    }
+
+    /**
+     * One datagram of the second path for preview frames: the session [key], the number of the first frame (u32 BE),
+     * then each frame with its length (u16 BE). Null when the frames do not fit [MAX_DATAGRAM].
+     */
+    fun datagram(key: Long, first: Long, frames: List<ByteArray>): ByteArray? {
+        val size = 12 + frames.sumOf { 2 + it.size }
+        if (frames.isEmpty() || size > MAX_DATAGRAM || frames.any { it.isEmpty() || it.size > 0xffff }) return null
+        val out = ByteArray(size)
+        for (i in 0 until 8) out[i] = (key ushr (56 - 8 * i)).toByte()
+        putU32(out, 8, first)
+        var at = 12
+        for (f in frames) {
+            out[at] = (f.size ushr 8).toByte(); out[at + 1] = f.size.toByte()
+            System.arraycopy(f, 0, out, at + 2, f.size)
+            at += 2 + f.size
+        }
+        return out
+    }
+
+    /** Below the usual Wi-Fi path MTU, so a datagram is never fragmented. */
+    const val MAX_DATAGRAM = 1400
 
     private fun putU32(out: ByteArray, at: Int, v: Long) {
         out[at] = (v ushr 24).toByte(); out[at + 1] = (v ushr 16).toByte(); out[at + 2] = (v ushr 8).toByte(); out[at + 3] = v.toByte()

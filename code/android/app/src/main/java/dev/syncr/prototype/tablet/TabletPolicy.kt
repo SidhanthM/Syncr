@@ -11,6 +11,13 @@ fun defaultTabletLink(choice: TabletLink?, enabled: Boolean, paired: Boolean): T
 fun tabletWindowDragAllowed(stream: Boolean, penDown: Boolean, mode: MappingMode, fingers: Int): Boolean =
     !stream && !penDown && mode == MappingMode.ACTUAL_SIZE && fingers == 2
 
+/**
+ * Local mode: two fingers move and resize the pen frame. Never with the pen on the glass or just after it lifts (a
+ * resting hand), and only once the Mac has said where the frame is.
+ */
+fun tabletFrameGestureAllowed(local: Boolean, penDown: Boolean, eventTime: Long, lastPenUp: Long, fingers: Int): Boolean =
+    local && !penDown && fingers == 2 && eventTime - lastPenUp >= 300
+
 /** Keep a resting palm from activating the new caption control just after pen-up. */
 fun tabletCaptionTapAllowed(penDown: Boolean, eventTime: Long, lastPenUp: Long): Boolean =
     !penDown && eventTime - lastPenUp >= 300

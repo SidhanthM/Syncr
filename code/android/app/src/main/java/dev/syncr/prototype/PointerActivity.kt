@@ -30,6 +30,10 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import dev.syncr.prototype.link.android.LinkController
 import dev.syncr.prototype.link.android.LinkUi
+import dev.syncr.prototype.link.CanvasRect
+import dev.syncr.prototype.link.PadWish
+import dev.syncr.prototype.notes.brushWidth
+import dev.syncr.prototype.notes.inkColour
 import dev.syncr.prototype.ui.linkSummary
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.padding
@@ -81,6 +85,9 @@ class PointerActivity : ComponentActivity() {
     private var activeLink by mutableStateOf(TabletLink.POINTER)
     private var sessionLink: TabletLink? = null
     private var macLinkOpen by mutableStateOf(false)
+    private var padAspect = 0.0
+    /** Local: the frame width of last time is asked for once per connection, when the Mac first says where the frame is. */
+    private var frameRestored = false
     private val streaming get() = activeLink == TabletLink.STREAM
     private val streamState get() = streamPadState(linkUi.enabled, linkUi.pairedMac != null,
         linkUi.status.phase, linkUi.status.macName ?: linkUi.pairedMac, linkUi.target)
@@ -127,11 +134,25 @@ class PointerActivity : ComponentActivity() {
         pad.setTrailMs(settings.trailMs)
         pad.setStream(if (streaming) link.streamPen else null)
         pad.onCaptionClick = { applyLink(if (streaming) TabletLink.POINTER else TabletLink.STREAM) }
+        pad.setLocal(settings.streamLocal)
+        pad.setPictureLarge(settings.pictureLarge)
+        pad.setInk(inkColour(link.penBrush, dark = true), brushWidth(link.penBrush))
+        pad.setTarget(linkUi.target)
+        pad.onPictureLarge = { settings.pictureLarge = it }
+        pad.onFrameRequest = { frame -> link.requestFrame(frame); settings.frameWidth = frame.w.toFloat() }
+        pad.onPadShape = { aspect -> if (aspect != padAspect) { padAspect = aspect; pushPadWish() } }
+        ui = ui.copy(streamLocal = settings.streamLocal)
         refreshCaption()
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) { link.pictures.collect { pad.setPicture(it) } }
+        }
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 link.state.collect { next ->
+                    if (next.connected && !linkUi.connected) { pad.linkReset(); frameRestored = false }
                     linkUi = next
+                    pad.setTarget(next.target)
+                    restoreFrameWidth(next.target.frame)
                     val choice = sessionLink ?: defaultTabletLink(settings.link, next.enabled, next.pairedMac != null)
                     if (choice != activeLink) switchLink(choice)
                     refreshCaption()
@@ -214,6 +235,7 @@ class PointerActivity : ComponentActivity() {
             ui = ui.copy(host = if (streaming) null else pointerHost, linkChoice = choice,
                 status = if (streaming) ui.status else pointerStatus)
             pad.setStream(if (streaming) link.streamPen else null)
+            pushPadWish()
             link.padOpened(streaming && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
             if (!streaming && controller.available()) {
                 requestBluetoothAccess()
@@ -221,6 +243,21 @@ class PointerActivity : ComponentActivity() {
             }
         }
         refreshCaption()
+    }
+
+    /** What the pad asks of the Mac: its mapping, pictures of what it covers, and its shape. Nothing while not streaming. */
+    private fun pushPadWish() {
+        link.setPadWish(if (streaming && padAspect > 0) PadWish(settings.streamLocal, pics = true, aspect = padAspect) else null)
+    }
+
+    /** The Mac starts a new frame at half its view; ask once for the width used last time, around the same centre. */
+    private fun restoreFrameWidth(frame: CanvasRect?) {
+        if (frame == null || frameRestored || !settings.streamLocal) return
+        frameRestored = true
+        val w = settings.frameWidth.toDouble()
+        if (w < 1 || kotlin.math.abs(w - frame.w) < 1) return
+        val h = w * frame.h / frame.w
+        link.requestFrame(CanvasRect(frame.x + (frame.w - w) / 2, frame.y + (frame.h - h) / 2, w, h))
     }
 
     private fun streamAction(action: StreamAction) {
@@ -240,6 +277,13 @@ class PointerActivity : ComponentActivity() {
         close = { bubbleOpen = false; syncPadInput() },
         toggleMapping = {
             setupActions.setMode(if (settings.mode == MappingMode.ACTUAL_SIZE) MappingMode.WHOLE_SCREEN else MappingMode.ACTUAL_SIZE)
+        },
+        toggleLocal = {
+            settings.streamLocal = !settings.streamLocal
+            ui = ui.copy(streamLocal = settings.streamLocal)
+            frameRestored = false
+            pad.setLocal(settings.streamLocal)
+            pushPadWish()
         },
         recentre = { pad.recentre() },
         selectMac = { bubbleOpen = false; syncPadInput(); reconnectOrSelect() },
@@ -334,6 +378,8 @@ class PointerActivity : ComponentActivity() {
         ui = ui.copy(needsPermission = !hasBluetoothPermission())
         refreshCaption()
         if (!streaming && controller.available() && hasBluetoothPermission()) controller.start()
+        pad.setInk(inkColour(link.penBrush, dark = true), brushWidth(link.penBrush))
+        pushPadWish()
         link.padOpened(streaming) // Stream: the Mac creates a note for the pad if none is open
     }
 

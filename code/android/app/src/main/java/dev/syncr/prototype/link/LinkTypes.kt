@@ -98,8 +98,21 @@ data class SessionStatus(
     val message: String? = null,
 )
 
-/** The Mac's active note, from `target`. [noteId] is null when there is none. */
-data class StreamTarget(val noteId: String? = null, val sheetId: String? = null, val writable: Boolean = false, val rev: Long = 0) {
+/** A rectangle on the note's canvas, in canvas units. */
+data class CanvasRect(val x: Double, val y: Double, val w: Double, val h: Double) {
+    val right get() = x + w
+    val bottom get() = y + h
+}
+
+/**
+ * The Mac's active note, from `target`. [noteId] is null when there is none. The pad additions (rework-v1 §V) are null
+ * from a Mac that does not send them: [frame] is the pen frame while the pad is in Local mode, [view] the canvas the
+ * Mac's window shows, [pageHeight] how far down the page goes.
+ */
+data class StreamTarget(
+    val noteId: String? = null, val sheetId: String? = null, val writable: Boolean = false, val rev: Long = 0,
+    val frame: CanvasRect? = null, val view: CanvasRect? = null, val pageHeight: Double? = null,
+) {
     /** Stream draws only into a writable note with a sheet. */
     val usable get() = noteId != null && sheetId != null && writable
 }

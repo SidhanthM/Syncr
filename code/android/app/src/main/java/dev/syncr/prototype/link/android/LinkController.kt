@@ -19,6 +19,9 @@ import dev.syncr.core.InkColour
 import dev.syncr.core.encodeSamples
 import dev.syncr.core.newId
 import dev.syncr.prototype.link.CanvasMirror
+import dev.syncr.prototype.link.CanvasRect
+import dev.syncr.prototype.link.PadWish
+import dev.syncr.prototype.link.Wire
 import dev.syncr.prototype.link.ClientConfig
 import dev.syncr.prototype.link.ClientListener
 import dev.syncr.prototype.link.Clock
@@ -69,6 +72,9 @@ data class LinkUi(
     val connected get() = status.phase == Phase.CONNECTED
 }
 
+/** A decoded picture of what the pad covers: the canvas [region] it shows, drawn at target [rev] with [saved] pad strokes in it. */
+class PadPicture(val rev: Long, val saved: Long, val region: CanvasRect, val bitmap: android.graphics.Bitmap)
+
 /**
  * The app's one link to the Mac (wifi-link-v0). Owns the client, discovery and the Wi-Fi lock, and lives while the app is
  * in the foreground and the link is enabled: [bind] counts started activities, so going from the notes to the pad does not
@@ -110,6 +116,13 @@ class LinkController private constructor(private val app: Application) {
     }
 
     @Volatile private var target = StreamTarget()
+
+    /** The newest picture of what the pad covers; null with no connection or before the first arrives. */
+    private val picture = MutableStateFlow<PadPicture?>(null)
+    val pictures: StateFlow<PadPicture?> = picture.asStateFlow()
+    private val newestPicture = java.util.concurrent.atomic.AtomicReference<ByteArray?>()
+    private val decoder = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "syncr-pad-picture").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } }
+    @Volatile private var padWish: PadWish? = null
 
     /** The pen the phone last used in a note; Stream strokes are written with it. */
     @Volatile var penBrush: Brush = readBrush()
@@ -170,6 +183,28 @@ class LinkController private constructor(private val app: Application) {
     fun padOpened(on: Boolean) {
         padOn = on
         client?.setPad(on)
+    }
+
+    /** How the pad maps and whether it wants pictures (rework-v1 §V); null when the pad is not asking. */
+    fun setPadWish(wish: PadWish?) {
+        padWish = wish
+        client?.setPadWish(wish)
+    }
+
+    /** A finger gesture on the pad moved or resized the pen frame. */
+    fun requestFrame(rect: CanvasRect) { client?.requestFrame(rect) }
+
+    /** Reader thread: keep only the newest picture and decode it off every thread the pen depends on. */
+    private fun receivePicture(message: ByteArray) {
+        if (newestPicture.getAndSet(message) != null) return // a decode is already queued and will take this one
+        decoder.execute {
+            val bytes = newestPicture.getAndSet(null) ?: return@execute
+            val header = Wire.parsePicture(bytes) ?: return@execute
+            val bitmap = runCatching {
+                android.graphics.BitmapFactory.decodeByteArray(bytes, Wire.PICTURE_HEADER, bytes.size - Wire.PICTURE_HEADER)
+            }.getOrNull() ?: return@execute
+            if (ui.value.connected) picture.value = PadPicture(header.rev, header.saved, header.region, bitmap)
+        }
     }
 
     /** Remember the pen the notes are using, for Stream. */
@@ -251,7 +286,7 @@ class LinkController private constructor(private val app: Application) {
         val listener = object : ClientListener {
             override fun onStatus(status: SessionStatus) {
                 if (client !== self) return // a client that was stopped
-                if (status.phase != Phase.CONNECTED) target = StreamTarget()
+                if (status.phase != Phase.CONNECTED) { target = StreamTarget(); picture.value = null }
                 ui.update { it.copy(status = status, pairedMac = store.pairing()?.macName, target = target) }
                 updateWifiLock()
             }
@@ -260,6 +295,7 @@ class LinkController private constructor(private val app: Application) {
                 ui.update { it.copy(target = target) }
             }
             override fun onConnected(endpoint: Endpoint) = store.saveEndpoint(endpoint.host, endpoint.port)
+            override fun onPicture(message: ByteArray) = receivePicture(message)
         }
         val c = LinkClient(config, ::endpointFor, listener)
         self = c
@@ -267,6 +303,7 @@ class LinkController private constructor(private val app: Application) {
         c.notesChanged(latest.notes, latest.open)
         c.setViewing(latest.open)
         c.setPad(padOn)
+        c.setPadWish(padWish)
         c.start()
     }
 
@@ -275,6 +312,7 @@ class LinkController private constructor(private val app: Application) {
         client = null
         c.stop()
         target = StreamTarget()
+        picture.value = null
         ui.update { it.copy(status = SessionStatus(), found = emptyList(), target = target) }
     }
 

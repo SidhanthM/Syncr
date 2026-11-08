@@ -103,10 +103,34 @@ sealed class Control {
         override fun json() = mapOf("t" to "pad", "on" to on)
     }
 
-    /** The Mac's active note; [note] is null when there is none. */
-    data class Target(val note: String?, val sheet: String?, val writable: Boolean, val rev: Long) : Control() {
-        override fun json() = if (note == null) mapOf("t" to "target", "note" to null)
-        else mapOf("t" to "target", "note" to note, "sheet" to sheet, "writable" to writable, "rev" to rev)
+    /** The Mac's active note; [note] is null when there is none. [frame], [view] and [pageHeight] are the pad additions. */
+    data class Target(
+        val note: String?, val sheet: String?, val writable: Boolean, val rev: Long,
+        val frame: CanvasRect? = null, val view: CanvasRect? = null, val pageHeight: Double? = null,
+    ) : Control() {
+        override fun json(): Map<String, Any?> {
+            if (note == null) return mapOf("t" to "target", "note" to null)
+            val m = linkedMapOf<String, Any?>("t" to "target", "note" to note, "sheet" to sheet, "writable" to writable, "rev" to rev)
+            frame?.let { m["frame"] = rect(it) }
+            view?.let { m["view"] = rect(it) }
+            pageHeight?.let { m["page"] = mapOf("w" to 4800L, "h" to it) }
+            return m
+        }
+    }
+
+    /** Phone: how the pad maps ([local]: onto the pen frame), whether it wants pictures, and its width over height. */
+    data class PadMode(val local: Boolean, val pics: Boolean, val aspect: Double) : Control() {
+        override fun json() = mapOf("t" to "padmode", "local" to local, "pics" to pics, "aspect" to aspect)
+    }
+
+    /** Phone: asks for this pen frame. The Mac clamps it and answers with `target`. */
+    data class Frame(val rect: CanvasRect) : Control() {
+        override fun json() = mapOf("t" to "frame") + rect(rect)
+    }
+
+    /** Mac: preview frames may also go as datagrams to [port], each starting with [key] (16 hex characters). */
+    data class Udp(val port: Int, val key: String) : Control() {
+        override fun json() = mapOf("t" to "udp", "port" to port.toLong(), "key" to key)
     }
 
     companion object {
@@ -115,6 +139,8 @@ sealed class Control {
         const val OLDEST = 0
         private const val MAX_STRING = 1024
         private const val MAX_LIST = 5000
+
+        private fun rect(r: CanvasRect): Map<String, Any?> = linkedMapOf("x" to r.x, "y" to r.y, "w" to r.w, "h" to r.h)
 
         /** [message] is a whole `0x4A` message. */
         fun parse(message: ByteArray): Control? {
@@ -145,7 +171,16 @@ sealed class Control {
                 "target" -> {
                     val note = m.optStr("note", 64)
                     if (note == null) Target(null, null, false, 0)
-                    else Target(note, m.optStr("sheet", 64), m.bool("writable"), m.u32("rev"))
+                    else Target(note, m.optStr("sheet", 64), m.bool("writable"), m.u32("rev"),
+                        m.optRect("frame"), m.optRect("view"), m.optMap("page")?.optNum("h"))
+                }
+                "padmode" -> PadMode(m.bool("local"), m.bool("pics"), m.num("aspect"))
+                "frame" -> Frame(m.rect())
+                "udp" -> {
+                    val key = m.str("key", 16)
+                    val port = m.int("port")
+                    if (port !in 1..65535 || key.length != 16 || !key.all { it in '0'..'9' || it in 'a'..'f' }) throw LinkProtocolException("udp port or key")
+                    Udp(port.toInt(), key)
                 }
                 else -> null
             }
@@ -175,6 +210,27 @@ sealed class Control {
         }
 
         fun optList(key: String): List<*>? = if (map[key] == null) null else list(key)
+
+        /** A JSON number, whole or not. */
+        fun num(key: String): Double = optNum(key) ?: throw LinkProtocolException("field $key is not a number")
+
+        fun optNum(key: String): Double? = when (val v = map[key]) {
+            is Long -> v.toDouble()
+            is Double -> v.takeIf { it.isFinite() }
+            else -> null
+        }
+
+        fun optMap(key: String): Fields? = (map[key] as? Map<*, *>)?.let(::Fields)
+
+        /** This object's own x, y, w and h: a positive size and values a canvas could hold. */
+        fun rect(): CanvasRect {
+            val r = CanvasRect(num("x"), num("y"), num("w"), num("h"))
+            if (r.w <= 0 || r.h <= 0 || listOf(r.x, r.y, r.w, r.h).any { kotlin.math.abs(it) > 10_000_000 }) throw LinkProtocolException("rectangle out of range")
+            return r
+        }
+
+        /** A rectangle under [key], or null when it is absent or unusable (an optional addition never closes the link). */
+        fun optRect(key: String): CanvasRect? = try { optMap(key)?.rect() } catch (_: LinkProtocolException) { null }
 
         fun int(key: String): Long = map[key] as? Long ?: throw LinkProtocolException("field $key is not an integer")
 

@@ -40,6 +40,9 @@ interface ClientListener {
 
     /** The Mac confirmed a note with `have`. */
     fun onDelivered(id: String, seq: Long) {}
+
+    /** A picture of what the pad covers (a whole `0x53` message). Called on the reader thread: hand it on, do not decode here. */
+    fun onPicture(message: ByteArray) {}
 }
 
 class ClientConfig(
@@ -61,7 +64,44 @@ class ClientConfig(
     val latencyContext: () -> String = { "radio=host/unavailable" },
     /** Link version to speak (0: wifi-link-v0 only, for the joined test's old-phone probe). */
     val linkVersion: Int = Control.VERSION,
+    /** False keeps every preview frame on the connection alone (tests of the single path). */
+    val datagrams: Boolean = true,
 )
+
+/**
+ * The second path for preview frames. The connection carries every frame in order and is never skipped; this sends the
+ * same frames as datagrams as well, each with the one before it, so the Mac can draw on through a stall of the
+ * connection (a lost packet holds everything behind it until it is sent again). The Mac hands each frame on once, from
+ * whichever path brings it first. Link thread only. A failure only means the connection carries on alone.
+ */
+internal class DatagramPath(host: java.net.InetAddress, port: Int, private val key: Long) {
+    private val socket = java.net.DatagramSocket().apply {
+        connect(java.net.InetSocketAddress(host, port))
+        // Expedited forwarding: Wi-Fi sends it in its voice queue, ahead of ordinary traffic.
+        try { trafficClass = 0xB8 } catch (_: java.net.SocketException) { }
+    }
+    private var next = 0L
+    private var previous: ByteArray? = null
+    private var failures = 0
+    var sent = 0L
+        private set
+
+    /** Call once for every preview message, in the order they go to the connection, before the write. */
+    fun send(frame: ByteArray) {
+        val seq = next++
+        val before = previous
+        previous = frame
+        if (failures > 8) return
+        val datagram = before?.let { Wire.datagram(key, seq - 1, listOf(it, frame)) } ?: Wire.datagram(key, seq, listOf(frame)) ?: return
+        try {
+            socket.send(java.net.DatagramPacket(datagram, datagram.size))
+            sent++
+            failures = 0
+        } catch (_: IOException) { failures++ }
+    }
+
+    fun close() { socket.close() }
+}
 
 /**
  * One foreground period of the link: a link thread that connects to the Mac, runs a [LinkSession], and reconnects after
@@ -99,6 +139,8 @@ class LinkClient(
     // What the app wants, kept across connections.
     @Volatile private var appViewing: String? = null
     @Volatile private var appPad = false
+    @Volatile private var appPadWish: PadWish? = null
+    private var datagrams: DatagramPath? = null
     @Volatile private var appOpen: String? = null
     @Volatile private var appNotes: List<NoteMeta> = emptyList()
 
@@ -176,6 +218,13 @@ class LinkClient(
         appPad = on
         post { session?.setPad(on) }
     }
+
+    fun setPadWish(wish: PadWish?) {
+        appPadWish = wish
+        post { session?.setPadWish(wish) }
+    }
+
+    fun requestFrame(rect: CanvasRect) = post { session?.requestFrame(rect) }
 
     // ---- LinkLoop ----
 
@@ -282,9 +331,14 @@ class LinkClient(
             }
             override fun target(target: StreamTarget) = this@LinkClient.target(target)
             override fun close(reason: String, fatal: Boolean) = this@LinkClient.close(reason, fatal)
+            override fun datagrams(port: Int, key: Long) {
+                if (!cfg.datagrams || datagrams != null) return
+                datagrams = try { DatagramPath(s.inetAddress, port, key) } catch (e: Exception) { null }
+                cfg.log(if (datagrams != null) "second path on: preview frames also go as datagrams to port $port" else "second path unavailable; the connection carries on alone")
+            }
         }
         val sess = LinkSession(cfg.device, cfg.store, endpoint, scheduler, sync, pump, cfg.feed, cfg.clock, latency, cfg.source, events, cfg.linkVersion)
-        sess.adopt(appViewing, appPad, appOpen)
+        sess.adopt(appViewing, appPad, appOpen, appPadWish)
         session = sess
         lastInbound = cfg.clock.nowMs()
         val output = try { s.getOutputStream() } catch (e: IOException) { closeSocket(); return false }
@@ -308,6 +362,8 @@ class LinkClient(
                     LockSupport.parkNanos(50_000_000L)
                     continue
                 }
+                // Preview frames before welcome do not exist, so both ends count them from zero.
+                if (Wire.kind(message) == Wire.KIND_PREVIEW) datagrams?.send(message)
                 output.write(Wire.frame(message))
                 output.flush()
                 if (Wire.kind(message) == Wire.KIND_CONTROL) {
@@ -341,6 +397,8 @@ class LinkClient(
             if (owner) cfg.feed.enabled = false
             connId++
             closeSocket()
+            datagrams?.let { cfg.log("second path closed datagrams=${it.sent}"); it.close() }
+            datagrams = null
             session = null
             sync.onClosed()
             scheduler.clearControl()
@@ -359,6 +417,10 @@ class LinkClient(
                 lastInbound = cfg.clock.nowMs()
                 if (Wire.kind(message) == Wire.KIND_FILE) {
                     post { if (id == connId) sess.onFileChunk(message) }
+                    continue
+                }
+                if (Wire.kind(message) == Wire.KIND_PICTURE) {
+                    listener.onPicture(message)
                     continue
                 }
                 if (Wire.kind(message) != Wire.KIND_CONTROL) continue // the Mac sends no preview or stroke-commit frames

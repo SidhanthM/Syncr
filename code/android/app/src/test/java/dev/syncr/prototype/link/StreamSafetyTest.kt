@@ -28,17 +28,26 @@ class StreamSafetyTest {
 
     private fun down() = pen.down(10f, 20f, .5f, 0f, 0f, 100, false, false).also { pen.flush() }
 
-    @Test fun revisionChangeCancelsWholeGestureAndDoesNotRestartUntilNextDown() {
+    @Test fun aScrollOnTheMacMidStrokeKeepsTheStrokeAndItsBeginRevision() {
         assertTrue(down())
-        target = target.copy(rev = 9)
-        pen.move(30f, 40f, .6f, 0f, 0f, 110); pen.flush(); pen.up()
+        target = target.copy(rev = 9, view = CanvasRect(0.0, 40.0, 3200.0, 2000.0))
+        pen.move(30f, 40f, .6f, 0f, 0f, 110); pen.flush()
+        assertTrue(pen.up())
         pump.pump()
-        assertEquals(PreviewBody.Cancel, out.frames.last().body)
-        assertTrue(out.commits.isEmpty())
-        assertEquals(listOf("target changed mid-stroke (including rev)"), reasons)
+        assertTrue(reasons.isEmpty())
+        assertEquals(1, out.commits.size)
+        // The stroke is placed with the view it began in: the Mac resolves rev 8, whatever it shows by now.
+        assertEquals(8u, (out.frames.first { it.body is PreviewBody.Begin }.body as PreviewBody.Begin).viewportRevision)
         assertTrue(down()); pen.up(); pump.pump()
         assertEquals(9u, (out.frames.filter { it.body is PreviewBody.Begin }.last().body as PreviewBody.Begin).viewportRevision)
-        assertEquals(1, out.commits.size)
+        assertEquals(2, out.commits.size)
+    }
+
+    @Test fun localModeSendsCanvasUnits() {
+        assertTrue(pen.down(1200f, 340f, .5f, 0f, 0f, 100, false, false, dev.syncr.core.CoordinateSpace.CANVAS))
+        pen.flush(); assertTrue(pen.up()); pump.pump()
+        assertEquals(dev.syncr.core.CoordinateSpace.CANVAS, (out.frames.first { it.body is PreviewBody.Begin }.body as PreviewBody.Begin).space)
+        assertEquals(dev.syncr.core.CoordinateSpace.CANVAS, out.commits.single().space)
     }
 
     @Test fun targetOrWritabilityChangeAtUpAlsoCancels() {
