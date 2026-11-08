@@ -16,7 +16,12 @@ import kotlin.math.max
 import kotlin.math.min
 
 /** What the canvas draws under the ink for a note's text and companion content, in canvas units. */
-internal class NoteTextScene(val prims: List<Prim>, val pictures: Map<String, PictureDisplayList>, val bottom: Float) {
+data class ContentTarget(val id: String, val response: Boolean)
+internal data class ContentHit(val target: ContentTarget, val x: Float, val y: Float, val width: Float, val height: Float) {
+    fun contains(px: Float, py: Float) = px >= x && px <= x + width && py >= y && py <= y + height
+}
+internal class NoteTextScene(val prims: List<Prim>, val pictures: Map<String, PictureDisplayList>, val bottom: Float,
+    val hits: List<ContentHit> = emptyList()) {
     companion object { val EMPTY = NoteTextScene(emptyList(), emptyMap(), 0f) }
 }
 
@@ -31,6 +36,7 @@ internal class NoteTextSceneBuilder(private val shaper: Shaper, private val pict
 
     fun build(note: NoteSnapshot): NoteTextScene {
         val prims = ArrayList<Prim>()
+        val hits = ArrayList<ContentHit>()
         val pictures = HashMap<String, PictureDisplayList>()
         var bottom = 0f
         val document = note.textBlocks.firstOrNull { it.role == TextRole.DOCUMENT && !it.tombstone }
@@ -58,13 +64,13 @@ internal class NoteTextSceneBuilder(private val shaper: Shaper, private val pict
             return logical.indexOfLast { it.start <= at }.coerceAtLeast(0)
         }
         val threads = threadsByPassage(items, byId)
-        val answerCards = HashMap<Int, MutableList<RichResult>>()
+        val answerCards = HashMap<Int, MutableList<Pair<String, RichResult>>>()
         val gaps = HashMap<Int, Float>()
         for (thread in threads) {
             if (thread.end == null) continue
             val index = paragraphOf(thread.end)
             val card = rich.thread(thread.messages, 0f, 0f, columnWidth)
-            answerCards.getOrPut(index) { ArrayList() } += card
+            answerCards.getOrPut(index) { ArrayList() } += thread.root to card
             gaps[index] = (gaps[index] ?: 0f) + card.height + 40f
         }
 
@@ -77,10 +83,15 @@ internal class NoteTextSceneBuilder(private val shaper: Shaper, private val pict
         prims += layout.prims
         bottom = max(bottom, layout.bottom)
 
+        if (document != null) for (line in layout.vlines) {
+            hits += ContentHit(ContentTarget(document.id, false), MacMetrics.TEXT_X, line.top, columnWidth, 64f)
+        }
+
         // Answers: under the asked passage, inside the column.
         for ((index, cards) in answerCards) {
             var top = layout.logicalBottoms.getOrNull(index)?.plus(16f) ?: continue
-            for (card in cards) {
+            for ((root, card) in cards) {
+                hits += ContentHit(ContentTarget(root, true), MacMetrics.TEXT_X, top, columnWidth, card.height)
                 prims += card.moved(MacMetrics.TEXT_X, top)
                 top += card.height + 40f
             }
@@ -120,6 +131,7 @@ internal class NoteTextSceneBuilder(private val shaper: Shaper, private val pict
             val top = max(passageTop(item), marginBottom + 24f)
             val card = rich.margin(body.text, body.sources, marginX, top, tone)
             prims += card.prims
+            hits += ContentHit(ContentTarget(item.id, true), marginX, top, 1000f, card.height)
             marginBottom = top + card.height
             bottom = max(bottom, marginBottom)
         }
@@ -143,9 +155,12 @@ internal class NoteTextSceneBuilder(private val shaper: Shaper, private val pict
             if (block.role != TextRole.FREE || block.tombstone) continue
             val free = typeset.document(block.text, block.originX + block.transform.tx.toFloat(), block.originY + block.transform.ty.toFloat() + 45f, block.width)
             prims += free.prims
+            hits += ContentHit(ContentTarget(block.id, false), block.originX + block.transform.tx.toFloat(),
+                block.originY + block.transform.ty.toFloat() + 45f, block.width,
+                max(64f, free.bottom - block.originY - block.transform.ty.toFloat() - 45f))
             bottom = max(bottom, free.bottom)
         }
-        return NoteTextScene(prims, pictures, bottom + 200f)
+        return NoteTextScene(prims, pictures, bottom + 200f, hits)
     }
 
     private fun pictureCard(id: String, picture: PictureDisplayList, x: Float, y: Float, width: Float, ratio: Float): List<Prim> {
@@ -165,7 +180,7 @@ internal class NoteTextSceneBuilder(private val shaper: Shaper, private val pict
         else -> Tok.MUTED
     }
 
-    private class Thread(val end: UInt?, val messages: List<Pair<MessageWho, String>>)
+    private class Thread(val root: String, val end: UInt?, val messages: List<Pair<MessageWho, String>>)
 
     /** Thread messages grouped by what they hang from: the margin note's anchor, or an anchor itself. */
     private fun threadsByPassage(items: List<CompanionItemView>, byId: Map<String, CompanionItemView>): List<Thread> {
@@ -178,7 +193,7 @@ internal class NoteTextSceneBuilder(private val shaper: Shaper, private val pict
                 else -> null
             }
             val end = (anchor?.target as? AnchorTarget.Text)?.takeIf { !it.detached }?.end
-            Thread(end, messages.sortedBy { it.order }.map { it.who to it.text })
+            Thread(root, end, messages.sortedBy { it.order }.map { it.who to it.text })
         }.sortedBy { it.end ?: UInt.MAX_VALUE }
     }
 

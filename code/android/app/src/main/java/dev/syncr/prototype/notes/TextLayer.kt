@@ -32,7 +32,7 @@ import java.util.concurrent.ThreadFactory
  */
 internal class TextLayer(private val invalidate: () -> Unit, private val onExtent: (Float) -> Unit) {
     private class Band(val top: Float, val bottom: Float, val picture: Picture)
-    private class Done(val key: Long, val dark: Boolean, val bands: List<Band>, val bottom: Float)
+    private class Done(val key: Long, val dark: Boolean, val bands: List<Band>, val bottom: Float, val hits: List<ContentHit> = emptyList())
 
     @Volatile private var done: Done? = null
     private var queuedKey = 0L
@@ -53,6 +53,15 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
             val result = try { render(note, key, dark) } catch (_: Throwable) { Done(key, dark, emptyList(), 0f) }
             main.post { if (mine == generation) { done = result; onExtent(result.bottom); invalidate() } }
         }
+    }
+
+    fun hit(x: Float, y: Float): ContentTarget? = done?.takeIf { it.key == queuedKey }?.hits
+        ?.asReversed()?.firstOrNull { it.contains(x, y) }?.target
+
+    fun bounds(id: String): RectF? {
+        val hits = done?.hits?.filter { it.target.id == id && !it.target.response }.orEmpty()
+        if (hits.isEmpty()) return null
+        return RectF(hits.minOf { it.x }, hits.minOf { it.y }, hits.maxOf { it.x + it.width }, hits.maxOf { it.y + it.height })
     }
 
     fun clear() {
@@ -104,7 +113,7 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
             }
             top = bottom
         }
-        return Done(key, dark, bands, scene.bottom)
+        return Done(key, dark, bands, scene.bottom, scene.hits)
     }
 
     private companion object {
