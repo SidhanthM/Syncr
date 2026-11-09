@@ -30,7 +30,10 @@ import AppKit
     }
     var onMove: ((CGFloat, CGFloat) -> Void)?
     var onEndEditing: (() -> Void)?
-    private let suggestions = NSTextField(labelWithString: "")
+    private let panel = CommandPanel(frame: .zero)
+    private var menuToken: SlashToken?
+    private var menuNote: Int?
+    private var dismissedSlash: Int?
     private var document: (any TextDocument)?
     private var quiet = false
     private var styling = false
@@ -45,9 +48,10 @@ import AppKit
     var onScroll: ((Float, Float) -> Void)?
     var resolve: ((String) -> Bool)?
     var complete: ((String) -> [String])?
-    var slashCommands = SlashCommand.defaults
-    private var choices: [(String, () -> Void)] = []
-    private var choice = 0
+    /// The library's own commands (`slash.json`); the built-ins are in `SlashCatalog`.
+    var slashCommands: [SlashCommand] = []
+    /// `/ask` and `/draw`: the companion asks about the paragraph the caret is in.
+    var onAsk: ((Bool) -> Void)?
     private var resizing = false
     private var resizingLeft = false
     private var resizeStartX: CGFloat = 0
@@ -97,16 +101,20 @@ import AppKit
         textView.onLinkClick = { [weak self] link, newTab in self?.followLink(link, newTab: newTab) ?? false }
         textView.onHistory = { [weak self] redo in self?.flush(); self?.document?.history(redo: redo) }
         textView.onShortcut = { [weak self] name in self?.shortcut(name) }
-        textView.onTask = { [weak self] offset in
-            guard let self, self.document?.writable == true else { return }
-            self.apply(MarkdownEditing.task(self.textView.string, selection: NSRange(location: offset, length: 0)))
+        textView.onTask = { [weak self] offset in self?.flipBox(at: offset) }
+        textView.onPasteLink = { [weak self] pasted in
+            guard let self, self.document?.writable == true, let edit = MarkdownEditing.pasteLink(self.textView.string, selection: self.textView.selectedRange(), pasted: pasted) else { return false }
+            self.apply(edit); return true
         }
-        suggestions.font = .systemFont(ofSize: 36); suggestions.textColor = Theme.muted
-        suggestions.drawsBackground = true; suggestions.backgroundColor = .textBackgroundColor
-        suggestions.isHidden = true
-        addSubview(title); addSubview(textView); addSubview(suggestions)
+        panel.isHidden = true
+        panel.onChange = { [weak self] in self?.placeMenu() }
+        addSubview(title); addSubview(textView)
+        postsFrameChangedNotifications = true; postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(self, selector: #selector(geometryChanged), name: NSView.frameDidChangeNotification, object: self)
+        NotificationCenter.default.addObserver(self, selector: #selector(geometryChanged), name: NSView.boundsDidChangeNotification, object: self)
         NotificationCenter.default.addObserver(self, selector: #selector(preferencesChanged), name: AppPreferences.didChange, object: AppPreferences.shared)
     }
+    @objc private func geometryChanged() { if menuOpen { placeMenu() } }
     @objc private func preferencesChanged() {
         textView.isContinuousSpellCheckingEnabled = AppPreferences.shared.values.spellCheck
         textView.insertionPointColor = Theme.ink
@@ -130,7 +138,9 @@ import AppKit
         textView.isEditable = document.writable
         textView.isSelectable = true
         if !textView.string.utf8.elementsEqual(document.text.utf8) {
+            let old = textView.string, was = textView.selectedRange()
             quiet = true; textView.string = document.text; quiet = false
+            if textView.window?.firstResponder === textView || !old.isEmpty { textView.setSelectedRange(Self.carry(old, document.text, was)) }
             style()
         } else if changedDocument || permissionChanged || textView.textStorage?.length == 0 { style() }
         resizeText()
@@ -155,6 +165,18 @@ import AppKit
         if let e = event(.leftMouseDragged, x: 20 + dx, y: 20 + dy) { title.mouseDragged(with: e) }
         if let e = event(.leftMouseUp, x: 20 + dx, y: 20 + dy) { title.mouseUp(with: e) }
     }
+    /// Where a selection goes when the text under it is replaced from outside (undo, sync): left alone before the
+    /// change, shifted after it, at the end of the new words when it was inside them.
+    static func carry(_ old: String, _ new: String, _ selection: NSRange) -> NSRange {
+        let a = old as NSString, b = new as NSString
+        var p = 0
+        while p < min(a.length, b.length), a.character(at: p) == b.character(at: p) { p += 1 }
+        var s = 0
+        while s < min(a.length, b.length) - p, a.character(at: a.length - s - 1) == b.character(at: b.length - s - 1) { s += 1 }
+        func map(_ x: Int) -> Int { x <= p ? x : x >= a.length - s ? x + b.length - a.length : b.length - s }
+        let from = min(b.length, map(selection.location)), to = min(b.length, map(NSMaxRange(selection)))
+        return NSRange(location: from, length: max(0, to - from))
+    }
     func refreshPreview() { style() }
     func represents(_ document: any TextDocument) -> Bool { self.document === document }
     func flush() { pending?.cancel(); pending = nil; document?.replace(with: textView.string); document?.flush() }
@@ -176,29 +198,37 @@ import AppKit
         textView.layoutManager?.ensureLayout(for: textView.textContainer!)
         let height = max(1200, (textView.layoutManager?.usedRect(for: textView.textContainer!).height ?? 0) + 180)
         textView.frame = CGRect(x: textLeft, y: isFree ? 45 : 260, width: width, height: height)
-        suggestions.frame = CGRect(x: textLeft, y: choices.isEmpty ? min(height + 300, 700) : suggestions.frame.minY, width: width, height: 180)
     }
     private func style() {
         guard !styling, !textView.hasMarkedText() else { return }
         styling = true
         let selection = textView.selectedRange()
-        textView.textStorage?.setAttributedString(DocumentLayout.attributed(textView.string, caret: document?.writable == true ? selection.location : nil, resolving: resolve, drawingHeights: drawingHeights, imageGaps: imageGaps))
+        textView.textStorage?.setAttributedString(DocumentLayout.attributed(textView.string, selection: document?.writable == true ? selection : nil, resolving: resolve, drawingHeights: drawingHeights, imageGaps: imageGaps))
         textView.setSelectedRange(selection)
         textView.typingAttributes = [.font: NSFont.systemFont(ofSize: DocumentLayout.bodySize), .foregroundColor: Theme.ink]
         styling = false
         resizeText()
     }
-    func textDidEndEditing(_ notification: Notification) { flush(); onEndEditing?() }
-    func textDidChange(_ notification: Notification) { if !quiet { changed() } }
+    func textDidEndEditing(_ notification: Notification) { closeMenu(); flush(); onEndEditing?() }
+    func textDidChange(_ notification: Notification) {
+        guard !quiet else { return }
+        // A numbered list counts on from its first number after any edit in it.
+        if document?.writable == true, !textView.hasMarkedText() {
+            let before = EditorEdit(text: textView.string, selection: textView.selectedRange())
+            let fixed = MarkdownEditing.renumberAround(before)
+            if fixed.text != before.text { quiet = true; textView.string = fixed.text; textView.setSelectedRange(fixed.selection); quiet = false }
+        }
+        changed()
+    }
     private func changed() {
         onActivity?()
         document?.replace(with: textView.string)
         pending?.cancel()
         let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.flush() } }
         pending = work; DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
-        style(); updateChoices()
+        style(); updateMenu(typing: true)
     }
-    func textViewDidChangeSelection(_ notification: Notification) { if !styling && !quiet { style(); updateChoices() } }
+    func textViewDidChangeSelection(_ notification: Notification) { if !styling && !quiet { style(); updateMenu(typing: false) } }
     func controlTextDidEndEditing(_ obj: Notification) { if document?.writable == true { onRename?(title.stringValue) } }
     func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
         followLink(link, newTab: NSEvent.modifierFlags.contains(.command))
@@ -212,15 +242,26 @@ import AppKit
     }
     private func apply(_ edit: EditorEdit) {
         guard document?.writable == true else { return }
+        if edit.text == textView.string { textView.setSelectedRange(edit.selection); return }
         quiet = true; textView.string = edit.text; textView.setSelectedRange(edit.selection); quiet = false; changed()
     }
-    func insertSlash(_ command: SlashCommand) { apply(command.apply(textView.string, selection: textView.selectedRange())) }
+    /// A click on a rendered task box: the box flips, the caret stays where it was, no keyboard or focus change.
+    private func flipBox(at offset: Int) {
+        guard document?.writable == true, let flipped = MarkdownEditing.flipBox(textView.string, lineStart: offset) else { return }
+        let selection = textView.selectedRange()
+        quiet = true; textView.string = flipped; textView.setSelectedRange(selection); quiet = false; changed()
+    }
+    /// The palette's "Insert slash command": the command runs at the caret, with no token to remove.
+    func insertSlash(_ command: EditorCommand) { run(command, token: SlashToken(range: NSRange(location: textView.selectedRange().location, length: 0), query: "")) }
     func shortcut(_ name: String) {
         let t = textView.string, s = textView.selectedRange()
         switch name {
-        case "bold": apply(MarkdownEditing.wrap(t, selection: s, left: "**", right: "**"))
-        case "italic": apply(MarkdownEditing.wrap(t, selection: s, left: "*", right: "*"))
-        case "link": apply(MarkdownEditing.wrap(t, selection: s, left: "[", right: "](url)"))
+        case "bold": apply(MarkdownEditing.toggle(t, selection: s, open: "**", close: "**"))
+        case "italic": apply(MarkdownEditing.toggle(t, selection: s, open: "*", close: "*"))
+        case "strike": apply(MarkdownEditing.toggle(t, selection: s, open: "~~", close: "~~"))
+        case "highlight": apply(MarkdownEditing.toggle(t, selection: s, open: "==", close: "=="))
+        case "inlinecode": apply(MarkdownEditing.toggle(t, selection: s, open: "`", close: "`"))
+        case "link": apply(MarkdownEditing.link(t, selection: s))
         case "task": apply(MarkdownEditing.task(t, selection: s))
         case "find": find()
         default: break
@@ -230,14 +271,19 @@ import AppKit
         guard document?.writable == true else { return false }
         let s = textView.selectedRange(), t = textView.string
         switch commandSelector {
-        case #selector(NSResponder.insertNewline(_:)):
-            if !choices.isEmpty { choices[choice].1(); choices = []; suggestions.isHidden = true }
-            else { apply(MarkdownEditing.enter(t, selection: s)) }
+        case #selector(NSResponder.insertNewline(_:)) where menuOpen: panel.runSelected()
+        case #selector(NSResponder.insertTab(_:)) where menuOpen: panel.runSelected()
+        case #selector(NSResponder.insertNewline(_:)): apply(MarkdownEditing.enter(t, selection: s))
         case #selector(NSResponder.insertTab(_:)): apply(MarkdownEditing.indent(t, selection: s, outdent: false))
         case #selector(NSResponder.insertBacktab(_:)): apply(MarkdownEditing.indent(t, selection: s, outdent: true))
-        case #selector(NSResponder.moveDown(_:)) where !choices.isEmpty: choice = (choice + 1) % choices.count; showChoices()
-        case #selector(NSResponder.moveUp(_:)) where !choices.isEmpty: choice = (choice + choices.count - 1) % choices.count; showChoices()
-        case #selector(NSResponder.cancelOperation(_:)) where !choices.isEmpty: choices = []; suggestions.isHidden = true
+        case #selector(NSResponder.moveDown(_:)) where menuOpen: panel.move(1)
+        case #selector(NSResponder.moveUp(_:)) where menuOpen: panel.move(-1)
+        case #selector(NSResponder.cancelOperation(_:)) where menuOpen:
+            if let token = menuToken { dismissedSlash = token.range.location }
+            closeMenu()
+        case #selector(NSResponder.deleteBackward(_:)):
+            guard !textView.hasMarkedText(), let edit = MarkdownEditing.backspace(t, selection: s) else { return false }
+            apply(edit)
         default: return false
         }
         return true
@@ -248,63 +294,105 @@ import AppKit
         if !normalized.utf8.elementsEqual(replacementString.utf8) {
             apply(MarkdownEditing.replace(textView.string, affectedCharRange, normalized)); return false
         }
-        guard replacementString.utf16.count == 1 else { return true }
-        let pairs = ["(": ")", "[": "]", "{": "}", "\"": "\"", "'": "'", "*": "*", "`": "`", "~": "~", "=": "="]
-        let ns = textView.string as NSString
-        let at = affectedCharRange.location
-        if ["*", "~", "="].contains(replacementString), affectedCharRange.length == 0, at > 0, at < ns.length,
-           ns.substring(with: NSRange(location: at - 1, length: 1)) == replacementString,
-           ns.substring(with: NSRange(location: at, length: 1)) == replacementString,
-           at == 1 || ns.substring(with: NSRange(location: at - 2, length: 1)).rangeOfCharacter(from: .alphanumerics) == nil {
-            apply(MarkdownEditing.replace(textView.string, NSRange(location: at, length: 0), replacementString + replacementString, selection: NSRange(location: at + 1, length: 0))); return false
-        }
-        if affectedCharRange.length == 0, affectedCharRange.location < ns.length,
-           [")", "]", "}", "\"", "'", "*", "`", "~", "="].contains(replacementString),
-           ns.substring(with: NSRange(location: affectedCharRange.location, length: 1)) == replacementString {
-            textView.setSelectedRange(NSRange(location: affectedCharRange.location + 1, length: 0)); return false
-        }
-        if let right = pairs[replacementString] {
-            // Single apostrophes inside words are not Markdown pairs.
-            if replacementString == "'", affectedCharRange.location > 0,
-               (textView.string as NSString).substring(with: NSRange(location: affectedCharRange.location - 1, length: 1)).rangeOfCharacter(from: .letters) != nil { return true }
-            apply(MarkdownEditing.wrap(textView.string, selection: affectedCharRange, left: replacementString, right: right)); return false
-        }
-        return true
+        // Nothing is paired while the keyboard is composing a word.
+        guard replacementString.utf16.count == 1, !textView.hasMarkedText(), let edit = MarkdownEditing.type(textView.string, selection: affectedCharRange, character: replacementString) else { return true }
+        apply(edit); return false
     }
-    private func updateChoices() {
-        choices = []; choice = 0
-        let s = textView.selectedRange(), t = textView.string as NSString
-        let range = MarkdownEditing.lineRange(textView.string, s)
-        let prefix = t.substring(with: NSRange(location: range.location, length: max(0, s.location - range.location)))
-        if prefix.hasPrefix("/"), !prefix.contains(" ") {
-            choices = SlashCommand.filter(prefix, commands: slashCommands).map { cmd in
-                ("/" + cmd.name, { [weak self] in guard let self else { return }; self.apply(cmd.apply(self.textView.string, selection: self.textView.selectedRange())) })
-            }
-        } else if let start = prefix.range(of: "[[", options: .backwards), !prefix[start.upperBound...].contains("]") {
+
+    // MARK: The command panel (editor-v2 §3.2)
+
+    private var menuOpen: Bool { !panel.isHidden && (menuToken != nil || menuNote != nil) }
+    private func closeMenu() {
+        let wasOpen = !panel.isHidden
+        menuToken = nil; menuNote = nil
+        if wasOpen { panel.fade(in: false) { [weak self] in if self?.menuToken == nil && self?.menuNote == nil { self?.panel.isHidden = true } } }
+    }
+    /// Typing opens the menu; moving the caret only keeps it open or closes it.
+    private func updateMenu(typing: Bool) {
+        guard document?.writable == true, !textView.hasMarkedText(), !resizing else { closeMenu(); return }
+        let t = textView.string, s = textView.selectedRange()
+        if let d = dismissedSlash, (t as NSString).length <= d || (t as NSString).substring(with: NSRange(location: d, length: 1)) != "/" { dismissedSlash = nil }
+        if let token = SlashEngine.token(t, selection: s) {
+            if dismissedSlash == token.range.location || (!typing && !menuOpen) { closeMenu(); return }
+            let found = SlashEngine.match(token.query, in: SlashCatalog.all(user: slashCommands))
+            guard !found.isEmpty else { closeMenu(); return }
+            let sameToken = menuToken?.range.location == token.range.location
+            menuNote = nil; menuToken = token
+            let rows = found.map { cmd in PanelRow(icon: cmd.icon, title: cmd.title, trailing: "/" + cmd.name, group: cmd.group, run: { [weak self] in self?.run(cmd, token: token) }) }
+            present(rows, groups: token.query.isEmpty, keepSelection: sameToken)
+            return
+        }
+        // [[ completion shares the panel: rows are note titles.
+        let range = MarkdownEditing.lineRange(t, s)
+        let prefix = (t as NSString).substring(with: NSRange(location: range.location, length: max(0, s.location - range.location)))
+        if s.length == 0, let start = prefix.range(of: "[[", options: .backwards), !prefix[start.upperBound...].contains("]") {
+            if !typing && !menuOpen { closeMenu(); return }
             let query = String(prefix[start.upperBound...])
             let location = range.location + prefix[..<start.lowerBound].utf16.count
-            choices = (complete?(query) ?? []).map { name in
-                (name, { [weak self] in guard let self else { return }
-                    let ns = self.textView.string as NSString
-                    var end = self.textView.selectedRange().location
-                    while end < ns.length && ns.substring(with: NSRange(location: end, length: 1)) == "]" { end += 1 }
-                    self.apply(MarkdownEditing.replace(self.textView.string, NSRange(location: location, length: end - location), "[[\(name)]]"))
-                })
-            }
+            let titles = Array((complete?(query) ?? []).prefix(40))
+            guard !titles.isEmpty else { closeMenu(); return }
+            let same = menuNote == location
+            menuToken = nil; menuNote = location
+            let rows = titles.map { name in PanelRow(icon: "doc.text", title: name, trailing: "", group: "", run: { [weak self] in
+                guard let self else { return }
+                let ns = self.textView.string as NSString
+                var end = self.textView.selectedRange().location
+                while end < ns.length && ns.substring(with: NSRange(location: end, length: 1)) == "]" { end += 1 }
+                self.closeMenu()
+                self.apply(MarkdownEditing.replace(self.textView.string, NSRange(location: location, length: end - location), "[[\(name)]]"))
+            }) }
+            present(rows, groups: false, keepSelection: same)
+            return
         }
-        showChoices()
+        closeMenu()
     }
-    private func showChoices() {
-        suggestions.isHidden = choices.isEmpty
-        suggestions.stringValue = choices.enumerated().prefix(5).map { ($0.offset == choice ? "› " : "  ") + $0.element.0 }.joined(separator: "\n")
-        suggestions.maximumNumberOfLines = 5
-        if !choices.isEmpty, let manager = textView.layoutManager, manager.numberOfGlyphs > 0 {
-            let character = min(max(0, textView.selectedRange().location - 1), textView.string.utf16.count - 1)
-            let glyph = manager.glyphIndexForCharacter(at: character)
-            let rect = manager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
-            suggestions.frame.origin = CGPoint(x: textView.frame.minX, y: textView.frame.minY + rect.maxY + 16)
+    private func present(_ rows: [PanelRow], groups: Bool, keepSelection: Bool) {
+        if !keepSelection { panel.resetSelection() }
+        panel.set(rows: rows, showGroups: groups)
+        let wasHidden = panel.isHidden
+        if panel.superview == nil || panel.superview !== superview { superview?.addSubview(panel) }
+        panel.frame.size = CGSize(width: CommandPanel.width, height: panel.fittedHeight)
+        placeMenu()
+        if wasHidden { panel.fade(in: true) } else { panel.layer?.removeAnimation(forKey: "fade"); panel.layer?.opacity = 1; panel.isHidden = false }
+    }
+    /// Under the caret line with its left edge at the token's `/`; above the line when there is no room below.
+    private func placeMenu() {
+        guard let host = superview, let manager = textView.layoutManager, manager.numberOfGlyphs > 0 else { return }
+        let at = menuToken?.range.location ?? menuNote ?? textView.selectedRange().location
+        let character = min(max(0, at), textView.string.utf16.count - 1)
+        let glyph = manager.glyphIndexForCharacter(at: character)
+        let line = manager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+        let location = manager.location(forGlyphAt: glyph)
+        let topLeft = textView.convert(CGPoint(x: line.minX + location.x, y: line.minY), to: host)
+        let bottom = textView.convert(CGPoint(x: line.minX, y: line.maxY), to: host).y
+        let top = topLeft.y
+        let size = CGSize(width: CommandPanel.width, height: panel.fittedHeight)
+        let hostIsFlipped = host.isFlipped
+        var y = hostIsFlipped ? bottom + 6 : bottom - 6 - size.height
+        if hostIsFlipped ? y + size.height > host.bounds.height - 8 : y < 8 { y = hostIsFlipped ? top - 6 - size.height : top + 6 }
+        let x = min(max(8, topLeft.x), max(8, host.bounds.width - size.width - 8))
+        panel.frame = CGRect(x: x, y: y, width: size.width, height: size.height)
+    }
+    /// Removes the token and runs the command: one edit, saved on its own so undo gives the token back.
+    func run(_ command: EditorCommand, token: SlashToken) {
+        guard document?.writable == true else { return }
+        flush()
+        let outcome = SlashEngine.run(command, text: textView.string, token: token)
+        closeMenu(); dismissedSlash = nil
+        apply(outcome.edit)
+        flush()
+        window?.makeFirstResponder(textView)
+        switch outcome.action {
+        case .ask?: onAsk?(false)
+        case .draw?: onAsk?(true)
+        case .completeNote?: updateMenu(typing: true)
+        case nil: break
         }
     }
+    /// Debug and checks: what the panel lists right now, and a way to run a row.
+    func debugMenu() -> [String] { menuOpen ? panel.debugRowTitles() : [] }
+    func debugRunSelected() { panel.runSelected() }
+    var debugPanel: CommandPanel { panel }
     override func draw(_ dirtyRect: NSRect) {
         guard !isFree else { return }
         NSColor.separatorColor.setStroke()
@@ -357,8 +445,12 @@ import AppKit
 
 @MainActor final class MarkdownTextView: NSTextView {
     var onImage: ((Data, Int) -> Void)?
+    var onPasteLink: ((String) -> Bool)?
+    /// Where Paste reads from (the checks use a private one).
+    var pasteboard = NSPasteboard.general
     override func paste(_ sender: Any?) {
-        if isEditable, let data = NoteImages.pasted(.general), let onImage { onImage(data, selectedRange().location); return }
+        if isEditable, let data = NoteImages.pasted(pasteboard), let onImage { onImage(data, selectedRange().location); return }
+        if isEditable, let string = pasteboard.string(forType: .string), onPasteLink?(string) == true { return }
         super.paste(sender)
     }
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
@@ -401,7 +493,7 @@ import AppKit
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard let manager = layoutManager else { return }
-        DocumentLayout.decorations(text: string, manager: manager, width: bounds.width, caret: isEditable ? selectedRange().location : nil)
+        DocumentLayout.decorations(text: string, manager: manager, width: bounds.width, selection: isEditable ? selectedRange() : nil)
         guard let container = textContainer else { return }
         Theme.muted.setFill()
         for passage in passages where NSMaxRange(passage) <= string.utf16.count {

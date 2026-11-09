@@ -92,7 +92,11 @@ internal sealed interface Prim {
 /** One wrapped line of the document, in canvas units. [top] and [used] bound the fragment without paragraph spacing. */
 internal data class VLine(val start: Int, val end: Int, val top: Float, val used: Float, val logical: Int)
 
-internal class DocLayout(val prims: List<Prim>, val vlines: List<VLine>, val logicalBottoms: List<Float>, val bottom: Float) {
+/** A rendered task box: the logical line it belongs to and where it is drawn, in canvas units. */
+internal data class TaskSpot(val logical: Int, val x: Float, val y: Float, val w: Float, val h: Float)
+
+internal class DocLayout(val prims: List<Prim>, val vlines: List<VLine>, val logicalBottoms: List<Float>, val bottom: Float,
+    val tasks: List<TaskSpot> = emptyList()) {
     /** The canvas y of the visual line holding the UTF-16 [offset], or null for an empty document. */
     fun yOf(offset: Int): Float? = (vlines.firstOrNull { offset >= it.start && offset <= it.end } ?: vlines.lastOrNull())?.top
 }
@@ -102,10 +106,12 @@ internal class Typeset(private val shaper: Shaper) {
      * [heights] gives drawing-embed lines (`![[syncr-drawing:ID]]`) their reserved height; [gaps] adds space after the
      * paragraph at a logical line index (answers placed under their passage).
      */
-    fun document(text: String, x: Float, y: Float, width: Float, heights: Map<String, Float> = emptyMap(), gaps: Map<Int, Float> = emptyMap()): DocLayout {
+    fun document(text: String, x: Float, y: Float, width: Float, heights: Map<String, Float> = emptyMap(), gaps: Map<Int, Float> = emptyMap(),
+        shown: Set<Int> = emptySet()): DocLayout {
         val prims = ArrayList<Prim>()
         val vlines = ArrayList<VLine>()
         val bottoms = ArrayList<Float>()
+        val tasks = ArrayList<TaskSpot>()
         val lines = TextMarkdown.lines(text)
         var cursor = y
         var codeBlock: FloatArray? = null // top, bottom of the current code background
@@ -118,7 +124,7 @@ internal class Typeset(private val shaper: Shaper) {
             val raw = line.text.trim()
             val embedId = if (raw.startsWith("![[syncr-drawing:") && raw.endsWith("]]")) raw.drop(17).dropLast(2) else null
             val embedHeight = embedId?.let { heights[it] }
-            val attrs = attributes(line)
+            val attrs = attributes(line, index in shown)
             val runs = compress(attrs)
             val shaped = if (embedHeight != null) listOf(ShapedLine(0, 0, emptyList())) else shaper.shape(line.text, runs, width)
             var firstFragment: FloatArray? = null
@@ -147,7 +153,8 @@ internal class Typeset(private val shaper: Shaper) {
                 cursor += fragmentHeight
             }
             val first = firstFragment!!
-            decorate(line, prims, x, width, first[0], first[1] - first[0])
+            if (index !in shown) decorate(line, prims, x, width, first[0], first[1] - first[0])
+            if (index !in shown && line.kind is MdKind.Task) tasks += TaskSpot(index, x + line.text.takeWhile { it == ' ' || it == '\t' }.length * 12f, first[0] + 10, 34f, 34f)
             when (line.kind) {
                 is MdKind.Code, is MdKind.Fence -> {
                     val b = codeBlock
@@ -161,7 +168,7 @@ internal class Typeset(private val shaper: Shaper) {
             bottoms += (vlines.last().used)
         }
         flushCode()
-        return DocLayout(prims, vlines, bottoms, cursor)
+        return DocLayout(prims, vlines, bottoms, cursor, tasks)
     }
 
     private fun decorate(line: MdLine, prims: MutableList<Prim>, x: Float, width: Float, top: Float, fragment: Float) {
@@ -187,15 +194,19 @@ internal class Typeset(private val shaper: Shaper) {
         }
     }
 
-    /** The Mac's `attributed(...)` for one line with no caret: syntax hidden, prefixes kept or hidden as it does. */
-    fun attributes(line: MdLine): Array<Attr> {
+    /**
+     * The Mac's `attributed(...)` for one line: syntax hidden, prefixes kept or hidden as it does. With [shown] (the line
+     * holds the caret or is selected) the syntax keeps its size and takes the faint colour instead, so the line's own
+     * glyph sizes, and with them its height, do not change.
+     */
+    fun attributes(line: MdLine, shown: Boolean = false): Array<Attr> {
         val n = line.text.length
         val a = Array(n) { Attr() }
         fun set(range: IntRange, f: (Attr) -> Attr) {
             for (i in range.first.coerceAtLeast(0)..range.last.coerceAtMost(n - 1)) a[i] = f(a[i])
         }
         fun rel(range: IntRange) = (range.first - line.start)..(range.last - line.start)
-        val hide = { r: IntRange -> set(r) { it.copy(size = MacMetrics.HIDDEN, tok = Tok.CLEAR) } }
+        val hide = { r: IntRange -> if (shown) set(r) { it.copy(tok = Tok.MUTED) } else set(r) { it.copy(size = MacMetrics.HIDDEN, tok = Tok.CLEAR) } }
         val whole = 0 until n
         val prefix = 0 until line.prefixLength
         when (val k = line.kind) {
@@ -204,15 +215,15 @@ internal class Typeset(private val shaper: Shaper) {
                 set(whole) { it.copy(size = size, weight = 500, kern = -0.02f) }
                 hide(prefix)
             }
-            MdKind.Quote -> { set(whole) { it.copy(tok = Tok.SOFT) }; set(prefix) { it.copy(tok = Tok.CLEAR) } }
-            is MdKind.Task -> set(prefix) { it.copy(size = 16f, family = Family.MONO, tok = Tok.CLEAR) }
-            MdKind.Bullet, is MdKind.Numbered -> set(prefix) { it.copy(tok = Tok.CLEAR) }
+            MdKind.Quote -> { set(whole) { it.copy(tok = Tok.SOFT) }; set(prefix) { it.copy(tok = if (shown) Tok.MUTED else Tok.CLEAR) } }
+            is MdKind.Task -> set(prefix) { it.copy(size = if (shown) MacMetrics.BODY else 16f, family = Family.MONO, tok = if (shown) Tok.MUTED else Tok.CLEAR) }
+            MdKind.Bullet, is MdKind.Numbered -> set(prefix) { it.copy(tok = if (shown) Tok.MUTED else Tok.CLEAR) }
             is MdKind.Fence -> { set(whole) { it.copy(size = 34f, family = Family.MONO, tok = Tok.MUTED) }; hide(whole) }
             is MdKind.Code -> {
                 set(whole) { it.copy(size = 42f, family = Family.MONO) }
                 colourCode(line.text, k.language, a)
             }
-            is MdKind.Rule -> set(whole) { it.copy(tok = Tok.CLEAR) }
+            is MdKind.Rule -> set(whole) { it.copy(tok = if (shown) Tok.MUTED else Tok.CLEAR) }
             else -> Unit
         }
         for (span in line.spans) {

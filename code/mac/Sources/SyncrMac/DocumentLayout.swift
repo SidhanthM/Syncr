@@ -42,7 +42,28 @@ struct DocumentLayoutLine: Equatable {
         guard let page = page(note: note, width: width) else { return nil }
         return image(note: page, width: page.width, scale: scale)
     }
-    static func attributed(_ text: String, caret: Int? = nil, resolving: ((String) -> Bool)? = nil, drawingHeights: [String: CGFloat] = [:], imageGaps: [Int: CGFloat] = [:]) -> NSAttributedString {
+    /// Which lines show their syntax: every line the selection (or the caret) touches, and the whole of a fenced block
+    /// the selection is inside. Indices into `lines`.
+    static func activeLines(_ lines: [MarkdownLine], selection: NSRange?) -> Set<Int> {
+        guard let s = selection else { return [] }
+        func touches(_ r: NSRange) -> Bool {
+            s.length == 0 ? (s.location >= r.location && s.location <= NSMaxRange(r))
+                : (NSIntersectionRange(s, NSRange(location: r.location, length: r.length + 1)).length > 0)
+        }
+        var active = Set<Int>(), openAt: Int?
+        for (i, line) in lines.enumerated() {
+            if touches(line.range) { active.insert(i) }
+            if case .fence = line.kind {
+                if let from = openAt {
+                    if (from...i).contains(where: { active.contains($0) }) { (from...i).forEach { active.insert($0) } }
+                    openAt = nil
+                } else { openAt = i }
+            }
+        }
+        if let from = openAt, (from..<lines.count).contains(where: { active.contains($0) }) { (from..<lines.count).forEach { active.insert($0) } }
+        return active
+    }
+    static func attributed(_ text: String, caret: Int? = nil, selection: NSRange? = nil, resolving: ((String) -> Bool)? = nil, drawingHeights: [String: CGFloat] = [:], imageGaps: [Int: CGFloat] = [:]) -> NSAttributedString {
         let out = NSMutableAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: bodySize), .foregroundColor: Theme.ink])
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = bodySize * AppPreferences.shared.values.lineSpacing.multiplier
@@ -54,9 +75,25 @@ struct DocumentLayoutLine: Equatable {
             out.addAttribute(.paragraphStyle, value: spaced, range: range)
         }
         func hide(_ r: NSRange) { if r.length > 0 { out.addAttributes([.font: NSFont.systemFont(ofSize: 0.01), .foregroundColor: NSColor.clear], range: r) } }
-        for line in Markdown.lines(text) {
-            let active = caret.map { $0 >= line.range.location && $0 <= NSMaxRange(line.range) } ?? false
+        let parsed = Markdown.lines(text)
+        let activeSet = activeLines(parsed, selection: selection ?? caret.map { NSRange(location: $0, length: 0) })
+        for (lineIndex, line) in parsed.enumerated() {
+            let active = activeSet.contains(lineIndex)
             let raw = line.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            // A line keeps the height of its own type whether its syntax shows or not.
+            let lineFont: NSFont
+            switch line.kind {
+            case .heading(let level): lineFont = headingFont(level)
+            case .fence: lineFont = NSFont.monospacedSystemFont(ofSize: 34 * AppPreferences.shared.textScale, weight: .regular)
+            case .code: lineFont = NSFont.monospacedSystemFont(ofSize: 42 * AppPreferences.shared.textScale, weight: .regular)
+            default: lineFont = NSFont.systemFont(ofSize: bodySize)
+            }
+            if line.range.length > 0, !(raw.hasPrefix("![[syncr-drawing:") && raw.hasSuffix("]]")) {
+                let current = (out.attribute(.paragraphStyle, at: line.range.location, effectiveRange: nil) as? NSParagraphStyle) ?? paragraph
+                let fixed = (current.mutableCopy() as! NSMutableParagraphStyle)
+                fixed.minimumLineHeight = (lineFont.ascender - lineFont.descender + lineFont.leading).rounded(.up)
+                out.addAttribute(.paragraphStyle, value: fixed, range: line.range)
+            }
             if raw.hasPrefix("![[syncr-drawing:"), raw.hasSuffix("]]"), let height = drawingHeights[String(raw.dropFirst(17).dropLast(2))] {
                 let embed = NSMutableParagraphStyle(); embed.minimumLineHeight = height; embed.maximumLineHeight = height
                 out.addAttributes([.paragraphStyle: embed, .font: NSFont.systemFont(ofSize: active ? 14 : 0.01), .foregroundColor: active ? Theme.muted : NSColor.clear], range: line.range)
@@ -69,13 +106,19 @@ struct DocumentLayoutLine: Equatable {
             case .quote: out.addAttribute(.foregroundColor, value: Theme.soft, range: line.range); hiddenPrefix = true
             case .task, .bullet, .numbered: hiddenPrefix = true
             case .fence:
-                out.addAttributes([.font: NSFont.monospacedSystemFont(ofSize: 34 * AppPreferences.shared.textScale, weight: .regular), .foregroundColor: Theme.muted], range: line.range)
-                hiddenPrefix = !active
+                // Hidden fences keep their font (and so the line's height); only the ink goes.
+                out.addAttributes([.font: lineFont, .foregroundColor: active ? Theme.muted : NSColor.clear], range: line.range)
             case .code(let language):
                 out.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 42 * AppPreferences.shared.textScale, weight: .regular), range: line.range)
                 colourCode(line, language: language, into: out)
             case .rule: out.addAttribute(.foregroundColor, value: active ? Theme.muted : NSColor.clear, range: line.range)
             default: break
+            }
+            if active, line.prefix.length > 0 {
+                switch line.kind {
+                case .heading, .quote, .task, .bullet, .numbered: out.addAttribute(.foregroundColor, value: Theme.muted, range: line.prefix)
+                default: break
+                }
             }
             if hiddenPrefix && !active {
                 switch line.kind {
@@ -102,7 +145,7 @@ struct DocumentLayoutLine: Equatable {
                                        .underlineStyle: NSUnderlineStyle.single.rawValue | (missing ? NSUnderlineStyle.patternDot.rawValue : 0), .underlineColor: Theme.muted], range: span.range)
                 case .tag: out.addAttributes([.foregroundColor: Theme.ink, .underlineStyle: NSUnderlineStyle.single.rawValue, .underlineColor: Theme.hairlineStrong], range: span.range)
                 }
-                if !active { span.syntax.forEach(hide) }
+                if !active { span.syntax.forEach(hide) } else { span.syntax.forEach { if $0.length > 0 { out.addAttribute(.foregroundColor, value: Theme.muted, range: $0) } } }
             }
         }
         return out
@@ -113,12 +156,14 @@ struct DocumentLayoutLine: Equatable {
             for m in Markdown.matches(pattern, line.text) { out.addAttribute(.foregroundColor, value: colour, range: NSRange(location: line.range.location + m.range.location, length: m.range.length)) }
         }
     }
-    static func decorations(text: String, manager: NSLayoutManager, origin: CGPoint = .zero, width: CGFloat, caret: Int? = nil) {
-        for line in Markdown.lines(text) where line.range.length > 0 {
+    static func decorations(text: String, manager: NSLayoutManager, origin: CGPoint = .zero, width: CGFloat, caret: Int? = nil, selection: NSRange? = nil) {
+        let parsed = Markdown.lines(text)
+        let activeSet = activeLines(parsed, selection: selection ?? caret.map { NSRange(location: $0, length: 0) })
+        for (lineIndex, line) in parsed.enumerated() where line.range.length > 0 {
             let glyphs = manager.glyphRange(forCharacterRange: line.range, actualCharacterRange: nil)
             guard glyphs.length > 0 else { continue }
             let rect = manager.lineFragmentRect(forGlyphAt: glyphs.location, effectiveRange: nil).offsetBy(dx: origin.x, dy: origin.y)
-            let active = caret.map { $0 >= line.range.location && $0 <= NSMaxRange(line.range) } ?? false
+            let active = activeSet.contains(lineIndex)
             let indent = CGFloat(line.text.prefix(while: { $0 == " " || $0 == "\t" }).count) * 12
             func label(_ text: String, size: CGFloat = 48, x: CGFloat = 0) {
                 (text as NSString).draw(at: CGPoint(x: origin.x + x, y: rect.minY), withAttributes: [.font: NSFont.systemFont(ofSize: size), .foregroundColor: Theme.muted])

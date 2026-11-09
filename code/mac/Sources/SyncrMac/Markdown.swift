@@ -106,6 +106,8 @@ enum Markdown {
 }
 
 struct EditorEdit: Equatable { var text: String; var selection: NSRange }
+
+/// Pure editing rules: (text, selection) in, (text, selection) out. The editor applies them; nothing here touches a view.
 enum MarkdownEditing {
     static func replace(_ text: String, _ range: NSRange, _ insert: String, selection: NSRange? = nil) -> EditorEdit {
         EditorEdit(text: (text as NSString).replacingCharacters(in: range, with: insert), selection: selection ?? NSRange(location: range.location + (insert as NSString).length, length: 0))
@@ -113,40 +115,147 @@ enum MarkdownEditing {
     static func lineRange(_ text: String, _ selection: NSRange) -> NSRange {
         (text as NSString).lineRange(for: NSRange(location: min(selection.location, (text as NSString).length), length: 0))
     }
+    /// Start of the line holding `offset`, and the end of its words (before the line break).
+    static func lineBounds(_ text: String, _ offset: Int) -> (start: Int, end: Int) {
+        var start = 0, end = 0, contents = 0
+        (text as NSString).getLineStart(&start, end: &end, contentsEnd: &contents, for: NSRange(location: min(offset, (text as NSString).length), length: 0))
+        return (start, contents)
+    }
+    private static func sub(_ ns: NSString, _ location: Int, _ length: Int) -> String {
+        location >= 0 && length >= 0 && location + length <= ns.length ? ns.substring(with: NSRange(location: location, length: length)) : ""
+    }
+
+    // MARK: Enter, Tab, Backspace
+
     static func enter(_ text: String, selection: NSRange) -> EditorEdit {
-        let range = lineRange(text, selection), ns = text as NSString
-        let raw = ns.substring(with: range).trimmingCharacters(in: .newlines)
-        guard let line = Markdown.lines(raw).first else { return replace(text, selection, "\n") }
-        let prefix = (raw as NSString).substring(with: line.prefix)
-        let rest = (raw as NSString).substring(from: line.prefix.length)
+        let ns = text as NSString
+        let (start, end) = lineBounds(text, selection.location)
+        let raw = ns.substring(with: NSRange(location: start, length: end - start))
+        let all = Markdown.lines(text)
+        guard let line = all.first(where: { $0.range.location == start }) else { return replace(text, selection, "\n") }
+        let atEnd = selection.location >= end
+        // A fence opened with ``` and Enter: the block closes itself and the caret waits inside.
+        if case .fence = line.kind, atEnd, raw.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+            let before = all.filter { if case .fence = $0.kind { return $0.range.location < start }; return false }.count
+            if before % 2 == 0 {
+                return replace(text, selection, "\n\n```", selection: NSRange(location: selection.location + 1, length: 0))
+            }
+        }
+        let prefixEnd = start + line.prefix.length
+        let prefix = (raw as NSString).substring(to: line.prefix.length)
+        let indentCount = prefix.prefix(while: { $0 == " " || $0 == "\t" }).count
         var next = ""
         switch line.kind {
         case .bullet, .quote: next = prefix
         case .task: next = prefix.replacingOccurrences(of: "[x]", with: "[ ]").replacingOccurrences(of: "[X]", with: "[ ]")
-        case .numbered(let n): next = prefix.replacingOccurrences(of: "\(n).", with: "\(n + 1).")
+        case .numbered(let n):
+            let lead = String(prefix.prefix(indentCount))
+            next = lead + "\(n + 1). "
         default: break
         }
-        if !next.isEmpty && rest.trimmingCharacters(in: .whitespaces).isEmpty { return replace(text, NSRange(location: range.location, length: raw.utf16.count), "") }
-        return renumber(replace(text, selection, "\n" + next))
+        guard !next.isEmpty, selection.location >= prefixEnd else { return replace(text, selection, "\n") }
+        let words = (raw as NSString).substring(from: line.prefix.length)
+        if words.trimmingCharacters(in: .whitespaces).isEmpty && selection.length == 0 {
+            // An empty item ends the list; a nested one first steps out a level.
+            if indentCount > 0 {
+                let remove = prefix.hasPrefix("\t") ? 1 : min(4, prefix.prefix(while: { $0 == " " }).count)
+                let edit = replace(text, NSRange(location: start, length: remove), "", selection: NSRange(location: selection.location - remove, length: 0))
+                return renumberAround(edit)
+            }
+            return replace(text, NSRange(location: start, length: end - start), "", selection: NSRange(location: start, length: 0))
+        }
+        return renumberAround(replace(text, selection, "\n" + next))
     }
+
+    /// Tab or Shift-Tab over the lines the selection touches; the caret or selection keeps its place in the words.
     static func indent(_ text: String, selection: NSRange, outdent: Bool) -> EditorEdit {
-        let ns = text as NSString, range = ns.lineRange(for: selection)
-        let raw = ns.substring(with: range)
-        let lines = raw.components(separatedBy: "\n")
-        let changed = lines.enumerated().map { i, s in
-            if s.isEmpty && i == lines.count - 1 { return s }
-            if outdent { if s.hasPrefix("\t") { return String(s.dropFirst()) }; return String(s.dropFirst(s.prefix(while: { $0 == " " }).prefix(4).count)) }
-            return "    " + s
-        }.joined(separator: "\n")
-        let edit = replace(text, range, changed, selection: NSRange(location: range.location, length: changed.utf16.count))
-        return renumber(edit)
+        let ns = text as NSString
+        let first = lineBounds(text, selection.location).start
+        let lastLine = lineBounds(text, max(selection.location, selection.location + selection.length - (selection.length > 0 && sub(ns, selection.location + selection.length - 1, 1) == "\n" ? 1 : 0))).end
+        let range = NSRange(location: first, length: lastLine - first)
+        let lines = ns.substring(with: range).components(separatedBy: "\n")
+        var out: [String] = [], shifts: [(old: Int, delta: Int)] = [], at = first
+        for s in lines {
+            var delta = 4, changed = "    " + s
+            if outdent {
+                let remove = s.hasPrefix("\t") ? 1 : min(4, s.prefix(while: { $0 == " " }).count)
+                delta = -remove; changed = String(s.dropFirst(remove))
+            }
+            out.append(changed); shifts.append((at, delta)); at += (s as NSString).length + 1
+        }
+        func map(_ p: Int, start: Bool = false) -> Int {
+            var shift = 0
+            for (i, entry) in shifts.enumerated() {
+                let length = (lines[i] as NSString).length
+                if p > entry.old + length { shift += entry.delta; continue }
+                let off = p - entry.old
+                if start, off == 0, selection.length > 0 { return entry.old + shift }
+                return entry.old + shift + (entry.delta >= 0 ? off + entry.delta : max(0, off + entry.delta))
+            }
+            return p + shift
+        }
+        let edit = replace(text, range, out.joined(separator: "\n"))
+        var result = edit
+        result.selection = NSRange(location: map(selection.location, start: true), length: max(0, map(selection.location + selection.length) - map(selection.location, start: true)))
+        return renumberAround(result)
     }
-    private static func renumber(_ edit: EditorEdit) -> EditorEdit {
+
+    /// Backspace right after a list or quote marker removes the marker; between an empty pair it removes both halves.
+    static func backspace(_ text: String, selection: NSRange) -> EditorEdit? {
+        guard selection.length == 0, selection.location > 0 else { return nil }
+        let ns = text as NSString
+        let (start, _) = lineBounds(text, selection.location)
+        if let line = Markdown.lines(text).first(where: { $0.range.location == start }), line.prefix.length > 0, selection.location == start + line.prefix.length {
+            switch line.kind {
+            case .bullet, .numbered, .task, .quote:
+                return renumberAround(replace(text, line.prefix, "", selection: NSRange(location: start, length: 0)))
+            default: break
+            }
+        }
+        let before = sub(ns, selection.location - 1, 1), after = sub(ns, selection.location, 1)
+        if let right = pairs[before], right == after { return replace(text, NSRange(location: selection.location - 1, length: 2), "", selection: NSRange(location: selection.location - 1, length: 0)) }
+        return nil
+    }
+
+    // MARK: Numbering
+
+    private static func isListLine(_ raw: String) -> Bool {
+        !Markdown.matches("^\\s*([-*] |[0-9]+\\. |> )", raw).isEmpty
+    }
+    /// Renumbers the numbered list that holds the caret's line, and no other text.
+    static func renumberAround(_ edit: EditorEdit) -> EditorEdit {
         let ns = edit.text as NSString
-        let start = renumber(ns.substring(to: edit.selection.location)).utf16.count
-        let end = renumber(ns.substring(to: NSMaxRange(edit.selection))).utf16.count
-        return EditorEdit(text: renumber(edit.text), selection: NSRange(location: start, length: end - start))
+        guard ns.length > 0 else { return edit }
+        // Cheap test first (this runs on every keystroke): is a numbered item on the caret's line or next to it?
+        let here0 = lineBounds(edit.text, edit.selection.location)
+        var near = [here0]
+        if here0.start > 0 { near.append(lineBounds(edit.text, here0.start - 1)) }
+        if here0.end < ns.length { near.append(lineBounds(edit.text, here0.end + 1)) }
+        guard near.contains(where: { Markdown.matches("^\\s*[0-9]+\\. ", ns.substring(with: NSRange(location: $0.start, length: $0.end - $0.start))).count > 0 }) else { return edit }
+        var lines: [(start: Int, text: String)] = [], at = 0
+        for raw in edit.text.components(separatedBy: "\n") { lines.append((at, raw)); at += (raw as NSString).length + 1 }
+        guard let here = lines.lastIndex(where: { $0.start <= min(edit.selection.location, ns.length) }) else { return edit }
+        func belongs(_ i: Int) -> Bool {
+            let t = lines[i].text
+            return !t.trimmingCharacters(in: .whitespaces).isEmpty && (isListLine(t) || t.hasPrefix(" ") || t.hasPrefix("\t"))
+        }
+        guard belongs(here) else { return edit }
+        var a = here, b = here
+        while a > 0, belongs(a - 1) { a -= 1 }
+        while b + 1 < lines.count, belongs(b + 1) { b += 1 }
+        let block = lines[a...b].map(\.text).joined(separator: "\n")
+        let fixed = renumber(block)
+        guard fixed != block else { return edit }
+        let origin = lines[a].start
+        func map(_ p: Int) -> Int {
+            p <= origin ? p : p >= origin + (block as NSString).length ? p + (fixed as NSString).length - (block as NSString).length
+                : origin + (renumber((block as NSString).substring(to: p - origin)) as NSString).length
+        }
+        let text = ns.replacingCharacters(in: NSRange(location: origin, length: (block as NSString).length), with: fixed)
+        let from = map(edit.selection.location), to = map(NSMaxRange(edit.selection))
+        return EditorEdit(text: text, selection: NSRange(location: from, length: to - from))
     }
+    /// Within one list a number is the one before it plus one; the first number stands.
     static func renumber(_ text: String) -> String {
         var counts: [Int: Int] = [:]
         return text.components(separatedBy: "\n").map { raw in
@@ -161,39 +270,156 @@ enum MarkdownEditing {
             return (raw as NSString).replacingCharacters(in: m.range(at: 2), with: String(n))
         }.joined(separator: "\n")
     }
+
+    // MARK: Typing pairs
+
+    static let pairs = ["(": ")", "[": "]", "{": "}", "\"": "\"", "'": "'", "*": "*", "`": "`", "~": "~", "=": "="]
+    /// What typing one character does, or nil where the text system should insert it as it would.
+    static func type(_ text: String, selection: NSRange, character: String) -> EditorEdit? {
+        guard character.utf16.count == 1 else { return nil }
+        let ns = text as NSString, at = selection.location
+        if ["*", "~", "="].contains(character), selection.length == 0, at > 0, at < ns.length,
+           sub(ns, at - 1, 1) == character, sub(ns, at, 1) == character,
+           at == 1 || sub(ns, at - 2, 1).rangeOfCharacter(from: .alphanumerics) == nil {
+            return replace(text, NSRange(location: at, length: 0), character + character, selection: NSRange(location: at + 1, length: 0))
+        }
+        if selection.length == 0, at < ns.length, [")", "]", "}", "\"", "'", "*", "`", "~", "="].contains(character), sub(ns, at, 1) == character {
+            return EditorEdit(text: text, selection: NSRange(location: at + 1, length: 0))
+        }
+        guard let right = pairs[character] else { return nil }
+        // `~` and `=` only wrap what is selected: typed alone they are ordinary characters.
+        if selection.length == 0, ["~", "="].contains(character) { return nil }
+        // An apostrophe inside a word is not a pair.
+        if selection.length == 0, character == "'", at > 0, sub(ns, at - 1, 1).rangeOfCharacter(from: .alphanumerics) != nil { return nil }
+        // Nor is a closing quote after a word, or a quote before one.
+        if selection.length == 0, character == "\"", at > 0, sub(ns, at - 1, 1).rangeOfCharacter(from: .alphanumerics) != nil { return nil }
+        return wrap(text, selection: selection, left: character, right: right)
+    }
     static func wrap(_ text: String, selection: NSRange, left: String, right: String) -> EditorEdit {
         let raw = (text as NSString).substring(with: selection)
         return replace(text, selection, left + raw + right, selection: NSRange(location: selection.location + left.utf16.count, length: selection.length))
     }
+
+    // MARK: Formatting toggles
+
+    private static func wordRange(_ ns: NSString, at p: Int) -> NSRange {
+        func word(_ i: Int) -> Bool { i >= 0 && i < ns.length && (sub(ns, i, 1).rangeOfCharacter(from: .alphanumerics) != nil || sub(ns, i, 1) == "_") }
+        var a = p, b = p
+        while word(a - 1) { a -= 1 }
+        while word(b) { b += 1 }
+        return NSRange(location: a, length: b - a)
+    }
+    private static func run(_ ns: NSString, from p: Int, step: Int, marker: Character) -> Int {
+        var n = 0, i = step > 0 ? p : p - 1
+        while i >= 0, i < ns.length, sub(ns, i, 1) == String(marker) { n += 1; i += step }
+        return n
+    }
+    /// Bold, italic, strike, highlight and inline code: wraps the selection (or the word at the caret), and takes the
+    /// markers off again when they are already there. The caret keeps its place in the word.
+    static func toggle(_ text: String, selection: NSRange, open: String, close: String) -> EditorEdit {
+        let ns = text as NSString, o = open.utf16.count, c = close.utf16.count
+        let caret = selection.length == 0 ? selection.location : nil
+        if let p = caret, sub(ns, p - o, o) == open, sub(ns, p, c) == close, o > 0, p >= o {
+            return replace(text, NSRange(location: p - o, length: o + c), "", selection: NSRange(location: p - o, length: 0))
+        }
+        var sel = selection
+        if let p = caret {
+            let w = wordRange(ns, at: p)
+            if w.length == 0 { return replace(text, selection, open + close, selection: NSRange(location: p + o, length: 0)) }
+            sel = w
+        }
+        let marker = open.first!
+        let inner = ns.substring(with: sel)
+        func odd(_ l: Int, _ r: Int) -> Bool { open == "*" ? min(l, r) % 2 == 1 : open == "**" ? min(l, r) >= 2 : true }
+        let l = run(ns, from: sel.location, step: -1, marker: marker), r = run(ns, from: NSMaxRange(sel), step: 1, marker: marker)
+        let wrapped = sub(ns, sel.location - o, o) == open && sub(ns, NSMaxRange(sel), c) == close && sel.location >= o
+        var result: EditorEdit
+        let ln = inner.prefix(while: { $0 == marker }).count, rn = inner.reversed().prefix(while: { $0 == marker }).count
+        if wrapped && ((marker != "*") || odd(l, r)) {
+            result = replace(text, NSRange(location: sel.location - o, length: sel.length + o + c), inner, selection: NSRange(location: sel.location - o, length: sel.length))
+            if let p = caret { result.selection = NSRange(location: p - o, length: 0) }
+        } else if inner.hasPrefix(open), inner.hasSuffix(close), sel.length >= o + c, (marker != "*") || odd(ln, rn) {
+            result = replace(text, sel, String(inner.dropFirst(o).dropLast(c)), selection: NSRange(location: sel.location, length: sel.length - o - c))
+        } else {
+            result = replace(text, sel, open + inner + close, selection: NSRange(location: sel.location + o, length: sel.length))
+            if let p = caret { result.selection = NSRange(location: p + o, length: 0) }
+        }
+        return result
+    }
+    /// Link: `[word](url)` with the address selected; again, back to the words. Nothing selected and no word:
+    /// `[text](url)` with the placeholder selected.
+    static func link(_ text: String, selection: NSRange) -> EditorEdit {
+        let ns = text as NSString
+        let (start, _) = lineBounds(text, selection.location)
+        if let line = Markdown.lines(text).first(where: { $0.range.location == start }) {
+            for span in line.spans {
+                guard case .link(let url) = span.kind, !url.hasPrefix("http") || ns.substring(with: span.range).hasPrefix("["),
+                      selection.location >= span.range.location, NSMaxRange(selection) <= NSMaxRange(span.range), let open = span.syntax.first, let close = span.syntax.last else { continue }
+                let words = NSRange(location: NSMaxRange(open), length: close.location - NSMaxRange(open))
+                return replace(text, span.range, ns.substring(with: words), selection: NSRange(location: span.range.location, length: words.length))
+            }
+        }
+        var sel = selection
+        if sel.length == 0 { sel = wordRange(ns, at: sel.location) }
+        if sel.length == 0 {
+            return replace(text, selection, "[text](url)", selection: NSRange(location: selection.location + 1, length: 4))
+        }
+        let words = ns.substring(with: sel)
+        return replace(text, sel, "[\(words)](url)", selection: NSRange(location: sel.location + words.utf16.count + 3, length: 3))
+    }
+    /// A pasted address over selected words.
+    static func pasteLink(_ text: String, selection: NSRange, pasted: String) -> EditorEdit? {
+        let url = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard selection.length > 0, !url.contains(where: \.isWhitespace), let parsed = URL(string: url), ["http", "https", "mailto"].contains(parsed.scheme ?? "") else { return nil }
+        let words = (text as NSString).substring(with: selection)
+        guard !words.contains("\n"), !words.contains("[") , !words.contains("]") else { return nil }
+        let insert = "[\(words)](\(url))"
+        return replace(text, selection, insert)
+    }
+
+    // MARK: Tasks
+
+    /// Toggle task: a plain line or bullet becomes `- [ ] `, then ticked, then unticked. The caret keeps its place.
     static func task(_ text: String, selection: NSRange) -> EditorEdit {
-        let range = lineRange(text, selection), raw = (text as NSString).substring(with: range)
-        let value: String
-        if raw.contains("[ ]") { value = raw.replacingOccurrences(of: "[ ]", with: "[x]") }
-        else if raw.contains("[x]") { value = raw.replacingOccurrences(of: "[x]", with: "[ ]") }
-        else { value = "- [ ] " + raw.replacingOccurrences(of: "^\\s*[-*] ", with: "", options: .regularExpression) }
-        return replace(text, range, value)
+        let (start, end) = lineBounds(text, selection.location)
+        let ns = text as NSString
+        let raw = ns.substring(with: NSRange(location: start, length: end - start))
+        guard let line = Markdown.lines(raw).first else { return EditorEdit(text: text, selection: selection) }
+        let lead = String(raw.prefix(while: { $0 == " " || $0 == "\t" }))
+        func finish(_ value: String) -> EditorEdit {
+            let delta = (value as NSString).length - (raw as NSString).length
+            let edit = replace(text, NSRange(location: start, length: end - start), value)
+            func shift(_ p: Int) -> Int { p >= end ? p + delta : p >= start + line.prefix.length ? p + delta : min(p, start + (value as NSString).length) }
+            return EditorEdit(text: edit.text, selection: NSRange(location: shift(selection.location), length: max(0, shift(NSMaxRange(selection)) - shift(selection.location))))
+        }
+        switch line.kind {
+        case .task(let checked):
+            let mark = Markdown.matches("\\[([ xX])\\]", raw).first!.range(at: 1)
+            return finish((raw as NSString).replacingCharacters(in: mark, with: checked ? " " : "x"))
+        case .bullet: return finish(lead + "- [ ] " + (raw as NSString).substring(from: line.prefix.length))
+        case .numbered, .quote: return finish(lead + "- [ ] " + (raw as NSString).substring(from: line.prefix.length))
+        case .heading, .fence, .code, .rule: return EditorEdit(text: text, selection: selection)
+        case .plain: return finish(lead + "- [ ] " + (raw as NSString).substring(from: lead.utf16.count))
+        }
+    }
+    /// A click on a rendered box: flips it in place. Same length, so no caret moves.
+    static func flipBox(_ text: String, lineStart: Int) -> String? {
+        let (start, end) = lineBounds(text, lineStart)
+        let ns = text as NSString
+        let raw = ns.substring(with: NSRange(location: start, length: end - start))
+        guard let line = Markdown.lines(raw).first, case .task(let checked) = line.kind, let mark = Markdown.matches("\\[([ xX])\\]", raw).first?.range(at: 1) else { return nil }
+        return ns.replacingCharacters(in: NSRange(location: start + mark.location, length: 1), with: checked ? " " : "x")
     }
 }
 
+/// A user command from `<library>/.mac/slash.json`: an inline insertion.
 struct SlashCommand: Codable, Equatable {
     var name: String
     var insertion: String
-    static let defaults: [SlashCommand] = [
+    /// What the file held before 2026-11-16, when it was written out with the built-ins: that is "no commands of mine".
+    static let legacyDefaults: [SlashCommand] = [
         ("h1", "# "), ("h2", "## "), ("h3", "### "), ("todo", "- [ ] "), ("bullet", "- "),
         ("number", "1. "), ("quote", "> "), ("code", "```\n\n```"), ("divider", "---\n"), ("line", "---\n"),
         ("dashedline", "- - -\n"), ("dots", "...\n"), ("date", "{date}"), ("time", "{time}"), ("link", "[text](url)")
     ].map { SlashCommand(name: $0.0, insertion: $0.1) }
-    static func filter(_ query: String, commands: [SlashCommand] = defaults) -> [SlashCommand] {
-        commands.filter { $0.name.lowercased().hasPrefix(query.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "/"))) }
-    }
-    func apply(_ text: String, selection: NSRange, now: Date = Date()) -> EditorEdit {
-        let range = MarkdownEditing.lineRange(text, selection)
-        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
-        var value = insertion.replacingOccurrences(of: "{date}", with: f.string(from: now))
-        f.dateFormat = "HH:mm"
-        value = value.replacingOccurrences(of: "{time}", with: f.string(from: now))
-        let caret = name == "code" ? 4 : value.utf16.count
-        if (text as NSString).substring(with: range).hasSuffix("\n") && !value.hasSuffix("\n") { value += "\n" }
-        return MarkdownEditing.replace(text, range, value, selection: NSRange(location: range.location + caret, length: 0))
-    }
 }
