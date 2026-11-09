@@ -184,7 +184,7 @@ import SyncrCore
         exact = doc.text
         print(String(format: "Notebook debounce: %.1f ms from input to core acknowledgement", milliseconds))
         workspace.saveSession()
-        try check(model.readState("slash.json") != nil, "slash defaults persisted")
+        try check(model.readState("slash.json") == nil, "the built-in slash commands are no longer written to slash.json")
     }
     do {
         let model = LibraryModel(folder: dir), workspace = Workspace(model: model)

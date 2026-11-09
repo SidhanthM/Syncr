@@ -44,19 +44,27 @@ import Foundation
             // on the system setting. Natural mode must move content with it on BOTH axes.
             let raw: Float = systemInverted ? 12 : -12
             let factor = AppPreferences.scrollMultiplier(natural: natural, systemInverted: systemInverted)
-            let offset = viewport.scrollOffset(x: raw * factor, y: raw * factor, pixels: pixels)
+            let offset = viewport.scrollOffset(x: raw * factor, y: raw * factor, viewSize: pixels)
             let contentMotion = -offset * SIMD2(Float(pixels.width), Float(pixels.height)) / visible
             let expected: Float = natural ? 12 : -12
             try check(abs(contentMotion.x - expected) < 0.001 && abs(contentMotion.y - expected) < 0.001,
                       "horizontal and vertical scrolling follow the same preference for both system directions")
         }
     }
-    let horizontal = viewport.scrollOffset(x: 12, y: 0, pixels: pixels)
-    let vertical = viewport.scrollOffset(x: 0, y: 12, pixels: pixels)
+    let horizontal = viewport.scrollOffset(x: 12, y: 0, viewSize: pixels)
+    let vertical = viewport.scrollOffset(x: 0, y: 12, viewSize: pixels)
     try check(horizontal.x > 0 && horizontal.y == 0 && vertical.x == 0 && vertical.y > 0,
               "single-axis scrolling does not move the other axis")
-    let zoomed = Viewport(left: 500, top: 500, zoom: 4).scrollOffset(x: 12, y: 0, pixels: pixels)
+    let zoomed = Viewport(left: 500, top: 500, zoom: 4).scrollOffset(x: 12, y: 0, viewSize: pixels)
     try check(abs(zoomed.x - horizontal.x / 2) < 0.001, "scroll distance scales with zoom without changing direction")
+    // Project through the actual backing-pixel viewport, then return to screen points.
+    // A 12-point gesture must move both text and ink 12 points on 1× and Retina screens.
+    for backingScale in [Float(1), Float(2)] {
+        let drawable = CGSize(width: pixels.width * CGFloat(backingScale), height: pixels.height * CGFloat(backingScale))
+        let visible = viewport.visibleSize(drawable)
+        let travelled = horizontal.x * Float(drawable.width) / visible.x / backingScale
+        try check(abs(travelled - 12) < 0.001, "scroll tracks logical points independently of display backing scale")
+    }
     try check(!fm.fileExists(atPath: url.path), "reading defaults does not write preferences")
     try preferences.update {
         $0.appearance = .dark; $0.reduceMotion = true; $0.textSize = .large

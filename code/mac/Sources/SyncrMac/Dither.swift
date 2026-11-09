@@ -1,5 +1,24 @@
 import AppKit
 
+/// Every duration of the Mac's motion, in one place. The stipple (arriving, leaving, waiting) is only for what the
+/// companion makes; the owner's own surfaces (menus, hover actions) use the plain fades or nothing.
+enum Motion {
+    /// A companion card, picture or answer dissolving in from its top edge down.
+    static let reveal: CFTimeInterval = 0.42
+    /// The same dissolve run backwards when something is dismissed, replaced or undone: two thirds of the time.
+    static let leave: CFTimeInterval = reveal * 2 / 3
+    /// A line of companion text that changed (a step's name): a plain fade, where a stipple would be noise.
+    static let textFade: CFTimeInterval = 0.22
+    /// One loop of the waiting band across placeholder lines.
+    static let drift: CFTimeInterval = 1.5
+    /// The owner's own menus and panels.
+    static let menu: CFTimeInterval = 0.12
+    /// Hover actions on a card.
+    static let hover: CFTimeInterval = 0.12
+    /// A dissolve does not start on the page while the pen is down or was active this recently (150 ms, in ns).
+    static let penQuietNs: UInt64 = 150_000_000
+}
+
 /// Ordered-dither stipple: the one motion the companion uses. Something new arrives by dissolving in through a 4 x 4
 /// Bayer pattern from its top edge down, and waiting is a denser band of stipple drifting across placeholder lines.
 /// Each is a layer mask stepping through a few tiny images (one pixel per stipple cell, scaled up unsmoothed), so the
@@ -9,6 +28,13 @@ import AppKit
     private static let bayer: [UInt8] = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]
     /// The pattern's threshold at a cell, in 0..<1.
     static func threshold(_ x: Int, _ y: Int) -> Double { (Double(bayer[(y & 3) * 4 + (x & 3)]) + 0.5) / 16 }
+
+    /// Whether the phone's pen is writing now. Set once by the window (`attach(pen:)`); a dissolve that would start
+    /// while it is true does not: the content lands finished, so nothing animates on the page under a stroke.
+    static var penBusy: () -> Bool = { false }
+    static func pen(strokeOpen: Bool, idleNs: UInt64?) -> Bool { strokeOpen || (idleNs.map { $0 < Motion.penQuietNs } ?? false) }
+    static func attach(pen engine: LiveInk) { penBusy = { engine.strokeOpen || engine.penActive(within: Motion.penQuietNs) } }
+    private static var penDown: Bool { freeze == nil && penBusy() }
 
     /// `SYNCR_MAC_DITHER_FREEZE=<0...1>` (checks and screenshots): every dissolve stops at that point and stays.
     static let freeze: Double? = ProcessInfo.processInfo.environment["SYNCR_MAC_DITHER_FREEZE"].flatMap(Double.init).map { min(1, max(0, $0)) }
@@ -41,12 +67,13 @@ import AppKit
         }
     }
 
-    static let revealSeconds: CFTimeInterval = 0.42
+    static let revealSeconds: CFTimeInterval = Motion.reveal
 
     /// Dissolves `view` in. Call once its frame is set and it is in its superview. `elapsed`: the dissolve began that
     /// long ago on a view this one replaces (a card rebuilt as its text grows), and carries on from there.
     static func reveal(_ view: NSView, duration: CFTimeInterval = revealSeconds, elapsed: CFTimeInterval = 0) {
         guard freeze != nil || (!AppPreferences.shared.reducedMotion && elapsed < duration) else { return }
+        guard !penDown else { return }
         view.wantsLayer = true
         guard let layer = view.layer, layer.bounds.width > 1, layer.bounds.height > 1 else { return }
         let frames = revealFrames(size: layer.bounds.size, cell: cell(for: view))
@@ -75,9 +102,38 @@ import AppKit
         CATransaction.commit()
     }
 
+    /// Dissolves `view` out the way it came in, backwards and in two thirds of the time; `done` runs when it is gone
+    /// (at once with Reduce motion). The view is left as it is: the caller removes it.
+    static func dissolveOut(_ view: NSView, duration: CFTimeInterval = Motion.leave, done: @escaping @MainActor () -> Void) {
+        view.wantsLayer = true
+        guard freeze != nil || !AppPreferences.shared.reducedMotion, !penDown, let layer = view.layer, layer.bounds.width > 1, layer.bounds.height > 1 else { done(); return }
+        let frames = revealFrames(size: layer.bounds.size, cell: cell(for: view))
+        guard frames.count > 1 else { done(); return }
+        let mask = CALayer()
+        mask.frame = layer.bounds
+        mask.magnificationFilter = .nearest
+        mask.contentsGravity = .resize
+        if !view.isFlipped { mask.setAffineTransform(CGAffineTransform(scaleX: 1, y: -1)) }
+        if let freeze {
+            mask.contents = frames[min(frames.count - 1, Int(((1 - freeze) * Double(frames.count - 1)).rounded()))]
+            layer.mask = mask
+            return
+        }
+        mask.contents = frames[0]
+        let steps = CAKeyframeAnimation(keyPath: "contents")
+        steps.values = Array(frames.reversed())
+        steps.calculationMode = .discrete
+        steps.duration = duration
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { MainActor.assumeIsolated { done() } }
+        mask.add(steps, forKey: "leave")
+        layer.mask = mask
+        CATransaction.commit()
+    }
+
     /// Fades `view` in: for a line of text that changed, where a stipple would be noise.
-    static func fade(_ view: NSView, duration: CFTimeInterval = 0.22) {
-        guard !AppPreferences.shared.reducedMotion else { return }
+    static func fade(_ view: NSView, duration: CFTimeInterval = Motion.textFade) {
+        guard !AppPreferences.shared.reducedMotion, !penDown else { return }
         view.wantsLayer = true
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 0; fade.toValue = 1; fade.duration = duration
@@ -153,7 +209,7 @@ import AppKit
         let drift = CAKeyframeAnimation(keyPath: "contents")
         drift.values = images
         drift.calculationMode = .discrete
-        drift.duration = 1.5
+        drift.duration = Motion.drift
         drift.repeatCount = .infinity
         stipple.add(drift, forKey: "drift")
     }

@@ -28,7 +28,8 @@ import SyncrCore
     var onState: ((String) -> Void)?
     var onHistory: (() -> Void)?
     var onError: ((Error) -> Void)?
-    private(set) var slashCommands = SlashCommand.defaults
+    /// The library's own commands from `.mac/slash.json`; the built-ins live in `SlashCatalog`.
+    private(set) var slashCommands: [SlashCommand] = []
 
     init(model: LibraryModel, workspace: Workspace) {
         self.model = model; self.workspace = workspace
@@ -39,9 +40,9 @@ import SyncrCore
         loadSlashCommands(); refreshIndex(force: true)
     }
     private func loadSlashCommands() {
-        slashCommands = SlashCommand.defaults
-        if let data = model.readState("slash.json"), let value = try? JSONDecoder().decode([SlashCommand].self, from: data) { slashCommands = value }
-        else if let data = try? JSONEncoder().encode(slashCommands) { model.writeState("slash.json", data) }
+        slashCommands = []
+        // The file is no longer written with the built-ins; one that holds exactly the old defaults counts as empty.
+        if let data = model.readState("slash.json"), let value = try? JSONDecoder().decode([SlashCommand].self, from: data) { slashCommands = SlashCatalog.userCommands(fromFile: value) }
     }
     private func key(_ note: String, _ block: TextBlockView?) -> String { note + ":" + (block?.role == .free ? block!.id : "document") }
     func document(note: String, block: TextBlockView? = nil) -> TextSession {

@@ -57,6 +57,11 @@ struct TargetInfo: Equatable, Sendable {
     var sheet: String
     var writable: Bool
     var rev: UInt32
+    /// Pad additions (rework-v1 §V.4), all in canvas units: the pen frame while the pad is in Local mode, the Mac's
+    /// visible view, and how far down the page goes. Absent for a phone that never asked for them.
+    var frame: CGRect? = nil
+    var view: CGRect? = nil
+    var pageHeight: Double? = nil
 }
 
 /// One control message (`t` field). `unknown` keeps the name so it can be logged and ignored.
@@ -82,6 +87,13 @@ enum LinkControl: Equatable, Sendable {
     case viewing(String?)
     case pad(on: Bool)
     case target(TargetInfo?)
+    /// Phone: how the pad maps (`local`: onto the pen frame, else the whole view), whether it wants pictures of what
+    /// it covers, and the pad's width over height.
+    case padMode(local: Bool, pics: Bool, aspect: Double)
+    /// Phone: asks for this pen frame (canvas units). The Mac clamps it and answers with `target`.
+    case frame(CGRect)
+    /// Mac: preview frames may also be sent as datagrams to this port, each starting with this key (16 hex characters).
+    case udp(port: UInt16, key: String)
     case unknown(String)
 
     // MARK: Encoding
@@ -120,10 +132,20 @@ enum LinkControl: Equatable, Sendable {
         case .pad(let on): return ["t": "pad", "on": on]
         case .target(let info):
             guard let info else { return ["t": "target", "note": NSNull()] }
-            return ["t": "target", "note": info.note, "sheet": info.sheet, "writable": info.writable, "rev": info.rev]
+            var o: [String: Any] = ["t": "target", "note": info.note, "sheet": info.sheet, "writable": info.writable, "rev": info.rev]
+            if let r = info.frame { o["frame"] = Self.rect(r) }
+            if let r = info.view { o["view"] = Self.rect(r) }
+            if let h = info.pageHeight { o["page"] = ["w": 4800, "h": Self.tenth(h)] }
+            return o
+        case .padMode(let local, let pics, let aspect): return ["t": "padmode", "local": local, "pics": pics, "aspect": aspect]
+        case .frame(let r): return ["t": "frame", "x": Self.tenth(r.minX), "y": Self.tenth(r.minY), "w": Self.tenth(r.width), "h": Self.tenth(r.height)]
+        case .udp(let port, let key): return ["t": "udp", "port": Int(port), "key": key]
         case .unknown(let t): return ["t": t]
         }
     }
+
+    private static func tenth(_ v: Double) -> Double { (v * 10).rounded() / 10 }
+    private static func rect(_ r: CGRect) -> [String: Any] { ["x": tenth(r.minX), "y": tenth(r.minY), "w": tenth(r.width), "h": tenth(r.height)] }
 
     /// The message with its 4-byte length prefix and kind byte, ready for the socket.
     func framed() -> Data {
@@ -198,9 +220,34 @@ enum LinkControl: Equatable, Sendable {
         case "target":
             guard let note = try optionalString("note") else { return .target(nil) }
             guard let writable = obj["writable"] as? Bool else { throw bad("writable is not a boolean") }
-            return .target(TargetInfo(note: note, sheet: try string("sheet"), writable: writable, rev: try u32("rev")))
+            var info = TargetInfo(note: note, sheet: try string("sheet"), writable: writable, rev: try u32("rev"))
+            info.frame = Self.rect(obj["frame"]); info.view = Self.rect(obj["view"])
+            info.pageHeight = (obj["page"] as? [String: Any]).flatMap { Self.number($0["h"]) }
+            return .target(info)
+        case "padmode":
+            guard let local = obj["local"] as? Bool, let pics = obj["pics"] as? Bool, let aspect = Self.number(obj["aspect"]), aspect > 0 else { throw bad("local, pics or aspect") }
+            return .padMode(local: local, pics: pics, aspect: aspect)
+        case "frame":
+            guard let r = Self.rect(obj) else { throw bad("x, y, w or h") }
+            return .frame(r)
+        case "udp":
+            guard let port = UInt16(exactly: try uint("port")), LinkIds.validHex(try string("key"), count: 16) else { throw bad("port or key") }
+            return .udp(port: port, key: try string("key"))
         default: return .unknown(t)
         }
+    }
+
+    /// A finite JSON number (not a boolean), else nil.
+    private static func number(_ any: Any?) -> Double? {
+        guard let n = any as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(), n.doubleValue.isFinite else { return nil }
+        return n.doubleValue
+    }
+
+    /// `{"x":…,"y":…,"w":…,"h":…}` with a positive size and values a canvas could hold, else nil.
+    private static func rect(_ any: Any?) -> CGRect? {
+        guard let o = any as? [String: Any], let x = number(o["x"]), let y = number(o["y"]), let w = number(o["w"]), let h = number(o["h"]),
+              w > 0, h > 0, [x, y, w, h].allSatisfy({ abs($0) <= 10_000_000 }) else { return nil }
+        return CGRect(x: x, y: y, width: w, height: h)
     }
 
     /// A SHA-256 digest as 64 hex characters, else nil (a malformed digest reads as "unknown").

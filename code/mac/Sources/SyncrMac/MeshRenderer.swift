@@ -12,11 +12,12 @@ struct Viewport: Equatable, Sendable {
         let fit = min(Float(pixels.width) / canvas.width, Float(pixels.height) / canvas.viewHeight)
         return SIMD2(Float(pixels.width), Float(pixels.height)) / max(0.001, fit * zoom)
     }
-    /// Convert preference-normalized scrolling into viewport coordinates. Both axes
-    /// increase toward the bottom-right; neither needs an additional direction flip.
-    func scrollOffset(x: Float, y: Float, pixels: CGSize) -> SIMD2<Float> {
+    /// Convert preference-normalized NSEvent deltas (logical points) into canvas units.
+    /// Pass NSView.bounds.size, never MTKView.drawableSize: backing scale must not
+    /// change the distance content travels under a scroll gesture.
+    func scrollOffset(x: Float, y: Float, viewSize: CGSize) -> SIMD2<Float> {
         let canvas = canvasSize()
-        let fit = min(Float(pixels.width) / canvas.width, Float(pixels.height) / canvas.viewHeight)
+        let fit = min(Float(viewSize.width) / canvas.width, Float(viewSize.height) / canvas.viewHeight)
         return SIMD2(x, y) / max(0.001, fit * zoom)
     }
     /// Keep the canvas point under a pinch stationary as the visible area changes.
@@ -80,6 +81,8 @@ final class MeshRenderer {
     private let resetMask: MTLDepthStencilState
     private var colourTarget: MTLTexture?
     private var stencilTarget: MTLTexture?
+    /// The attachments of the other size in use (the window and the pad's picture alternate), so neither is rebuilt.
+    private var spareTargets: (colour: MTLTexture, stencil: MTLTexture)?
     private var drawingID: UUID?
     private struct Upload { let stroke: DrawStroke; let vertices: MTLBuffer; let indices: MTLBuffer }
     private var uploads: [Upload] = []
@@ -131,7 +134,13 @@ final class MeshRenderer {
     }
 
     private func prepare(_ drawing: Drawing?, width: Int, height: Int) throws {
+        if colourTarget?.width != width || colourTarget?.height != height, let spare = spareTargets,
+           spare.colour.width == width, spare.colour.height == height {
+            spareTargets = colourTarget.flatMap { c in stencilTarget.map { (c, $0) } }
+            colourTarget = spare.colour; stencilTarget = spare.stencil
+        }
         if colourTarget?.width != width || colourTarget?.height != height {
+            spareTargets = colourTarget.flatMap { c in stencilTarget.map { (c, $0) } }
             func texture(_ format: MTLPixelFormat) throws -> MTLTexture {
                 let desc = MTLTextureDescriptor()
                 desc.textureType = .type2DMultisample

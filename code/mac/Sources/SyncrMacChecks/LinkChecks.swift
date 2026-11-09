@@ -1,3 +1,4 @@
+import CoreGraphics
 import CryptoKit
 import Foundation
 import Metal
@@ -233,11 +234,17 @@ private final class SessionRig: LinkSessionHost, @unchecked Sendable {
 
     var controls: [LinkControl] { controlsList(sent) }
 
-    init(store: PairedPhoneStore? = nil, epoch: UInt32 = 7, dir: URL? = nil) {
+    var padModes: [(local: Bool, pics: Bool, aspect: Double)] = []
+    var frames: [CGRect] = []
+    func sessionPadMode(_ session: LinkSession, local: Bool, pics: Bool, aspect: Double) { padModes.append((local, pics, aspect)) }
+    func sessionFrame(_ session: LinkSession, rect: CGRect) { frames.append(rect) }
+
+    init(store: PairedPhoneStore? = nil, epoch: UInt32 = 7, dir: URL? = nil, udp: (port: UInt16, key: UInt64)? = nil) {
         let d = dir ?? temp()
         self.dir = d
         self.store = store ?? PairedPhoneStore(folder: d.appendingPathComponent("state"))
-        session = LinkSession(config: .init(macName: "Test Mac", macId: macId, epoch: epoch, stagingDir: d.appendingPathComponent("staging")),
+        session = LinkSession(config: .init(macName: "Test Mac", macId: macId, epoch: epoch, stagingDir: d.appendingPathComponent("staging"),
+                                            udpPort: udp?.port, udpKey: udp?.key ?? 0),
                               store: self.store, io: LinkSession.IO(
             send: { [unowned self] in sent.append($0) },
             close: { [unowned self] in closed = true },
@@ -260,8 +267,8 @@ private final class SessionRig: LinkSessionHost, @unchecked Sendable {
     func clearSent() { sent = Data() }
 
     /// Pairs and welcomes through the normal path. Returns the token.
-    @discardableResult func welcome() throws -> String {
-        hello()
+    @discardableResult func welcome(v: Int = 0) throws -> String {
+        hello(v: v)
         let code = codes.last?.code ?? ""
         feed(.code(code))
         guard case .paired(let token)? = controls.first(where: { if case .paired = $0 { true } else { false } }) else {
@@ -1055,6 +1062,110 @@ private func isTarget(_ c: LinkControl, note: String, writable: Bool) -> Bool {
     try check(link.enabled, "link back on")
 }
 
+// MARK: - The pad: pen frame, pictures, the datagram path (rework-v1 §V)
+
+private func padChecks() throws {
+    // The frame is fractions of the view: it starts at half the width, centred, at the top, in the pad's shape.
+    let view = CGRect(x: -598, y: 0, width: 3200, height: 2283)
+    var frame = PadFrame(aspect: 2.05)
+    let usable = PadFrame.usable(view)
+    try check(usable == CGRect(x: 0, y: 0, width: 2602, height: 2283), "only paper is usable: the view's part left of the canvas is not (\(usable))")
+    let first = frame.rect(in: view)
+    try check(abs(first.width - 1280) < 0.5 && abs(first.width / first.height - 2.05) < 1e-6 && abs(first.midX - 1301) < 0.5 && first.minY == 0, "default frame \(first)")
+    try check(abs(frame.rect(in: view.offsetBy(dx: 598, dy: 0)).width - first.width) < 1e-6, "panning onto more paper does not resize the frame")
+    // It follows the Mac's scrolling and zoom, and stays inside the view.
+    let scrolled = frame.rect(in: view.offsetBy(dx: 0, dy: 900))
+    try check(scrolled.minY == 900 && scrolled.width == first.width, "frame follows a scroll (\(scrolled))")
+    let zoomed = frame.rect(in: CGRect(x: 0, y: 0, width: 1600, height: 1100))
+    try check(abs(zoomed.width - 640) < 0.5 && zoomed.maxX <= 1600, "frame follows a zoom (\(zoomed))")
+    // A request keeps its centre, takes the pad's shape and is limited to the view and to the smallest width.
+    let asked = frame.sized(CGRect(x: 300, y: 200, width: 900, height: 400), view: view)
+    try check(abs(asked.width - 900) < 1e-6 && abs(asked.midX - 750) < 1e-6 && abs(asked.midY - 400) < 1e-6 && abs(asked.height - 900 / 2.05) < 1e-6, "sized request \(asked)")
+    try check(frame.sized(CGRect(x: 0, y: 0, width: 5, height: 5), view: view).width == PadFrame.minWidth, "smallest frame")
+    let widest = frame.sized(CGRect(x: 0, y: 0, width: 99_999, height: 10), view: view)
+    try check(abs(widest.width - 2602) < 0.5 && widest.minX >= 0 && widest.maxX <= 4800, "largest frame is the usable view (\(widest))")
+    try check(frame.sized(CGRect(x: CGFloat.nan, y: 0, width: CGFloat.infinity, height: 1), view: view) == frame.rect(in: view), "a nonsense request changes nothing")
+    try check(frame.sized(CGRect(x: -900, y: -900, width: 900, height: 400), view: view).origin == .zero, "a request off the paper is pulled on")
+    // Placing it reproduces it; a request past the view's edge says how far to scroll first.
+    frame.place(asked, view: view)
+    let placed = frame.rect(in: view)
+    try check(abs(placed.minX - asked.minX) < 0.01 && abs(placed.minY - asked.minY) < 0.01 && abs(placed.width - asked.width) < 0.01, "placed frame \(placed)")
+    let below = CGRect(x: 300, y: 2100, width: 900, height: 439)
+    let scroll = PadFrame.scroll(toShow: below, view: view)
+    try check(scroll.dx == 0 && abs(scroll.dy - 256) < 0.01, "scroll to show a frame past the bottom (\(scroll))")
+    try check(PadFrame.scroll(toShow: asked, view: view) == .zero, "no scroll for a frame in view")
+    let after = view.offsetBy(dx: 0, dy: scroll.dy)
+    frame.place(below, view: after)
+    try check(abs(frame.rect(in: after).maxY - after.maxY) < 0.01, "after the scroll the frame sits at the bottom edge")
+    try check(PadFrame.cleanAspect(CGFloat.nan) == 1.6 && PadFrame.cleanAspect(99) == 4 && PadFrame.cleanAspect(0.01) == 0.5, "aspect limits")
+
+    // Two paths, one ordered run: each frame is handed on once, in order, whichever path brings it first.
+    func f(_ n: UInt8) -> Data { Data([0x50, n]) }
+    var race = PreviewRace()
+    try check(race.stream(f(0)) == [f(0)], "the connection alone delivers")
+    try check(race.datagram(first: 0, frames: [f(0), f(1)]) == [f(1)], "a datagram brings the next frame early; its repeat of the last is skipped")
+    try check(race.stream(f(1)).isEmpty, "the connection's copy of a frame a datagram brought is skipped")
+    try check(race.datagram(first: 3, frames: [f(3), f(4)]).isEmpty, "frames past a gap wait")
+    try check(race.datagram(first: 3, frames: [f(3), f(4)]).isEmpty, "a repeated datagram changes nothing")
+    try check(race.stream(f(2)) == [f(2), f(3), f(4)], "the connection fills the gap and the waiting frames follow in order")
+    try check(race.stream(f(3)).isEmpty && race.stream(f(4)).isEmpty && race.stream(f(5)) == [f(5)], "then the connection carries on")
+    try check(race.datagram(first: 2, frames: [f(2)]).isEmpty && race.datagram(first: 9_000, frames: [f(9)]).isEmpty, "old and far-future datagrams are ignored")
+    try check(race.stream(f(6)) == [f(6)] && race.fromDatagrams == 3, "nothing lost, nothing doubled (\(race.fromDatagrams) from datagrams)")
+    var flood = PreviewRace()
+    for n in 1...200 { _ = flood.datagram(first: UInt32(n), frames: [f(1)]) }
+    try check(flood.stream(f(0)).count <= 1 + PreviewRace.held, "frames held for a gap are bounded")
+    let parsed = PreviewRace.parse(Data([0, 0, 1, 2, 0, 2, 0x50, 1, 0, 3, 0x50, 2, 3]))
+    try check(parsed?.first == 258 && parsed?.frames == [Data([0x50, 1]), Data([0x50, 2, 3])], "datagram payload parses")
+    for bad in [Data(), Data([0, 0, 0, 1]), Data([0, 0, 0, 1, 0, 0]), Data([0, 0, 0, 1, 0, 9, 1]), Data([0, 0, 0, 1, 0, 1, 1, 0])] {
+        try check(PreviewRace.parse(bad) == nil, "malformed datagram \(bad.hex) is refused")
+    }
+
+    // The session: a v1 phone is told the datagram port; datagrams and the connection deliver each frame once.
+    let rig = SessionRig(udp: (50_123, 0x00ff_10aa_bbcc_dd01))
+    try rig.welcome(v: 1); rig.live = []
+    try check(rig.controls.contains(.udp(port: 50_123, key: "00ff10aabbccdd01")), "welcome is followed by the datagram port and key")
+    rig.feed(.preview(f(0)))
+    rig.session.receiveDatagram(Data([0, 0, 0, 0, 0, 2, 0x50, 0, 0, 2, 0x50, 1]), at: rig.now)
+    rig.feed(.preview(f(1))); rig.feed(.preview(f(2)))
+    rig.session.receiveDatagram(Data([0xff]), at: rig.now)
+    rig.session.receiveDatagram(Data([0, 0, 0, 3, 0, 2, 0x43, 9]), at: rig.now)  // not a preview frame: never handed on
+    try check(rig.live == [f(0), f(1), f(2)] && rig.session.datagramFrames == 2, "session delivers once, in order (\(rig.live.map(\.hex)))")
+    let old = SessionRig(udp: (50_123, 7)); try old.welcome()
+    try check(!old.controls.contains { if case .udp = $0 { true } else { false } }, "a v0 phone is not told about datagrams")
+    // The pad's messages reach the host; an older Mac build's absence of them is the phone's concern.
+    rig.feed(.padMode(local: true, pics: true, aspect: 2.05)); rig.feed(.frame(CGRect(x: 1, y: 2, width: 300, height: 150)))
+    try check(rig.padModes.count == 1 && rig.padModes[0].aspect == 2.05 && rig.frames == [CGRect(x: 1, y: 2, width: 300, height: 150)], "padmode and frame reach the host")
+
+    // Wire: the target's additions, the phone's two messages, and the picture.
+    var info = TargetInfo(note: "N1", sheet: "S1", writable: true, rev: 3)
+    try check(LinkControl.target(info).object.count == 5, "a target without pad additions is the v0 message")
+    info.frame = CGRect(x: 650.5, y: 0, width: 1300, height: 634.6); info.view = view; info.pageHeight = 4000.25
+    let json = try JSONSerialization.data(withJSONObject: LinkControl.target(info).object)
+    guard case .target(let back?) = try LinkControl.parse(json: json) else { throw CheckFailure(description: "target with additions did not parse") }
+    try check(back.frame == info.frame && back.view == info.view && abs((back.pageHeight ?? 0) - 4000.3) < 0.001, "target additions round-trip to a tenth (\(back))")
+    for c in [LinkControl.padMode(local: false, pics: true, aspect: 1.9), .frame(CGRect(x: 10, y: 20.5, width: 300, height: 150)), .udp(port: 9, key: "0123456789abcdef")] {
+        try check(try LinkControl.parse(json: JSONSerialization.data(withJSONObject: c.object)) == c, "\(c) round-trips")
+    }
+    for bad in [#"{"t":"frame","x":0,"y":0,"w":0,"h":1}"#, #"{"t":"frame","x":true,"y":0,"w":1,"h":1}"#, #"{"t":"padmode","local":true,"pics":true,"aspect":0}"#,
+                #"{"t":"udp","port":70000,"key":"0123456789abcdef"}"#, #"{"t":"udp","port":9,"key":"xyz"}"#] {
+        try check((try? LinkControl.parse(json: Data(bad.utf8))) == nil, "malformed \(bad) is refused")
+    }
+    guard case .target(let lenient?) = try LinkControl.parse(json: Data(#"{"t":"target","note":"N","sheet":"S","writable":true,"rev":1,"frame":{"x":"a"},"view":5}"#.utf8)) else {
+        throw CheckFailure(description: "target with broken additions did not parse")
+    }
+    try check(lenient.frame == nil && lenient.view == nil, "a broken addition is dropped, the target kept")
+    let picture = PadPicture.framed(rev: 9, saved: 4, region: CGRect(x: 650.5, y: 0, width: 1300, height: 634.5), image: Data([0xff, 0xd8, 1]))
+    try check(picture?.hex == "0000001d" + "5301" + "00000009" + "00000004" + "4422a000" + "00000000" + "44a28000" + "441ea000" + "ffd801", "picture message bytes (\(picture?.hex ?? "nil"))")
+    try check(PadPicture.framed(rev: 1, saved: 0, region: .zero, image: Data(count: PadPicture.maxImage + 1)) == nil && PadPicture.framed(rev: 1, saved: 0, region: .zero, image: Data()) == nil, "an oversize or empty image is not framed")
+    // A picture too detailed for one message comes out smaller, never split.
+    let side = 1400
+    var noise = [UInt8](repeating: 0, count: side * side * 4); var seed: UInt32 = 7
+    for i in noise.indices { seed = seed &* 1_664_525 &+ 1_013_904_223; noise[i] = UInt8(seed >> 24) }
+    let ctx = CGContext(data: &noise, width: side, height: side, bitsPerComponent: 8, bytesPerRow: side * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue)
+    guard let image = ctx?.makeImage(), let jpeg = PadPicture.jpeg(image) else { throw CheckFailure(description: "noise picture did not encode") }
+    try check(jpeg.count <= PadPicture.maxImage && jpeg.prefix(2) == Data([0xff, 0xd8]), "a noisy 1400 px picture fits one message (\(jpeg.count) bytes)")
+}
+
 // MARK: - Entry
 
 @MainActor func linkChecks() throws {
@@ -1068,5 +1179,6 @@ private func isTarget(_ c: LinkControl, note: String, writable: Bool) -> Bool {
     try syncChecks()
     try mirrorChecks()
     try targetChecks()
+    try padChecks()
     try loopbackEndToEnd()
 }

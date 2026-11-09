@@ -34,7 +34,9 @@ enum PresentMode: String {
     /// Arrival with presentsWithTransaction: presented in step with the window's Core Animation commit.
     case arrivalTransaction = "arrival-transaction"
     static var current: PresentMode {
-        ProcessInfo.processInfo.environment["SYNCR_MAC_PRESENT_MODE"].flatMap(PresentMode.init(rawValue:)) ?? .arrival
+        // The editor combines AppKit text with Metal ink. Transaction presentation
+        // keeps both on the same viewport during rapid pan/zoom direction changes.
+        ProcessInfo.processInfo.environment["SYNCR_MAC_PRESENT_MODE"].flatMap(PresentMode.init(rawValue:)) ?? .arrivalTransaction
     }
 }
 
@@ -233,6 +235,8 @@ final class LiveInk: @unchecked Sendable {
     private var viewsByRev: [UInt32: Viewport] = [:]
     private var viewRevOrder: [UInt32] = []
     private var clockOffsetMs: Double?
+    private var hoverCanvas = false
+    private var openStrokes = 0
     private var sentTimes: [UInt64] = []
     private var statsValue = LiveStats()
     private var frame = WetFrame()
@@ -280,6 +284,12 @@ final class LiveInk: @unchecked Sendable {
     }
 
     func setView(_ v: Viewport) { lock.lock(); view = v; lock.unlock() }
+
+    /// The pad is in Local mode: its hover positions are canvas units, not view-relative ones.
+    func setHoverCanvas(_ on: Bool) { lock.lock(); hoverCanvas = on; lock.unlock() }
+
+    /// True while a stroke is being written (its Begin arrived, its End or drop has not).
+    var strokeOpen: Bool { lock.lock(); defer { lock.unlock() }; return openStrokes > 0 }
 
     /// Remembers the viewport the phone was told about as `rev` (Tablet Stream), so a Begin that names it
     /// is placed with that viewport even if the view has scrolled on since. A bounded history.
@@ -424,6 +434,11 @@ final class LiveInk: @unchecked Sendable {
 
     // MARK: Ingest queue
 
+    private func syncOpen() {
+        let open = builders.values.reduce(0) { $0 + ($1.ended ? 0 : 1) }
+        lock.lock(); openStrokes = open; lock.unlock()
+    }
+
     private func bump(_ change: (inout LiveStats) -> Void) { lock.lock(); change(&statsValue); lock.unlock() }
     private func notifyStatus() { onStatus?() }
 
@@ -475,7 +490,7 @@ final class LiveInk: @unchecked Sendable {
                 publish(times: visible)
                 let now = monotonicNs()
                 for t in visible where now >= t { stages["published"]!.record(ms: Double(now - t) / 1e6) }
-            }
+            } else { syncOpen() }
             scheduleTick()
         }
     }
@@ -535,7 +550,8 @@ final class LiveInk: @unchecked Sendable {
             case .hoverMoved(let noteId, _, let x, let y, _):
                 if builders.values.contains(where: { !$0.ended }) { continue }
                 if let why = refusal(for: noteId) { refuse(why); continue }
-                let (cx, cy) = item.view.canvasPoint(x, y)
+                lock.lock(); let canvas = hoverCanvas; lock.unlock()
+                let (cx, cy) = canvas ? (x, y) : item.view.canvasPoint(x, y)
                 hover = (cx, cy, item.ns); changed = true; visible.append(item.ns)
             }
         }
@@ -568,6 +584,7 @@ final class LiveInk: @unchecked Sendable {
     }
 
     private func publish(times visible: [UInt64]) {
+        syncOpen()
         lock.lock()
         let blocked = Set(removed)
         var next = WetFrame(strokes: order.compactMap { id in blocked.contains(id) ? nil : builders[id]?.stroke },

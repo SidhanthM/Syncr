@@ -38,9 +38,18 @@ protocol LinkSessionHost: AnyObject {
     func sessionInstall(_ session: LinkSession, offer: FileOffer, file: URL, reply: @escaping @Sendable (InstallOutcome) -> Void)
     func sessionViewing(_ session: LinkSession, id: String?)
     func sessionPad(_ session: LinkSession, on: Bool)
+    /// The pad's mapping and whether it wants pictures (rework-v1 §V).
+    func sessionPadMode(_ session: LinkSession, local: Bool, pics: Bool, aspect: Double)
+    /// The phone asks for this pen frame, in canvas units.
+    func sessionFrame(_ session: LinkSession, rect: CGRect)
     func sessionClock(_ session: LinkSession, clock: ClockSync)
     func sessionClosed(_ session: LinkSession)
     func sessionLog(_ line: String)
+}
+
+extension LinkSessionHost {
+    func sessionPadMode(_ session: LinkSession, local: Bool, pics: Bool, aspect: Double) {}
+    func sessionFrame(_ session: LinkSession, rect: CGRect) {}
 }
 
 final class LinkSession: @unchecked Sendable {
@@ -52,6 +61,9 @@ final class LinkSession: @unchecked Sendable {
         var epoch: UInt32
         /// Hidden folder inside the library for partial transfers.
         var stagingDir: URL
+        /// Where this connection's preview frames may also arrive as datagrams, and the key they start with. nil: none.
+        var udpPort: UInt16? = nil
+        var udpKey: UInt64 = 0
     }
 
     struct IO: @unchecked Sendable {
@@ -121,6 +133,9 @@ final class LinkSession: @unchecked Sendable {
     private var outgoing: Outgoing?
     private var exporting = false
     private var chunkInFlight = false
+    private var race = PreviewRace()
+    private var pictureInFlight = false
+    private var pictureWaiting: Data?
     private var nextXfer: UInt32 = 1
     private var nowNs: UInt64 = 0
     /// Transfer times per "note|operation set", for the loop guard, in each direction.
@@ -147,7 +162,10 @@ final class LinkSession: @unchecked Sendable {
         guard phase != .closed else { return }
         lastInboundNs = ns; nowNs = ns
         switch frame {
-        case .preview(let bytes), .strokeCommit(let bytes):
+        case .preview(let bytes):
+            guard phase == .ready else { log("live frame before welcome"); shutdown(bye: nil); return }
+            for frame in race.stream(bytes) { io.liveReceive(frame, ns) }
+        case .strokeCommit(let bytes):
             guard phase == .ready else { log("live frame before welcome"); shutdown(bye: nil); return }
             io.liveReceive(bytes, ns)
         case .fileChunk(let xfer, let index, let data):
@@ -179,6 +197,8 @@ final class LinkSession: @unchecked Sendable {
                 if let id, !LinkIds.valid(id) { return }
                 host?.sessionViewing(self, id: id)
             case .pad(let on): host?.sessionPad(self, on: on)
+            case .padMode(let local, let pics, let aspect): host?.sessionPadMode(self, local: local, pics: pics, aspect: aspect)
+            case .frame(let rect): host?.sessionFrame(self, rect: rect)
             default: break  // unknown, or sent in the wrong direction: ignored
             }
         }
@@ -232,7 +252,9 @@ final class LinkSession: @unchecked Sendable {
     private func welcome(at ns: UInt64) {
         phase = .ready
         io.liveReset(config.epoch)
+        race = PreviewRace()
         send(.welcome(mac: config.macName, macId: config.macId, epoch: config.epoch, v: min(peerVersion, LinkLimits.version)))
+        if peerVersion >= 1, let port = config.udpPort, config.udpKey != 0 { send(.udp(port: port, key: String(format: "%016llx", config.udpKey))) }
         nextPingNs = ns
         host?.sessionWelcomed(self)
         sendPing(at: ns)
@@ -496,6 +518,34 @@ final class LinkSession: @unchecked Sendable {
         requested[id] = nil
         log("file-error id=\(id) reason=\(reason)")
         send(.fileError(xfer: xfer, id: id, reason: String(reason.prefix(200))))
+    }
+
+    // MARK: The pad's second path and its pictures
+
+    /// A datagram for this connection, without its key. Frames the connection has not delivered yet are drawn now;
+    /// the connection's own copies are then skipped. Anything malformed is ignored: the connection still has it all.
+    func receiveDatagram(_ payload: Data, at ns: UInt64) {
+        guard phase == .ready, let parsed = PreviewRace.parse(payload) else { return }
+        for frame in race.datagram(first: parsed.first, frames: parsed.frames) where frame.first == 0x50 { io.liveReceive(frame, ns) }
+    }
+
+    /// Frames the datagrams brought before the connection did, for the latency log.
+    var datagramFrames: Int { race.fromDatagrams }
+
+    /// A framed picture (`PadPicture.framed`). One travels at a time; a newer one replaces one still waiting.
+    func sendPicture(_ framed: Data) {
+        guard phase == .ready, peerVersion >= 1 else { return }
+        guard !pictureInFlight, let bulk = io.sendBulk else {
+            if io.sendBulk == nil { io.send(framed) } else { pictureWaiting = framed }
+            return
+        }
+        pictureInFlight = true
+        bulk(framed) { [self] in
+            io.run { [self] in
+                pictureInFlight = false
+                if let next = pictureWaiting { pictureWaiting = nil; sendPicture(next) }
+            }
+        }
     }
 
     // MARK: Output and teardown

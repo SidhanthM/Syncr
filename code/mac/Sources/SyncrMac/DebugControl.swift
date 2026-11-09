@@ -71,6 +71,21 @@ import SyncrCore
         case .some(let name) where DebugSync.commands.contains(name): sync.handle(words)
         case "picture-fixture": detail.showStreamPicture(.fixture); say("ack picture-fixture")
         case "picture-clear": detail.clearStream(); say("ack picture-clear")
+        case "pad-local":
+            // pad-local <aspect> [x y w h]: what the phone's padmode and frame messages do, without a phone
+            let n = words.dropFirst().compactMap { Double($0) }
+            if n.count == 1 || n.count == 5 {
+                link.debugPad(local: true, aspect: n[0], frame: n.count == 5 ? CGRect(x: n[1], y: n[2], width: n[3], height: n[4]) : nil)
+                let f = link.padFrame?.rect(in: detail.visibleCanvasRect) ?? .zero, v = detail.visibleCanvasRect
+                say(String(format: "pad-frame %.1f,%.1f,%.1f,%.1f view=%.1f,%.1f,%.1f,%.1f", f.minX, f.minY, f.width, f.height, v.minX, v.minY, v.width, v.height))
+            }
+        case "pad-whole": link.debugPad(local: false, aspect: 1.6, frame: nil); say("ack pad-whole")
+        case "pad-picture":
+            if words.count == 2 {
+                let started = monotonicNs()
+                let region = link.debugPicture(to: words[1])
+                say(region.map { String(format: "pad-picture ok region=%.1f,%.1f,%.1f,%.1f ms=%.1f", $0.minX, $0.minY, $0.width, $0.height, Double(monotonicNs() - started) / 1e6) } ?? "pad-picture failed")
+            }
         case "dictation-status": say(CompanionVoice.dictationAvailability)
         case "image-file": if words.count == 2, let data = try? Data(contentsOf: URL(fileURLWithPath: words[1])) { detail.documentEditor.textView.onImage?(data, detail.documentEditor.textView.selectedRange().location); say("ack image-file") }
         case "ai-mode": if words.count == 2, let mode = Int(words[1]), (0...2).contains(mode) { companion.debugMode(mode); say("ack ai-mode") }
@@ -138,10 +153,26 @@ import SyncrCore
                 case "enter": _ = editor.textView(editor.textView, doCommandBy: #selector(NSResponder.insertNewline(_:)))
                 case "tab": _ = editor.textView(editor.textView, doCommandBy: #selector(NSResponder.insertTab(_:)))
                 case "backtab": _ = editor.textView(editor.textView, doCommandBy: #selector(NSResponder.insertBacktab(_:)))
+                case "escape": _ = editor.textView(editor.textView, doCommandBy: #selector(NSResponder.cancelOperation(_:)))
+                case "down": _ = editor.textView(editor.textView, doCommandBy: #selector(NSResponder.moveDown(_:)))
+                case "up": _ = editor.textView(editor.textView, doCommandBy: #selector(NSResponder.moveUp(_:)))
+                case "backspace": _ = editor.textView(editor.textView, doCommandBy: #selector(NSResponder.deleteBackward(_:)))
                 case "undo", "redo": editor.flush(); if let id = workspace.active { notebook.document(note: id).history(redo: words[1] == "redo") }
                 default: editor.shortcut(words[1])
                 }
                 say("ack key \(words[1])")
+            }
+        case "select":
+            // `select <location> [length]`: the selection in the shown note's text, UTF-16 units.
+            if words.count >= 2, let at = Int(words[1]) { detail.documentEditor.textView.setSelectedRange(NSRange(location: at, length: words.count > 2 ? Int(words[2]) ?? 0 : 0)); say("ack select") }
+        case "editor-state":
+            let v = detail.documentEditor.textView, r = v.selectedRange()
+            say("editor-state sel=\(r.location),\(r.length) menu=\(detail.documentEditor.debugMenu().joined(separator: "|")) text=\(String(reflecting: v.string))")
+        case "snapshot":
+            // `snapshot <png path>`: the window's views drawn into a PNG (the Metal canvas is not part of it).
+            if words.count == 2, let view = detail.window?.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                view.cacheDisplay(in: view.bounds, to: rep)
+                do { try rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: words[1])); say("snapshot ok") } catch { say("snapshot failed") }
             }
         case "save": detail.flushText(); notebook.flushAll { ok in self.say("saved ok=\(ok)") }
         case "drag-width": if words.count >= 2, let width = Double(words[1]) { detail.documentEditor.debugDragWidth(width, left: words.count > 2 && words[2] == "left"); say("ack drag-width") }

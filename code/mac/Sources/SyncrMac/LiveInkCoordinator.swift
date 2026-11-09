@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Metal
 import os
@@ -23,6 +24,13 @@ import SyncrCore
     var onViewport: ((Viewport) -> Void)?
     /// A live stroke was written into a Mac note (main thread).
     var onStrokeSaved: ((_ noteId: String, _ strokeId: String) -> Void)?
+    /// The pad (rework-v1 §V): what the note view shows in canvas units, scrolling it by canvas units, the pen frame's
+    /// outline (nil hides it), a picture of a canvas region at a pixel width, and the page's lowest content.
+    var visibleRect: () -> CGRect = { .zero }
+    var scrollBy: (CGFloat, CGFloat) -> Void = { _, _ in }
+    var showPadFrame: (CGRect?) -> Void = { _ in }
+    var padPicture: (CGRect, Int) -> CGImage? = { _, _ in nil }
+    var pageBottom: () -> CGFloat = { 0 }
     /// A phone is connected: previews for the shown read-only phone copy are drawn (mirror mode).
     var mirrorEnabled = false { didSet { if mirrorEnabled != oldValue { syncTarget() } } }
 

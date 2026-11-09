@@ -12,6 +12,10 @@ struct TargetSnapshot: Equatable {
     var sheet: String?
     var writable = false
     var view = Viewport()
+    /// Pad additions, sent to a phone that asked for them (`padmode`): the pen frame, the visible canvas, the page's end.
+    var frame: CGRect?
+    var visible: CGRect?
+    var pageHeight: Double?
 }
 
 /// Decides when `target` goes to the phone and with which `rev`. A burst of changes (scrolling) is
@@ -58,7 +62,8 @@ struct TargetSnapshot: Equatable {
             recordView(rev, want.view)
         }
         sent = want; lastSentAt = now()
-        send(.target(TargetInfo(note: note, sheet: sheet, writable: want.writable, rev: rev)))
+        send(.target(TargetInfo(note: note, sheet: sheet, writable: want.writable, rev: rev,
+                                frame: want.frame, view: want.visible, pageHeight: want.pageHeight)))
     }
 }
 
@@ -118,6 +123,8 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
     }
     func sessionViewing(_ session: LinkSession, id: String?) { main { $0.phoneViewing(id) } }
     func sessionPad(_ session: LinkSession, on: Bool) { main { $0.phonePad(on) } }
+    func sessionPadMode(_ session: LinkSession, local: Bool, pics: Bool, aspect: Double) { main { $0.phonePadMode(local: local, pics: pics, aspect: aspect) } }
+    func sessionFrame(_ session: LinkSession, rect: CGRect) { main { $0.phoneFrame(rect) } }
     func sessionClock(_ session: LinkSession, clock: ClockSync) { main { $0.clockUpdated(clock) } }
     func sessionClosed(_ session: LinkSession) {
         all.withLock { $0[ObjectIdentifier(session)] = nil }
@@ -158,6 +165,18 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
     private(set) var pairingCode: (phone: String, code: String)?
     private(set) var viewing: String?
     private(set) var padOn = false
+    /// What the pad asked for with `padmode`; nil until it does (an older phone never does, and gets no pad additions).
+    private(set) var padMode: (local: Bool, pics: Bool, aspect: CGFloat)?
+    /// The pen frame while the pad is in Local mode.
+    private(set) var padFrame: PadFrame?
+    /// Pad strokes saved since this phone connected: the phone drops its own drawing of them once a picture shows them.
+    private var padSaved: UInt32 = 0
+    private var pictureWork: DispatchWorkItem?
+    private var pictureDirtySince: Double?
+    private var lastPictureAt = 0.0
+    private var lastPictureHash = 0
+    private let pictureQueue = DispatchQueue(label: "dev.syncr.mac.link.picture", qos: .utility)
+    static let pictureIntervalMs = 200.0, pictureWidth = 720
     /// The note the phone is writing in right now: the pad's target while it is open, else the note it views.
     var liveNote: String? { registry.sessions.isEmpty ? nil : (padOn ? workspace.active : viewing) }
     private let bridge = LinkBridge()
@@ -199,7 +218,11 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
         live.onViewport = { [weak self] _ in self?.publishTarget() }
         model.onCommit = { [weak self] id in self?.noteCommitted(id) }
         if let data = model.readState(Self.seenFile), let loaded = try? JSONDecoder().decode([String: [String: UInt64]].self, from: data) { seen = loaded }
-        live.onStrokeSaved = { [weak self] note, stroke in self?.log("link: stroke-saved note=\(note) stroke=\(stroke)") }
+        live.onStrokeSaved = { [weak self] note, stroke in
+            self?.log("link: stroke-saved note=\(note) stroke=\(stroke)")
+            self?.padSaved &+= 1
+            self?.pictureChanged()
+        }
         live.engine.onStrokeEnded = { [weak self] in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.scheduleLatencyLog() } }
         }
@@ -253,7 +276,7 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
         let server = LinkServer(config: .init(port: options.port, loopbackOnly: options.loopbackOnly, advertise: options.advertise,
                                               macName: name, macId: macId))
         let bridge = bridge, store = store, engine = live.engine, staging = stagingDir, epochs = epochs
-        server.makeSession = { connection in
+        server.makeSession = { [weak server] connection in
             let epoch = epochs.withLock { n -> UInt32 in n &+= 1; if n == 0 { n = 1 }; return n }
             let io = LinkSession.IO(
                 send: { connection.send($0) }, close: { connection.close() },
@@ -262,7 +285,8 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
                 run: { block in connection.queue.async(execute: block) },
                 sendBulk: { connection.sendBulk($0, done: $1) },
                 penActive: { engine.penActive() })
-            let session = LinkSession(config: .init(macName: name, macId: macId, epoch: epoch, stagingDir: staging), store: store, io: io)
+            let session = LinkSession(config: .init(macName: name, macId: macId, epoch: epoch, stagingDir: staging,
+                                                    udpPort: server?.udpPort, udpKey: UInt64.random(in: 1...UInt64.max)), store: store, io: io)
             session.host = bridge
             bridge.track(session)
             return session
@@ -357,6 +381,7 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
         }
         live.engine.clearRecordedViews()
         live.mirrorEnabled = true
+        clearPad()
         log("link: connected phone=\"\(session.phoneName)\" id=\(id) epoch=\(session.config.epoch)")
         publisher.reset()
         publishTarget()
@@ -371,6 +396,7 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
         hideCode(session)
         guard wasRegistered else { return }
         log("link: disconnected phone=\"\(session.phoneName)\"")
+        log("link: second-path frames=\(session.datagramFrames)")
         logLatency("session end")
         if registry.isEmpty { endMirror() }
         onStatus?()
@@ -384,6 +410,7 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
         live.engine.clearRecordedViews()
         latestClock = ClockSync()
         padOn = false; viewing = nil; pendingFollow = nil
+        clearPad()
     }
 
     fileprivate func clockUpdated(_ clock: ClockSync) {
@@ -478,6 +505,7 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
     /// A commit on the Mac (typing, ink, companion, pad strokes, renames, merges): tell v1 phones within about 400 ms,
     /// later commits pushing the announcement back while the note keeps changing, but never past one second.
     private func noteCommitted(_ id: String) {
+        if id == workspace.active { pictureChanged() }
         guard !announced.isEmpty else { return }
         dirty.insert(id)
         let now = Double(monotonicNs()) / 1e6
@@ -492,10 +520,14 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
     /// While the phone's pen is on the pad (or was, this recently) an announcement waits: each one costs the phone a
     /// whole-note transfer and merge, which stalls the ink it is sending. Never held longer than the cap.
     static let penQuietMs = 2500.0, penHoldCapMs = 30_000.0
+    /// While the pad is open the phone shows none of its notes, so the Mac's copy can wait for a real pause: nothing is
+    /// announced until the pen has been away this long (or the pad closes), however long the writing goes on.
+    static let padQuietMs = 15_000.0, padHoldCapMs = 600_000.0
 
     private func flushAnnouncements() {
         let now = Double(monotonicNs()) / 1e6
-        if live.engine.penActive(within: UInt64(Self.penQuietMs * 1e6)), let since = dirtySince, now - since < Self.penHoldCapMs {
+        let quiet = padOn ? Self.padQuietMs : Self.penQuietMs, cap = padOn ? Self.padHoldCapMs : Self.penHoldCapMs
+        if live.engine.penActive(within: UInt64(quiet * 1e6)), let since = dirtySince, now - since < cap {
             announceWork?.cancel()
             let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.flushAnnouncements() } }
             announceWork = work
@@ -557,18 +589,132 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
         if on, !(workspace.active != nil && workspace.activeIsWritable) {
             do { _ = try workspace.newNote() } catch { log("link: pad-note-failed reason=\(error.localizedDescription)") }
         }
+        if !on { padFrame = nil; live.engine.setHoverCanvas(false) }
+        else if let mode = padMode { phonePadMode(local: mode.local, pics: mode.pics, aspect: Double(mode.aspect)); return }
         publishTarget()
+        pictureChanged()
+    }
+
+    /// The pad says how it maps. Local: the pen writes inside a pen frame the Mac draws as an outline; otherwise the
+    /// pad is the whole view, as before.
+    fileprivate func phonePadMode(local: Bool, pics: Bool, aspect: Double) {
+        padMode = (local, pics, PadFrame.cleanAspect(CGFloat(aspect)))
+        if local && padOn {
+            var frame = padFrame ?? PadFrame(aspect: CGFloat(aspect))
+            frame.aspect = PadFrame.cleanAspect(CGFloat(aspect))
+            padFrame = frame
+        } else { padFrame = nil }
+        live.engine.setHoverCanvas(padFrame != nil)
+        log("link: padmode local=\(local) pics=\(pics) aspect=\(String(format: "%.3f", aspect))")
+        publishTarget()
+        pictureChanged()
+    }
+
+    /// The phone moved or resized the pen frame. It is sized to fit, the view scrolls so the frame stays in sight, and
+    /// the answer is the next `target`.
+    fileprivate func phoneFrame(_ wanted: CGRect) {
+        guard padOn, var frame = padFrame else { return }
+        let sized = frame.sized(wanted, view: live.visibleRect())
+        let scroll = PadFrame.scroll(toShow: sized, view: live.visibleRect())
+        if abs(scroll.dx) > 0.5 || abs(scroll.dy) > 0.5 { live.scrollBy(scroll.dx, scroll.dy) }
+        frame.place(sized, view: live.visibleRect())
+        padFrame = frame
+        publishTarget()
+        pictureChanged()
+    }
+
+    private func clearPad() {
+        padMode = nil; padFrame = nil; padSaved = 0
+        pictureWork?.cancel(); pictureWork = nil; pictureDirtySince = nil; lastPictureHash = 0
+        live.engine.setHoverCanvas(false)
+        live.showPadFrame(nil)
     }
 
     /// Call when the active tab, its writability, the shown note or the viewport may have changed.
     func stateChanged() { live.syncTarget(); publishTarget() }
 
     /// Only while a phone is connected: nothing is recorded or logged for an empty room.
-    private func publishTarget() { if !registry.isEmpty { publisher.changed() } }
+    private func publishTarget() {
+        guard !registry.isEmpty else { return }
+        publisher.changed()
+        live.showPadFrame(padOn ? padFrame?.rect(in: live.visibleRect()) : nil)
+        pictureChanged()
+    }
 
     private func desiredTarget() -> TargetSnapshot {
         guard let id = workspace.active, model.shownNote == id, let sheet = model.drawing?.sheetId else { return TargetSnapshot() }
-        return TargetSnapshot(note: id, sheet: sheet, writable: workspace.activeIsWritable, view: live.viewport())
+        var target = TargetSnapshot(note: id, sheet: sheet, writable: workspace.activeIsWritable, view: live.viewport())
+        if padOn, padMode != nil {
+            let visible = live.visibleRect()
+            target.visible = visible
+            target.frame = padFrame?.rect(in: visible)
+            target.pageHeight = Double(live.pageBottom() + visible.height)
+        }
+        return target
+    }
+
+    // MARK: Pictures of what the pad covers
+
+    /// What the pad covers changed, or may have: a picture goes to the phone soon, at most five a second, and waits
+    /// while the pen is down (the phone draws its own stroke meanwhile) unless it has been stale for a second and a half.
+    func pictureChanged() {
+        guard padOn, padMode?.pics == true, !registry.isEmpty else { return }
+        if pictureDirtySince == nil { pictureDirtySince = Double(monotonicNs()) / 1e6 }
+        guard pictureWork == nil else { return }
+        schedulePicture(after: 60)
+    }
+
+    private func schedulePicture(after ms: Double) {
+        let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.pictureWork = nil; self?.sendPicture() } }
+        pictureWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + ms / 1000, execute: work)
+    }
+
+    private func sendPicture() {
+        guard padOn, padMode?.pics == true, let since = pictureDirtySince,
+              let session = registry.sessions.first(where: { $0.peerVersion >= 1 }) else { pictureDirtySince = nil; return }
+        let now = Double(monotonicNs()) / 1e6
+        if now - lastPictureAt < Self.pictureIntervalMs { schedulePicture(after: Self.pictureIntervalMs - (now - lastPictureAt)); return }
+        if now - since < 1500, live.engine.strokeOpen || live.engine.penActive(within: 120_000_000) { schedulePicture(after: 100); return }
+        guard let region = padRegion(), let image = live.padPicture(region, Self.pictureWidth) else { pictureDirtySince = nil; return }
+        pictureDirtySince = nil; lastPictureAt = now
+        let rev = publisher.rev, saved = padSaved
+        pictureQueue.async { [weak self] in
+            guard let jpeg = PadPicture.jpeg(image) else { return }
+            var hasher = Hasher()
+            hasher.combine(jpeg); hasher.combine(region.minX); hasher.combine(region.minY); hasher.combine(region.width); hasher.combine(saved)
+            let hash = hasher.finalize()
+            DispatchQueue.main.async { MainActor.assumeIsolated {
+                guard let self, self.lastPictureHash != hash, let framed = PadPicture.framed(rev: rev, saved: saved, region: region, image: jpeg) else { return }
+                self.lastPictureHash = hash
+                self.log("link: picture rev=\(rev) saved=\(saved) bytes=\(jpeg.count) region=\(Int(region.minX)),\(Int(region.minY)),\(Int(region.width)),\(Int(region.height))")
+                session.onExecutor { session.sendPicture(framed) }
+            } }
+        }
+    }
+
+    /// The canvas the pad covers: the pen frame in Local mode, else the 4800 by 3000 reference window of the view.
+    private func padRegion() -> CGRect? {
+        guard workspace.active != nil, model.drawing != nil else { return nil }
+        if let frame = padFrame { return frame.rect(in: live.visibleRect()) }
+        let v = live.viewport()
+        return CGRect(x: CGFloat(v.left), y: CGFloat(v.top), width: 4800 / CGFloat(v.zoom), height: 3000 / CGFloat(v.zoom))
+    }
+
+    /// For the debug control: writes the picture the phone would get now to `path` (a JPEG); the region it shows.
+    func debugPicture(to path: String) -> CGRect? {
+        guard let region = padRegion() ?? Optional(live.visibleRect()), let image = live.padPicture(region, Self.pictureWidth),
+              let jpeg = PadPicture.jpeg(image) else { return nil }
+        try? jpeg.write(to: URL(fileURLWithPath: path))
+        return region
+    }
+
+    /// For the debug control: what a `padmode` and a `frame` from the phone do, without a phone.
+    func debugPad(local: Bool, aspect: Double, frame: CGRect?) {
+        padOn = true
+        phonePadMode(local: local, pics: true, aspect: aspect)
+        if let frame { phoneFrame(frame) }
+        live.showPadFrame(padFrame?.rect(in: live.visibleRect()))
     }
 
     private func sendTarget(_ control: LinkControl) {

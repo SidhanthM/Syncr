@@ -409,7 +409,9 @@ import SyncrCompanion
         }
         guard pass === state, !state.ended else { return }
         switch output {
-        case .step(let step): state.step = Self.stepLabel(step); setStatus(Self.stepLabel(step) + "…"); scheduleStreamRefresh(state)
+        case .step(let step):
+            state.step = Self.stepLabel(step); setStatus(Self.stepLabel(step) + "…"); scheduleStreamRefresh(state)
+            if step == .sketching, state.picture == nil { detail.showStreamPlaceholder(true) }
         case .firstToken(let seconds): state.firstText = seconds
         case .textPreview(let preview):
             state.preview = preview; scheduleStreamRefresh(state)

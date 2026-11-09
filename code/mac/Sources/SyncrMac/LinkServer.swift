@@ -119,6 +119,15 @@ final class LinkServer: @unchecked Sendable {
     var makeSession: (@Sendable (LinkConnection) -> LinkSession)?
     private(set) var port: UInt16?
 
+    // The datagram path for preview frames: the same port number over UDP. Each datagram starts with a session's key.
+    private var datagrams: NWListener?
+    private let udpQueue = DispatchQueue(label: "dev.syncr.mac.link.udp", qos: .userInteractive)
+    private var flows: [NWConnection] = []
+    private let routes = OSAllocatedUnfairLock(initialState: [UInt64: @Sendable (Data, UInt64) -> Void]())
+    private let udpReady = OSAllocatedUnfairLock(initialState: UInt16?.none)
+    /// The UDP port, once it is listening; nil when it could not be opened (the link then runs as before).
+    var udpPort: UInt16? { udpReady.withLock { $0 } }
+
     init(config: Config) { self.config = config }
 
     func start() throws {
@@ -139,7 +148,7 @@ final class LinkServer: @unchecked Sendable {
         listener.stateUpdateHandler = { [weak self, weak listener] state in
             switch state {
             case .ready:
-                if let p = listener?.port?.rawValue { self?.port = p; self?.onListening?(p) }
+                if let p = listener?.port?.rawValue { self?.port = p; self?.startDatagrams(on: p); self?.onListening?(p) }
             case .failed(let error): self?.onFailed?(error.localizedDescription)
             default: break
             }
@@ -149,9 +158,22 @@ final class LinkServer: @unchecked Sendable {
             self.live.withLock { $0 += 1 }
             self.counter += 1
             let connection = LinkConnection(nw, label: "\(self.counter)")
-            connection.onEnded = { [live = self.live] in live.withLock { $0 -= 1 } }
+            let routes = self.routes
+            let key = OSAllocatedUnfairLock(initialState: UInt64(0))
+            connection.onEnded = { [live = self.live] in
+                live.withLock { $0 -= 1 }
+                let k = key.withLock { $0 }
+                if k != 0 { routes.withLock { $0[k] = nil } }
+            }
             connection.queue.async {
                 connection.session = make(connection)
+                let k = connection.session.config.udpKey
+                if k != 0, connection.session.config.udpPort != nil {
+                    key.withLock { $0 = k }
+                    routes.withLock { $0[k] = { [weak connection] payload, ns in
+                        connection?.queue.async { connection?.session.receiveDatagram(payload, at: ns) }
+                    } }
+                }
                 connection.start()
             }
         }
@@ -159,7 +181,53 @@ final class LinkServer: @unchecked Sendable {
         listener.start(queue: queue)
     }
 
+    /// A failure here only means there is no second path. `datagrams` and `flows` belong to `udpQueue`.
+    private func startDatagrams(on port: UInt16) { udpQueue.async { [self] in openDatagrams(on: port) } }
+
+    private func openDatagrams(on port: UInt16) {
+        guard datagrams == nil, let p = NWEndpoint.Port(rawValue: port) else { return }
+        let params = NWParameters.udp
+        params.allowLocalEndpointReuse = true
+        params.serviceClass = .interactiveVideo
+        if config.loopbackOnly { params.requiredInterfaceType = .loopback }
+        guard let listener = try? NWListener(using: params, on: p) else { return }
+        listener.stateUpdateHandler = { [weak self] state in
+            switch state {
+            case .ready: self?.udpReady.withLock { $0 = port }
+            case .failed, .cancelled: self?.udpReady.withLock { $0 = nil }
+            default: break
+            }
+        }
+        listener.newConnectionHandler = { [weak self] flow in
+            guard let self else { flow.cancel(); return }
+            // One flow per phone address and port; a reconnecting phone starts another. Keep the newest few.
+            self.flows.append(flow)
+            while self.flows.count > 8 { self.flows.removeFirst().cancel() }
+            flow.start(queue: self.udpQueue)
+            self.receive(on: flow)
+        }
+        datagrams = listener
+        listener.start(queue: udpQueue)
+    }
+
+    private func receive(on flow: NWConnection) {
+        flow.receiveMessage { [weak self] data, _, _, error in
+            guard let self, error == nil else { flow.cancel(); return }
+            if let data, data.count > 8, data.count <= 1500 {
+                let key = data.prefix(8).reduce(UInt64(0)) { $0 << 8 | UInt64($1) }
+                let handler = self.routes.withLock { $0[key] }
+                handler?(Data(data.dropFirst(8)), monotonicNs())
+            }
+            self.receive(on: flow)
+        }
+    }
+
     func stop() {
         listener?.cancel(); listener = nil; port = nil
+        udpQueue.async { [self] in
+            datagrams?.cancel(); datagrams = nil
+            flows.forEach { $0.cancel() }; flows = []
+        }
+        udpReady.withLock { $0 = nil }
     }
 }

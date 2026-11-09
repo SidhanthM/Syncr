@@ -35,12 +35,6 @@ import SyncrCore
     let wrapped = MarkdownEditing.wrap("hello", selection: NSRange(location: 0, length: 5), left: "**", right: "**")
     try check(wrapped.text == "**hello**" && wrapped.selection == NSRange(location: 2, length: 5), "pair around selection")
     try check(MarkdownEditing.task("- item", selection: NSRange(location: 0, length: 0)).text == "- [ ] item", "task transform")
-    try check(SlashCommand.filter("/h").map(\.name) == ["h1", "h2", "h3"], "slash filtering")
-    for cmd in SlashCommand.defaults {
-        let edit = cmd.apply("/" + cmd.name, selection: NSRange(location: cmd.name.count + 1, length: 0), now: Date(timeIntervalSince1970: 0))
-        try check(!edit.text.hasPrefix("/") && !edit.text.contains("{date}") && !edit.text.contains("{time}"), "slash \(cmd.name)")
-    }
-    try check(SlashCommand.defaults[0].apply("/h1\nnext", selection: NSRange(location: 3, length: 0)).text == "# \nnext", "slash rewrite preserves following line")
     let index = NotebookIndex(notes: [IndexedNote(id: "b", title: "Note", text: "# Start\n[[Other|shown]] #nested/tag\n```\n#hidden\n```", writable: true), IndexedNote(id: "a", title: "Other", text: "hello #nested/tag", writable: true), IndexedNote(id: "c", title: "Phone", text: "hidden", writable: false)])
     try check(index.resolve("nOtE")?.id == "b" && index.completions("ot").count == 1, "title resolution and completion")
     try check(index.backlinks(to: "OTHER").first?.line == "[[Other|shown]] #nested/tag", "backlink with linking line")

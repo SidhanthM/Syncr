@@ -97,6 +97,7 @@ import UniformTypeIdentifiers
         if let device = detail.device {
             let live = LiveInkCoordinator(model: model, workspace: workspace, device: device)
             self.live = live
+            Dither.attach(pen: live.engine)
             detail.attach(live)
             let link = LinkController(model: model, workspace: workspace, live: live)
             self.link = link
@@ -151,6 +152,7 @@ import UniformTypeIdentifiers
         detail.documentEditor.resolve = { [weak self] in self?.model.notebookIndex.resolve($0) != nil }
         detail.documentEditor.complete = { [weak self] in self?.model.notebookIndex.completions($0).map(\.title) ?? [] }
         detail.documentEditor.slashCommands = notebook.slashCommands
+        detail.documentEditor.onAsk = { [weak self] draw in self?.companion.ask(draw: draw) }
         detail.documentEditor.onLink = { [weak self] title, newTab in self?.attempt { try self?.notebook.openLink(title, newTab: newTab) } }
         detail.onFreeText = { [weak self] x, y in guard let self, let id = self.workspace.active else { return }; self.notebook.addFree(note: id, x: x, y: y) }
         detail.onFreeMove = { [weak self] index, x, y in
@@ -540,9 +542,9 @@ import UniformTypeIdentifiers
     }
     private func slashMenu() {
         palette.present(over: window, placeholder: "Insert slash command", items: { [weak self] query in
-            SlashCommand.filter(query, commands: self?.notebook.slashCommands ?? []).map { PaletteItem(id: $0.name, title: "/" + $0.name, detail: $0.insertion) }
+            SlashEngine.match(query.trimmingCharacters(in: CharacterSet(charactersIn: "/")), in: SlashCatalog.all(user: self?.notebook.slashCommands ?? [])).map { PaletteItem(id: $0.name, title: "/" + $0.name, detail: $0.title) }
         }, choose: { [weak self] item, _ in
-            guard let self, let cmd = self.notebook.slashCommands.first(where: { $0.name == item.id }) else { return }
+            guard let self, let cmd = SlashCatalog.all(user: self.notebook.slashCommands).first(where: { $0.name == item.id }) else { return }
             self.detail.documentEditor.insertSlash(cmd)
         })
     }
