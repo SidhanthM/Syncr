@@ -23,9 +23,13 @@ object PaperPalette {
 /**
  * Colour tokens. Light values are the design's `:root`; dark values follow its dark sheet
  * (`#sheet-dark`: #161616 ground, #f0efea text, #8f8e88 quiet, #3a3a38 rules). Names predating the
- * design are kept where code uses them ([desk], [chrome], [dots]).
+ * design are kept where code uses them ([desk], [dots]).
  *
- * Text contrast (WCAG AA, 4.5:1) holds for [ink], [muted] and [destructive] on [desk], [chrome] and [tint].
+ * Surfaces rise in four steps ([desk], [surface1], [surface2], [surface3]); in dark mode each is lighter than the
+ * last and the raised ones draw a faint top edge, in light mode they stay near white and cast a shadow
+ * ([raised]). Pressed and selected fills are the ink colour at 6% and 10%, so they work on every level.
+ *
+ * Text contrast (WCAG AA, 4.5:1) holds for [ink], [muted] and [destructive] on all four surfaces (`ColorContrastTest`).
  * [faint], [accent] and [attention] are for marks and decoration only.
  */
 @Immutable
@@ -36,8 +40,16 @@ data class SyncrColors(
     val paper: Color,
     /** `--card`: cards, sheets, dialogs, the tool bubble and its bar. */
     val chrome: Color,
-    /** `--tint`: quiet fills (pressed rows, placeholders). */
+    /** Note cards, the editing field's backing, inline panels. */
+    val surface1: Color,
+    /** Sheets, the tool bubble and its bar, the editor toolbar, the ask sheet. */
+    val surface2: Color,
+    /** Menus, popovers, dialogs and toasts: the highest level. */
+    val surface3: Color,
+    /** `--tint`: the pressed fill, the ink colour at 6%; also quiet placeholders. */
     val tint: Color,
+    /** The selected fill, the ink colour at 10%. */
+    val selectedFill: Color,
     /** `--ink`: primary text and glyphs. */
     val ink: Color,
     /** `--muted`: secondary text. */
@@ -67,7 +79,11 @@ internal val LightColors = SyncrColors(
     desk = Color(0xfffbfbfa),
     paper = Color(NotePalette.paper(false)),
     chrome = Color(0xffffffff),
-    tint = Color(0xfff5f5f3),
+    surface1 = Color(0xffffffff),
+    surface2 = Color(0xffffffff),
+    surface3 = Color(0xffffffff),
+    tint = Color(0x0f1e1e1e),
+    selectedFill = Color(0x1a1e1e1e),
     ink = Color(0xff1e1e1e),
     muted = Color(0xff6a6a6a),
     faint = Color(0xff9b9b9b),
@@ -86,7 +102,11 @@ internal val DarkColors = SyncrColors(
     desk = Color(0xff141414),
     paper = Color(NotePalette.paper(true)),
     chrome = Color(0xff1e1e1e),
-    tint = Color(0xff262625),
+    surface1 = Color(0xff1b1b1b),
+    surface2 = Color(0xff222221),
+    surface3 = Color(0xff2a2a29),
+    tint = Color(0x0ff0efea),
+    selectedFill = Color(0x1af0efea),
     ink = Color(0xfff0efea),
     muted = Color(0xffa8a7a1),
     faint = Color(0xff8f8e88),

@@ -8,7 +8,6 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,7 +18,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,11 +69,23 @@ fun TextAction(text: String, onClick: () -> Unit, modifier: Modifier = Modifier,
         tone == ActionTone.DESTRUCTIVE -> c.destructive
         else -> c.ink
     }
-    TextButton(onClick, modifier.heightIn(min = TouchTarget).then(
-        if (description != null) Modifier.semantics { contentDescription = description } else Modifier),
-        enabled = enabled, contentPadding = PaddingValues(horizontal = Space.m)) {
+    Box(modifier.heightIn(min = TouchTarget).clip(Radius.pill)
+        .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+        .then(if (description != null) Modifier.semantics { contentDescription = description } else Modifier)
+        .padding(horizontal = Space.m), contentAlignment = Alignment.Center) {
         Text(text, style = Syncr.type.label.copy(fontWeight = FontWeight.SemiBold), color = colour, maxLines = 1,
             overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** The one filled button of a sheet: ink on the page, as the selected chip is. */
+@Composable
+fun PrimaryAction(text: String, enabled: Boolean = true, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val c = Syncr.colors
+    Box(modifier.heightIn(min = TouchTarget).clip(Radius.pill).background(if (enabled) c.ink else c.dots)
+        .clickable(enabled = enabled, role = Role.Button, onClick = onClick).padding(horizontal = Space.xl),
+        contentAlignment = Alignment.Center) {
+        Text(text, style = Syncr.type.label.copy(fontWeight = FontWeight.SemiBold), color = if (enabled) c.surface1 else c.muted, maxLines = 1)
     }
 }
 
@@ -126,7 +136,7 @@ fun Chip(text: String, selected: Boolean, modifier: Modifier = Modifier, icon: I
     onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
     val c = Syncr.colors
     val content = when {
-        selected -> c.chrome
+        selected -> c.surface1
         !enabled -> c.faint
         quiet -> c.muted
         else -> c.ink

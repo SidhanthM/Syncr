@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -78,7 +77,6 @@ fun MacLinkSection() {
     var addressError by remember { mutableStateOf<String?>(null) }
     var code by remember { mutableStateOf("") }
 
-    SectionLabel("Mac link")
     Text("Copies your notes to the Syncr Mac app on this Wi-Fi network and shows your writing there as you write. " +
         "The link is not encrypted: use it on a network you trust.", style = Syncr.type.caption, color = c.muted)
     SettingsSwitch("Link to Mac", linkSummary(ui), ui.enabled) { link.setEnabled(it) }
@@ -102,8 +100,8 @@ fun MacLinkSection() {
         }
         Row(Modifier.fillMaxWidth().padding(top = Space.s), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(Space.m)) {
-            OutlinedTextField(code, { value -> code = value.filter(Char::isDigit).take(4) }, Modifier.weight(1f), singleLine = true,
-                label = { Text("Code") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done))
+            SyncrTextField(code, { value -> code = value.filter(Char::isDigit).take(4) }, Modifier.weight(1f), singleLine = true,
+                label = "Code", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done))
             TextAction("Pair", { link.submitCode(code); code = "" }, enabled = code.length == 4)
         }
     } else if (ui.connected) {
@@ -122,9 +120,8 @@ fun MacLinkSection() {
         }
         Row(Modifier.fillMaxWidth().padding(top = Space.s), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(Space.m)) {
-            OutlinedTextField(address, { address = it; addressError = null }, Modifier.weight(1f), singleLine = true,
-                label = { Text("Mac address") }, placeholder = { Text("192.168.1.20:5050") }, isError = addressError != null,
-                supportingText = addressError?.let { { Text(it) } },
+            SyncrTextField(address, { address = it; addressError = null }, Modifier.weight(1f), singleLine = true,
+                label = "Mac address", placeholder = "192.168.1.20:5050", error = addressError,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go))
             TextAction("Connect", { addressError = link.connectManual(address) }, enabled = address.isNotBlank())
         }

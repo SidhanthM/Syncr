@@ -21,8 +21,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -157,17 +155,11 @@ fun NoteCard(note: NoteSummary, thumbnail: Thumbnail?, showNotebook: Boolean, no
             Text(if (showNotebook) "$date · $notebook" else date, style = Syncr.type.caption, color = c.muted,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = Space.xs))
         }
-        DropdownMenu(menu, { menu = false }, containerColor = c.chrome) {
-            val tint = if (enabled) c.ink else c.faint
-            DropdownMenuItem({ Text("Move to notebook…") }, enabled = enabled, onClick = { menu = false; onMove() },
-                leadingIcon = { SyncrIcon(SyncrIcons.Folder, tint, size = 20.dp) })
-            DropdownMenuItem({ Text("Rename…") }, enabled = enabled, onClick = { menu = false; onRename() },
-                leadingIcon = { SyncrIcon(SyncrIcons.Pencil, tint, size = 20.dp) })
-            DropdownMenuItem({ Text(archiveLabel) }, enabled = enabled, onClick = { menu = false; onArchive() },
-                leadingIcon = { SyncrIcon(if (note.archived) SyncrIcons.Unarchive else SyncrIcons.Archive, tint, size = 20.dp) })
-            DropdownMenuItem({ Text("Delete", color = if (enabled) c.destructive else c.faint) }, enabled = enabled,
-                onClick = { menu = false; onDelete() },
-                leadingIcon = { SyncrIcon(SyncrIcons.Trash, if (enabled) c.destructive else c.faint, size = 20.dp) })
+        SyncrMenu(menu, { menu = false }) {
+            MenuItem("Move to notebook…", { menu = false; onMove() }, SyncrIcons.Folder, enabled)
+            MenuItem("Rename…", { menu = false; onRename() }, SyncrIcons.Pencil, enabled)
+            MenuItem(archiveLabel, { menu = false; onArchive() }, if (note.archived) SyncrIcons.Unarchive else SyncrIcons.Archive, enabled)
+            MenuItem("Delete", { menu = false; onDelete() }, SyncrIcons.Trash, enabled, ActionTone.DESTRUCTIVE)
         }
     }
 }

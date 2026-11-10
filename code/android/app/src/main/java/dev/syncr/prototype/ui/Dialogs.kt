@@ -13,7 +13,6 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -68,9 +67,8 @@ private fun NameDialog(heading: String, fieldLabel: String, initial: String, pro
     SyncrDialog(onDismiss, title = heading,
         confirm = { TextAction("Save", save, enabled = issue == null) },
         dismiss = { TextAction("Cancel", onDismiss) }) {
-        OutlinedTextField(value, { value = it; touched = true }, Modifier.fillMaxWidth().focusRequester(focus),
-            label = { Text(fieldLabel) }, singleLine = true, isError = touched && !issue.isNullOrEmpty(),
-            supportingText = if (touched && !issue.isNullOrEmpty()) ({ Text(issue) }) else null,
+        SyncrTextField(value, { value = it; touched = true }, Modifier.fillMaxWidth().focusRequester(focus),
+            label = fieldLabel, singleLine = true, error = if (touched && !issue.isNullOrEmpty()) issue else null,
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { save() }))
     }

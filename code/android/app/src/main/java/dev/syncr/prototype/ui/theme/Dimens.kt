@@ -8,6 +8,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.dropShadow
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.shadow.Shadow
@@ -43,7 +48,7 @@ val TouchTarget = 48.dp
  */
 @Composable
 @ReadOnlyComposable
-fun Modifier.cardSurface(shape: Shape = Radius.card, color: Color = Syncr.colors.chrome): Modifier {
+fun Modifier.cardSurface(shape: Shape = Radius.card, color: Color = Syncr.colors.surface1): Modifier {
     val c = Syncr.colors
     return this
         .then(if (c.dark) Modifier else Modifier
@@ -53,16 +58,43 @@ fun Modifier.cardSurface(shape: Shape = Radius.card, color: Color = Syncr.colors
         .border(1.dp, c.dots, shape)
 }
 
+/** The two raised levels of the surface ladder. */
+enum class Level { TWO, THREE }
+
 /**
- * Floating chrome over the paper (design `.tb-pill`, `.tb-row`): card colour, a stronger edge so it never blends
- * into white paper, and a lifted shadow (`0 6px 18px rgba(0,0,0,.08)`).
+ * A raised surface ([Level.TWO]: sheets, the bubble, toolbars; [Level.THREE]: menus, dialogs, toasts). The
+ * ladder's colour, a soft shadow (12 or 20 dp blur; 10% or 14% black, 40% in dark mode so a menu still parts from
+ * a sheet) and, in dark mode, a 1 dp top-edge highlight (white at 6% or 8%). All of it is drawn when the surface
+ * is, never per frame of anything under it.
  */
 @Composable
 @ReadOnlyComposable
-fun Modifier.floatingSurface(shape: Shape = Radius.pill): Modifier {
+fun Modifier.raised(level: Level, shape: Shape = Radius.card): Modifier {
     val c = Syncr.colors
+    val two = level == Level.TWO
+    val shadow = Shadow(radius = if (two) 12.dp else 20.dp, color = Color.Black,
+        offset = DpOffset(0.dp, if (two) 4.dp else 8.dp),
+        alpha = if (c.dark) 0.4f else if (two) 0.10f else 0.14f)
+    val highlight = if (c.dark) Color.White.copy(alpha = if (two) 0.06f else 0.08f) else null
     return this
-        .dropShadow(shape, Shadow(radius = 18.dp, color = Color.Black, offset = DpOffset(0.dp, 6.dp), alpha = if (c.dark) 0.5f else 0.1f))
-        .background(c.chrome, shape)
-        .border(1.dp, c.lineStrong, shape)
+        .dropShadow(shape, shadow)
+        .background(if (two) c.surface2 else c.surface3, shape)
+        .then(if (highlight == null) Modifier else Modifier.drawBehind {
+            val outline = shape.createOutline(size, layoutDirection, this)
+            val path = when (outline) {
+                is Outline.Rectangle -> Path().apply { addRect(outline.rect) }
+                is Outline.Rounded -> Path().apply { addRoundRect(outline.roundRect) }
+                is Outline.Generic -> outline.path
+            }
+            clipPath(path) { drawRect(highlight, size = Size(size.width, 1.dp.toPx())) }
+        })
 }
+
+/**
+ * Floating chrome over the paper (design `.tb-pill`, `.tb-row`): a raised level-two surface with a stronger edge so
+ * it never blends into white paper.
+ */
+@Composable
+@ReadOnlyComposable
+fun Modifier.floatingSurface(shape: Shape = Radius.pill): Modifier =
+    this.raised(Level.TWO, shape).border(1.dp, Syncr.colors.lineStrong, shape)

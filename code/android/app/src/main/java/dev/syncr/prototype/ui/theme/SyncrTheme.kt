@@ -35,15 +35,15 @@ fun SyncrTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () ->
     val reduced = remember(context) { runCatching { Motion.reducedMotion(context) }.getOrDefault(false) }
     val base = if (dark) darkColorScheme() else lightColorScheme()
     val scheme = base.copy(
-        primary = c.ink, onPrimary = c.chrome, primaryContainer = c.tint, onPrimaryContainer = c.ink,
-        secondary = c.muted, onSecondary = c.chrome, secondaryContainer = c.tint, onSecondaryContainer = c.ink,
+        primary = c.ink, onPrimary = c.surface2, primaryContainer = c.tint, onPrimaryContainer = c.ink,
+        secondary = c.muted, onSecondary = c.surface2, secondaryContainer = c.tint, onSecondaryContainer = c.ink,
         tertiary = c.muted, background = c.desk, onBackground = c.ink,
-        surface = c.chrome, onSurface = c.ink, surfaceVariant = c.tint, onSurfaceVariant = c.muted,
-        surfaceContainerLowest = c.chrome, surfaceContainerLow = c.chrome, surfaceContainer = c.chrome,
-        surfaceContainerHigh = c.chrome, surfaceContainerHighest = c.tint, surfaceTint = c.chrome,
-        inverseSurface = c.ink, inverseOnSurface = c.chrome,
+        surface = c.surface2, onSurface = c.ink, surfaceVariant = c.tint, onSurfaceVariant = c.muted,
+        surfaceContainerLowest = c.surface1, surfaceContainerLow = c.surface1, surfaceContainer = c.surface2,
+        surfaceContainerHigh = c.surface3, surfaceContainerHighest = c.surface3, surfaceTint = c.surface2,
+        inverseSurface = c.ink, inverseOnSurface = c.surface2,
         outline = c.lineStrong, outlineVariant = c.dots, scrim = c.scrim,
-        error = c.destructive, onError = c.chrome,
+        error = c.destructive, onError = c.surface2,
     )
     val t = SyncrTypeScale
     val typography = Typography(

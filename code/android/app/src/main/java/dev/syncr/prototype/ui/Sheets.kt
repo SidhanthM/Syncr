@@ -8,11 +8,22 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.runtime.remember
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import dev.syncr.prototype.ui.theme.Level
+import dev.syncr.prototype.ui.theme.Motion
+import dev.syncr.prototype.ui.theme.raised
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -33,7 +44,7 @@ import dev.syncr.prototype.ui.theme.Space
 import dev.syncr.prototype.ui.theme.Syncr
 
 /**
- * The app's bottom sheet: card colour, 16dp top corners, a quiet handle, full height (no half state) and the
+ * The app's bottom sheet: the level-two surface with a faint top edge in dark mode, 16dp top corners, a quiet handle, full height (no half state) and the
  * same side margins everywhere. Material's sheet already follows predictive back and keeps its content above
  * the navigation bar. [title] is optional and announced as a heading.
  */
@@ -43,7 +54,8 @@ fun SyncrSheet(onDismiss: () -> Unit, title: String? = null, content: @Composabl
     val c = Syncr.colors
     ModalBottomSheet(onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-        containerColor = c.chrome, contentColor = c.ink, scrimColor = c.scrim, tonalElevation = 0.dp,
+        containerColor = c.surface2, contentColor = c.ink, scrimColor = c.scrim, tonalElevation = 0.dp,
+        modifier = Modifier.sheetEdge(c.dark),
         dragHandle = {
             Box(Modifier.padding(top = Space.s, bottom = Space.xs).size(width = 36.dp, height = 4.dp)
                 .background(c.lineStrong, Radius.pill))
@@ -72,19 +84,35 @@ fun SheetSystemBars(dark: Boolean) {
     }
 }
 
+/** The sheet's 1 dp top-edge highlight in dark mode (white at 6%), drawn once with the sheet. */
+private fun Modifier.sheetEdge(dark: Boolean): Modifier =
+    if (!dark) this else this.drawWithContent {
+        drawContent()
+        drawRect(Color.White.copy(alpha = 0.06f), size = Size(size.width, 1.dp.toPx()))
+    }
+
 /**
- * The app's alert dialog: card colour, card radius, a title in the title style and body copy in the body style.
- * Buttons are [TextAction]s supplied by the caller.
+ * The app's dialog: a centred card on the level-three surface, a title in the title style, body copy in the body
+ * style and right-aligned text actions supplied by the caller. It fades in on [Motion.MENU_MS] with a slight scale
+ * from 0.96 (a fade alone with animations off).
  */
 @Composable
 fun SyncrDialog(onDismiss: () -> Unit, title: String, confirm: @Composable () -> Unit,
     dismiss: (@Composable () -> Unit)? = null, body: @Composable () -> Unit) {
-    val c = Syncr.colors
-    AlertDialog(onDismiss, confirmButton = confirm, dismissButton = dismiss,
-        shape = Radius.card, containerColor = c.chrome, tonalElevation = 0.dp,
-        title = { Text(title, style = Syncr.type.subheading, color = c.ink,
-            maxLines = 3, overflow = TextOverflow.Ellipsis) },
-        text = body)
+    val reduced = Syncr.reducedMotion
+    val shown = remember { MutableTransitionState(false).apply { targetState = true } }
+    Dialog(onDismiss, DialogProperties(usePlatformDefaultWidth = false)) {
+        SheetSystemBars(Syncr.colors.dark)
+        AnimatedVisibility(visibleState = shown, enter = Motion.dialogIn(reduced), exit = Motion.menuOut(reduced)) {
+            Column(Modifier.padding(horizontal = Space.xl).widthIn(max = 560.dp).fillMaxWidth()
+                .raised(Level.THREE, Radius.card).padding(start = Space.xl, end = Space.s, top = Space.xl, bottom = Space.s)) {
+                Text(title, style = Syncr.type.subheading, color = Syncr.colors.ink, maxLines = 3, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(end = Space.m).semantics { heading() })
+                Box(Modifier.padding(top = Space.m, end = Space.m)) { body() }
+                DialogButtons { dismiss?.invoke(); confirm() }
+            }
+        }
+    }
 }
 
 /** Body copy for [SyncrDialog]. */
@@ -100,5 +128,6 @@ fun DialogDetail(text: String, modifier: Modifier = Modifier) =
 /** Stacks dialog buttons end-aligned, wrapping on narrow screens and large fonts. */
 @Composable
 fun DialogButtons(content: @Composable () -> Unit) {
-    FlowRow(horizontalArrangement = Arrangement.End, itemVerticalAlignment = Alignment.CenterVertically) { content() }
+    FlowRow(Modifier.fillMaxWidth().padding(top = Space.s), horizontalArrangement = Arrangement.End,
+        itemVerticalAlignment = Alignment.CenterVertically) { content() }
 }

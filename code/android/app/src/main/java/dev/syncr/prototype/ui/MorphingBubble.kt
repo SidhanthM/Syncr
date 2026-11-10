@@ -26,7 +26,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -84,7 +87,7 @@ fun MorphingBubble(
     onRelease: (Offset) -> Unit = {},
 ) {
     if (Syncr.reducedMotion) {
-        Crossfade(expanded, modifier.fillMaxSize(), animationSpec = tween(Motion.REDUCED_MS), label = "bubble") { open ->
+        Crossfade(expanded, modifier.fillMaxSize(), animationSpec = Motion.fade(true), label = "bubble") { open ->
             MorphBody(open, { if (open) 1f else 0f }, center, description, stateDescription, onOpen, ring, glyph, bar,
                 optionsOpen, options, onDrag, onRelease, reduced = true)
         }
@@ -136,7 +139,8 @@ private fun MorphBody(
             // 0: the shape. A disc at rest, the pill when open; the same surface as the bar it becomes.
             {
                 Box(Modifier.graphicsLayer { shape = Radius.pill; clip = true; shadowElevation = (4f + 4f * p()) * density }
-                    .background(c.chrome).border(1.dp, c.lineStrong, Radius.pill))
+                    .background(c.surface2).border(1.dp, c.lineStrong, Radius.pill)
+                    .drawBehind { if (c.dark) drawRect(Color.White.copy(alpha = 0.06f), size = Size(size.width, 1.dp.toPx())) })
             },
             // 1: bar content, laid out at its final place and revealed by the growing shape.
             {
@@ -167,19 +171,19 @@ private fun MorphBody(
             // 5: size and colour options, emerging from the bar's far edge.
             {
                 AnimatedVisibility(expanded && optionsOpen,
-                    enter = if (reduced) fadeIn(tween(Motion.REDUCED_MS)) else
+                    enter = if (reduced) Motion.fadeInOnly(true) else
                         expandVertically(Motion.shape<IntSize>(), expandFrom = if (above) Alignment.Bottom else Alignment.Top) +
-                            fadeIn(tween(Motion.FADE_MS, delayMillis = 40)),
-                    exit = if (reduced) fadeOut(tween(Motion.REDUCED_MS)) else
+                            Motion.fadeInOnly(false),
+                    exit = if (reduced) Motion.fadeOutOnly(true) else
                         shrinkVertically(Motion.quick<IntSize>(), shrinkTowards = if (above) Alignment.Bottom else Alignment.Top) +
-                            fadeOut(tween(Motion.FADE_MS / 2))) { options() }
+                            Motion.fadeOutOnly(false)) { options() }
             },
         ),
         modifier = modifier.fillMaxSize().onPlaced { outer[0] = it }.onSizeChanged { height = it.height },
     ) { slots, constraints ->
         val w = constraints.maxWidth.toFloat()
         val h = constraints.maxHeight.toFloat()
-        val margin = 8.dp.toPx()
+        val margin = BarLayout.GUTTER.dp.toPx()
         val disc = BubbleDisc.toPx()
         val loose = Constraints(maxWidth = max(0, (w - 2 * margin).roundToInt()), maxHeight = constraints.maxHeight)
         val barPlaceable = slots[1].firstOrNull()?.measure(loose)

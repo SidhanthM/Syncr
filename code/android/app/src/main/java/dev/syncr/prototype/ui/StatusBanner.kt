@@ -25,7 +25,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import dev.syncr.prototype.notes.NotesState
 import dev.syncr.prototype.ui.theme.Motion
+import dev.syncr.prototype.ui.theme.Level
 import dev.syncr.prototype.ui.theme.Radius
+import dev.syncr.prototype.ui.theme.raised
 import dev.syncr.prototype.ui.theme.Space
 import dev.syncr.prototype.ui.theme.Syncr
 
@@ -71,7 +73,7 @@ private fun BannerCard(content: BannerContent, busy: Boolean, onRetry: () -> Uni
     onResolve: () -> Unit, onDismiss: () -> Unit) {
     val c = Syncr.colors
     var details by remember(content.raw) { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().background(c.chrome, Radius.m).background(c.attentionSoft, Radius.m)
+    Column(Modifier.fillMaxWidth().raised(Level.THREE, Radius.m).background(c.attentionSoft, Radius.m)
         .border(1.dp, c.attention.copy(alpha = 0.5f), Radius.m)
         .padding(start = Space.l, end = Space.xs, top = Space.m, bottom = Space.xs)) {
         Row(Modifier.semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }, verticalAlignment = Alignment.Top) {

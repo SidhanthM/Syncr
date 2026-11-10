@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
+import dev.syncr.prototype.ui.theme.Motion
 import dev.syncr.prototype.ui.theme.Syncr
 
 /** The ring is drawn around the disc with a small gap (design `.tdot`: `outline-offset: 3px`). */
@@ -47,7 +48,7 @@ fun BubbleRing(kind: RingKind, pip: Color? = null) {
     val pulse = if (kind == RingKind.ACCENT_DOTTED) {
         val half = if (Syncr.reducedMotion) 3000 else 1200
         rememberInfiniteTransition(label = "saving").animateFloat(1f, 0.25f,
-            infiniteRepeatable(tween(half, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "pulse").value
+            Motion.pulse(half), label = "pulse").value
     } else 1f
     Canvas(Modifier.size(BubbleRingSize)) {
         val ringWidth = 2.dp.toPx()
@@ -61,15 +62,15 @@ fun BubbleRing(kind: RingKind, pip: Color? = null) {
             RingKind.ATTENTION -> {
                 drawCircle(c.attention, r, style = Stroke(ringWidth * 1.25f))
                 val badge = Offset(size.width - 7.dp.toPx(), 7.dp.toPx())
-                drawCircle(c.chrome, 7.dp.toPx(), badge)
+                drawCircle(c.surface2, 7.dp.toPx(), badge)
                 drawCircle(c.attention, 6.dp.toPx(), badge)
-                drawLine(c.chrome, badge - Offset(0f, 3.dp.toPx()), badge + Offset(0f, 0.6f.dp.toPx()), 1.6f.dp.toPx(), StrokeCap.Round)
-                drawCircle(c.chrome, 0.9f.dp.toPx(), badge + Offset(0f, 2.7f.dp.toPx()))
+                drawLine(c.surface2, badge - Offset(0f, 3.dp.toPx()), badge + Offset(0f, 0.6f.dp.toPx()), 1.6f.dp.toPx(), StrokeCap.Round)
+                drawCircle(c.surface2, 0.9f.dp.toPx(), badge + Offset(0f, 2.7f.dp.toPx()))
             }
         }
         if (pip != null) {
             val at = Offset(center.x, size.height - 12.dp.toPx())
-            drawCircle(c.chrome, 3.6f.dp.toPx(), at)
+            drawCircle(c.surface2, 3.6f.dp.toPx(), at)
             drawCircle(pip, 2.6f.dp.toPx(), at)
         }
     }

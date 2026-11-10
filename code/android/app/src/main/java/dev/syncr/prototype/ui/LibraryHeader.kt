@@ -12,8 +12,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
@@ -37,7 +35,7 @@ fun LibraryTopBar(tabletEnabled: Boolean, onPointer: () -> Unit, onSettings: () 
         Text("Notes", style = Syncr.type.heading, color = Syncr.colors.ink, maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f).semantics { heading() })
         LinkDot(Modifier.padding(end = Space.xs))
-        IconAction(SyncrIcons.Tablet, "Tablet mode: use the phone as a pen pad for your Mac", onPointer, enabled = tabletEnabled)
+        IconAction(SyncrIcons.Tablet, "Tablet mode: write on the phone, into the note open on your Mac", onPointer, enabled = tabletEnabled)
         IconAction(SyncrIcons.Settings, "Settings", onSettings)
     }
 }
@@ -62,12 +60,9 @@ fun NotebookChips(notebooks: List<NotebookSummary>, filter: LibraryFilter, enabl
             Box {
                 Chip(notebook.name, filter == LibraryFilter.Notebook(notebook.name), onLongClickLabel = "Rename or delete",
                     onLongClick = { menu = true }) { onFilter(LibraryFilter.Notebook(notebook.name)) }
-                DropdownMenu(menu, { menu = false }, containerColor = c.chrome) {
-                    DropdownMenuItem({ Text("Rename…") }, enabled = enabled, onClick = { menu = false; onRenameNotebook(notebook.name) },
-                        leadingIcon = { SyncrIcon(SyncrIcons.Pencil, if (enabled) c.ink else c.faint, size = 20.dp) })
-                    DropdownMenuItem({ Text("Delete…", color = if (enabled) c.destructive else c.faint) }, enabled = enabled,
-                        onClick = { menu = false; onDeleteNotebook(notebook.name) },
-                        leadingIcon = { SyncrIcon(SyncrIcons.Trash, if (enabled) c.destructive else c.faint, size = 20.dp) })
+                SyncrMenu(menu, { menu = false }) {
+                    MenuItem("Rename…", { menu = false; onRenameNotebook(notebook.name) }, SyncrIcons.Pencil, enabled)
+                    MenuItem("Delete…", { menu = false; onDeleteNotebook(notebook.name) }, SyncrIcons.Trash, enabled, ActionTone.DESTRUCTIVE)
                 }
             }
         }

@@ -61,6 +61,24 @@ object SyncrIcons {
     val Trash = Bin
     /** Needs attention: a circled "!", so the state never relies on the amber alone. */
     val Attention = icon("Attention", "M12 3.5a8.5 8.5 0 1 1 0 17a8.5 8.5 0 1 1 0-17z", "M12 8v4.8", filled = listOf(dot(12f, 16f, 1f)))
+    val Back = icon("Back", "M14.5 5l-7 7 7 7")
+    val Chevron = icon("Chevron", "M9.5 5l7 7-7 7")
+    // The editor toolbar.
+    val Slash = icon("Slash", "M15.5 4.5l-7 15")
+    val Heading = icon("Heading", "M6.5 5v14", "M17.5 5v14", "M6.5 12h11")
+    val Bold = icon("Bold", "M8 5v14", "M8 5h5a3.5 3.5 0 0 1 0 7H8", "M8 12h6a3.5 3.5 0 0 1 0 7H8")
+    val Italic = icon("Italic", "M10 5h7", "M7 19h7", "M14.5 5l-5 14")
+    val Bullet = icon("Bullet", "M10 7h10", "M10 12h10", "M10 17h10", filled = listOf(dot(5.5f, 7f, 1.3f), dot(5.5f, 12f, 1.3f), dot(5.5f, 17f, 1.3f)))
+    val Todo = icon("Todo", "M4.5 5.5h6a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-6a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1z", "M5.8 9.2l1.7 1.7 2.7-3", "M15 9.5h5.5", "M4 18.5h16.5")
+    val Outdent = icon("Outdent", "M4 5h16", "M12 10h8", "M12 14h8", "M4 19h16", "M8 9.5l-3.5 2.5L8 14.5")
+    val Indent = icon("Indent", "M4 5h16", "M12 10h8", "M12 14h8", "M4 19h16", "M4 9.5L7.5 12 4 14.5")
+    /** Ask Syncr: a four-point spark. */
+    val Spark = icon("Spark", "M12 4c.7 4.3 1.7 5.3 6 6-4.3.7-5.3 1.7-6 6-.7-4.3-1.7-5.3-6-6 4.3-.7 5.3-1.7 6-6z")
+    val HideKeyboard = icon("HideKeyboard", "M5 4.5h14A1.5 1.5 0 0 1 20.5 6v7a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 13V6A1.5 1.5 0 0 1 5 4.5z", "M9 18.5l3 2.5 3-2.5",
+        filled = listOf(dot(7f, 8f, .9f), dot(10.5f, 8f, .9f), dot(14f, 8f, .9f), dot(17.5f, 8f, .9f), dot(7f, 11.2f, .9f), dot(17.5f, 11.2f, .9f)),
+        extra = listOf(addPathNodes("M10 11.2h4")))
+    /** Type: a serif capital T, the tool that starts typing. */
+    val Type = icon("Type", "M6 7V5.5h12V7", "M12 5.5v13", "M9.5 18.5h5")
     /** Export: an arrow leaving a tray. */
     val Export = icon("Export", "M12 4v10.5", "M8 8l4-4 4 4", "M5 13.5V18.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5v-5")
 }
