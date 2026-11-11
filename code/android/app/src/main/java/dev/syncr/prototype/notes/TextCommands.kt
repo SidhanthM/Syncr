@@ -52,6 +52,52 @@ internal object TextCommands {
             CompanionMutation(item.id, Base.Operation(item.head.operationId), false, body.copy(state = state)))))
     }
 
+    /** What [ask] built: the command, the ask thread's ID and the picture's ID when there is one. */
+    class AskCommand(val command: Command, val threadId: String, val pictureId: String?)
+
+    /**
+     * A direct ask, stored as the Mac stores one (`CompanionStore.addAsk` and `apply`): an anchor on the passage, the
+     * thread's parent note (a question read by "You"), the question as message 0 and the answer as message 1. So it shows
+     * under its passage on both devices. A [picture] (title, then SVG exactly as the core's filter returned it) gets its
+     * own anchor on the same passage. [start] and [end] are UTF-16 offsets into [draft]'s text.
+     */
+    fun ask(note: NoteSnapshot, draft: TextDraft, start: Int, end: Int, question: String, answer: String, picture: Pair<String, String>?, id: () -> String): AskCommand {
+        require(note.noteId == draft.noteId && start >= 0 && end > start && end <= draft.text.length)
+        val block = note.textBlocks.firstOrNull { it.id == draft.blockId && !it.tombstone }
+        require(block != null && block.head.operationId == draft.head && block.text == draft.text) { "The passage changed while the answer was being written. Copy the answer or ask again." }
+        require(question.isNotBlank() && answer.isNotBlank() && answer.toByteArray().size <= 64_000)
+        fun anchor() = CompanionBody.Anchor(AnchorTarget.Text(block.id,
+            draft.text.substring(0, start).toByteArray().size.toUInt(), draft.text.substring(0, end).toByteArray().size.toUInt(), false))
+        val anchorId = id(); val thread = id()
+        val mutations = mutableListOf(
+            CompanionMutation(anchorId, Base.Absent, false, anchor()),
+            CompanionMutation(thread, Base.Absent, false, CompanionBody.MarginNote(anchorId, MarginKind.QUESTION, "Question", ASK_READER, MarginState.OPEN, emptyList())),
+            CompanionMutation(id(), Base.Absent, false, CompanionBody.ThreadMessage(thread, 0u, MessageWho.YOU, question.take(4000), emptyList())),
+            CompanionMutation(id(), Base.Absent, false, CompanionBody.ThreadMessage(thread, 1u, MessageWho.COMPANION, answer, emptyList())),
+        )
+        var pictureId: String? = null
+        if (picture != null) {
+            val pictureAnchor = id()
+            pictureId = id()
+            mutations += CompanionMutation(pictureAnchor, Base.Absent, false, anchor())
+            mutations += CompanionMutation(pictureId, Base.Absent, false, CompanionBody.Picture(pictureAnchor, picture.first.take(200), picture.second))
+        }
+        return AskCommand(Command(id(), listOf(block.head.operationId), CommandBody.CompanionMarks(mutations)), thread, pictureId)
+    }
+
+    /** The line that holds a picture's room in the text, after the paragraph its passage ends in (as the Mac inserts it). */
+    fun embed(note: NoteSnapshot, blockId: String, pictureId: String, passageEnd: Int, id: () -> String): Command? {
+        val block = note.textBlocks.firstOrNull { it.id == blockId && !it.tombstone } ?: return null
+        val bytes = block.text.toByteArray()
+        var at = block.text.substring(0, passageEnd.coerceIn(0, block.text.length)).toByteArray().size
+        while (at < bytes.size && bytes[at] != 10.toByte()) at++
+        return Command(id(), listOf(block.head.operationId), CommandBody.Marks(listOf(
+            MarkMutation.SpliceText(block.id, Base.Operation(block.head.operationId), at.toUInt(), 0u, "\n![[syncr-drawing:$pictureId]]\n"))))
+    }
+
+    /** `CompanionStore.askReader` on the Mac. */
+    const val ASK_READER = "You"
+
     fun explanation(note: NoteSnapshot, draft: TextDraft, start: Int, end: Int, answer: String, id: () -> String): Command {
         require(note.noteId == draft.noteId && start >= 0 && end > start && end <= draft.text.length)
         val block = note.textBlocks.firstOrNull { it.id == draft.blockId && !it.tombstone }

@@ -15,13 +15,27 @@ import dev.syncr.core.TextRole
 import kotlin.math.max
 import kotlin.math.min
 
+internal data class ItemBox(val x: Float, val y: Float, val w: Float, val h: Float)
+
+internal data class TaskHit(val blockId: String, val line: Int, val x: Float, val y: Float, val w: Float, val h: Float) {
+    fun contains(px: Float, py: Float) = px >= x - 8 && px <= x + w + 8 && py >= y - 8 && py <= y + h + 8
+}
+
 /** What the canvas draws under the ink for a note's text and companion content, in canvas units. */
 data class ContentTarget(val id: String, val response: Boolean)
 internal data class ContentHit(val target: ContentTarget, val x: Float, val y: Float, val width: Float, val height: Float) {
     fun contains(px: Float, py: Float) = px >= x && px <= x + width && py >= y && py <= y + height
 }
 internal class NoteTextScene(val prims: List<Prim>, val pictures: Map<String, PictureDisplayList>, val bottom: Float,
-    val hits: List<ContentHit> = emptyList()) {
+    val hits: List<ContentHit> = emptyList(),
+    /** Room the document gives its lines beyond the words, by logical line: after answers, and for picture embeds. */
+    val gaps: Map<Int, Float> = emptyMap(), val embeds: Map<Int, Float> = emptyMap(), val documentText: String = "",
+    /** The rendered task boxes, to flip with a tap (T18). */
+    val tasks: List<TaskHit> = emptyList(),
+    /** Where each companion item (answer, margin note, picture) is, by ID, to dissolve it in when it arrives. */
+    val items: Map<String, ItemBox> = emptyMap(),
+    /** The document's visual lines, for a tap on empty paper to find the caret's place. */
+    val lines: List<TextLine> = emptyList()) {
     companion object { val EMPTY = NoteTextScene(emptyList(), emptyMap(), 0f) }
 }
 
@@ -34,7 +48,8 @@ internal class NoteTextSceneBuilder(private val shaper: Shaper, private val pict
     private val typeset = Typeset(shaper)
     private val rich = RichText(shaper)
 
-    fun build(note: NoteSnapshot): NoteTextScene {
+    /** [hide] is the ID of a text block being edited in the field above the page: its own words are left out, the rest is built as usual. */
+    fun build(note: NoteSnapshot, hide: String? = null): NoteTextScene {
         val prims = ArrayList<Prim>()
         val hits = ArrayList<ContentHit>()
         val pictures = HashMap<String, PictureDisplayList>()
@@ -80,9 +95,11 @@ internal class NoteTextSceneBuilder(private val shaper: Shaper, private val pict
             if (title.isNotEmpty()) prims += Prim.Text(title, MacMetrics.TEXT_X, MacMetrics.TITLE_Y + 9.5f + MacMetrics.ascent(MacMetrics.TITLE_SIZE),
                 Attr(size = MacMetrics.TITLE_SIZE, weight = 500, kern = -1.5f / MacMetrics.TITLE_SIZE))
         }
-        prims += layout.prims
+        if (document?.id != hide) prims += layout.prims
         bottom = max(bottom, layout.bottom)
 
+        val taskHits = ArrayList<TaskHit>()
+        if (document != null) layout.tasks.forEach { taskHits += TaskHit(document.id, it.logical, it.x, it.y, it.w, it.h) }
         if (document != null) for (line in layout.vlines) {
             hits += ContentHit(ContentTarget(document.id, false), MacMetrics.TEXT_X, line.top, columnWidth, 64f)
         }
@@ -154,13 +171,28 @@ internal class NoteTextSceneBuilder(private val shaper: Shaper, private val pict
         for (block in note.textBlocks) {
             if (block.role != TextRole.FREE || block.tombstone) continue
             val free = typeset.document(block.text, block.originX + block.transform.tx.toFloat(), block.originY + block.transform.ty.toFloat() + 45f, block.width)
-            prims += free.prims
+            if (block.id != hide) prims += free.prims
+            free.tasks.forEach { taskHits += TaskHit(block.id, it.logical, it.x, it.y, it.w, it.h) }
             hits += ContentHit(ContentTarget(block.id, false), block.originX + block.transform.tx.toFloat(),
                 block.originY + block.transform.ty.toFloat() + 45f, block.width,
                 max(64f, free.bottom - block.originY - block.transform.ty.toFloat() - 45f))
             bottom = max(bottom, free.bottom)
         }
-        return NoteTextScene(prims, pictures, bottom + 200f, hits)
+        val embeds = HashMap<Int, Float>()
+        for ((id, height) in heights) {
+            val index = logical.indexOfFirst { it.text.trim() == "![[syncr-drawing:$id]]" }
+            if (index >= 0) embeds[index] = height
+        }
+        val boxes = HashMap<String, ItemBox>()
+        for (h in hits) if (h.target.response) boxes[h.target.id] = ItemBox(h.x, h.y, h.width, h.height)
+        for (p in prims) if (p is Prim.Picture) boxes[p.key] = ItemBox(p.x, p.y, p.w, p.h)
+        val lines = layout.vlines.mapIndexed { i, v ->
+            val next = layout.vlines.getOrNull(i + 1)
+            // A line the column wraps ends before the space it broke at; the last line of the text claims only its own height.
+            val end = if (next != null && next.logical == v.logical) text.substring(v.start, v.end).trimEnd(' ', '\t').length + v.start else v.end
+            TextLine(v.start, end, v.top, next?.top ?: v.used)
+        }
+        return NoteTextScene(prims, pictures, bottom + 200f, hits, gaps, embeds, text, taskHits, boxes, lines)
     }
 
     private fun pictureCard(id: String, picture: PictureDisplayList, x: Float, y: Float, width: Float, ratio: Float): List<Prim> {

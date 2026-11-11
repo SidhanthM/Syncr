@@ -143,9 +143,50 @@ class NotesRepository(
         check(!state.value.unsaved) { state.value.error ?: "Text is queued but not yet saved. Retry saving from the note." }
     }
 
+    /** A tap on a rendered task box: flips `[ ]` and `[x]` on [line] of block [blockId] and nothing else. */
+    suspend fun flipTask(blockId: String, line: Int) {
+        val draft = textDraft(blockId)
+        val flipped = dev.syncr.prototype.editor.Typing.flipTask(draft.text, line) ?: return
+        saveText(draft, flipped.text)
+    }
+
     suspend fun setResponseState(noteId: String, itemId: String, head: String, value: dev.syncr.core.MarginState) {
         if (editor.stageContent(noteId) { TextCommands.state(it, itemId, head, value, id) }) retry()
         check(!state.value.unsaved) { state.value.error ?: "Response change is queued but not yet saved." }
+    }
+
+    /**
+     * Saves an answered ask under its passage. With no passage (a note without words) the question itself becomes the
+     * note's next paragraph and the answer goes under it. The picture is kept only if the core's filter accepts it;
+     * false means the words were saved and the picture was not.
+     */
+    suspend fun saveAsk(draft: TextDraft, span: dev.syncr.prototype.companion.PhoneCompanion.Span?, question: String,
+        answer: dev.syncr.prototype.companion.PhoneCompanion.Answer): Boolean {
+        val asked = question.trim().ifEmpty { dev.syncr.prototype.companion.PhoneCompanion.DEFAULT_QUESTION }
+        var d = draft
+        var start = span?.start ?: 0; var end = span?.end ?: 0
+        if (span == null) {
+            val text = d.text.trimEnd().let { if (it.isEmpty()) asked else it + "\n\n" + asked }
+            saveText(d, text)
+            d = textDraft(d.blockId)
+            start = text.length - asked.length; end = text.length
+        }
+        val clean = answer.svg?.let { svg -> kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { runCatching { dev.syncr.core.filterPicture(svg) }.getOrNull() } }
+        val words = answer.text.ifBlank { if (clean != null) "See the picture." else "" }
+        check(words.isNotBlank()) { "The answer was empty. Nothing was saved." }
+        var pictureId: String? = null
+        val staged = editor.stageContent(d.noteId) { note ->
+            TextCommands.ask(note, d, start, end, asked, words, clean?.let { dev.syncr.prototype.companion.PhoneCompanion.pictureTitle(it, asked) to it }, id)
+                .also { pictureId = it.pictureId }.command
+        }
+        if (staged) retry()
+        check(!state.value.unsaved) { state.value.error ?: "The answer is queued but not yet saved." }
+        val picture = pictureId
+        val block = d.blockId
+        if (picture != null && block != null) {
+            if (editor.stageContent(d.noteId) { note -> TextCommands.embed(note, block, picture, end, id) }) retry()
+        }
+        return answer.svg == null || clean != null
     }
 
     suspend fun saveExplanation(draft: TextDraft, start: Int, end: Int, answer: String) {

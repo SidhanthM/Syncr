@@ -43,7 +43,7 @@ internal object Slash {
         c("note", "wikilink", "Link to a note", "Insert", SlashKind.INLINE, "[["),
         c("date", "today", "Date", "Insert", SlashKind.INLINE, "D"),
         c("time", "now", "Time", "Insert", SlashKind.INLINE, "t"),
-        c("ask", "syncr explain", "Ask the companion", "Syncr", SlashKind.ACTION, "?"),
+        c("ask", "syncr explain", "Ask Syncr", "Syncr", SlashKind.ACTION, "?"),
         c("draw", "picture sketch", "Ask for a picture", "Syncr", SlashKind.ACTION, "✎"),
     )
 

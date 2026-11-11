@@ -1,5 +1,6 @@
 package dev.syncr.prototype.notes
 
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Matrix
 import android.graphics.Paint
@@ -10,6 +11,7 @@ import android.graphics.Typeface
 import android.os.Handler
 import android.os.Looper
 import android.os.Process
+import android.os.SystemClock
 import android.text.Layout
 import android.text.SpannableString
 import android.text.Spanned
@@ -20,6 +22,8 @@ import dev.syncr.core.NoteSnapshot
 import dev.syncr.core.PictureDisplayList
 import dev.syncr.core.PictureItem
 import dev.syncr.core.pictureDisplayList
+import dev.syncr.prototype.stipple.Stipple
+import dev.syncr.prototype.ui.theme.Motion
 import dev.syncr.prototype.ui.theme.PaperPalette
 import java.util.concurrent.Executors
 import java.util.concurrent.ThreadFactory
@@ -32,28 +36,67 @@ import java.util.concurrent.ThreadFactory
  */
 internal class TextLayer(private val invalidate: () -> Unit, private val onExtent: (Float) -> Unit) {
     private class Band(val top: Float, val bottom: Float, val picture: Picture)
-    private class Done(val key: Long, val dark: Boolean, val bands: List<Band>, val bottom: Float, val hits: List<ContentHit> = emptyList())
+    private class Done(val key: Long, val dark: Boolean, val bands: List<Band>, val bottom: Float, val hits: List<ContentHit> = emptyList(),
+        val hidden: String? = null, val scene: NoteTextScene = NoteTextScene.EMPTY, val noteId: String? = null,
+        /** The covers of each item that is new in this scene, to dissolve it in: step 0 hides everything, the last nothing. */
+        val arrivals: Map<String, List<Bitmap>> = emptyMap())
+
+    /** A companion item dissolving in on the page: [covers] are paper-coloured stipple over its box, from full to none. */
+    private class Dissolve(val box: ItemBox, val start: Long, val covers: List<Bitmap>)
 
     @Volatile private var done: Done? = null
     private var queuedKey = 0L
     private var queuedDark = false
+    private var queuedHide: String? = null
     private var queuedNote: String? = null
     private var generation = 0
     private val main = Handler(Looper.getMainLooper())
+    private val dissolves = ArrayList<Dissolve>()
+    private val coverPaint = Paint()
+
+    /** True while a pen is down or has just been: nothing starts to animate on the page then, it lands finished. */
+    var penBusy: () -> Boolean = { false }
+    /** The system's "Remove animations": no dissolve. */
+    var reduced = false
+    /** A stipple cell in canvas units (about 3 dp at the page's zoom). */
+    var cellUnits = 10f
 
     /** Called from [NoteCanvasView.update] on the main thread; does no layout. */
-    fun show(note: NoteSnapshot?, dark: Boolean) {
+    fun show(note: NoteSnapshot?, dark: Boolean, hide: String? = null) {
         if (note == null) { clear(); return }
         val key = fingerprint(note)
-        if (note.noteId == queuedNote && key == queuedKey && dark == queuedDark) return
+        if (note.noteId == queuedNote && key == queuedKey && dark == queuedDark && hide == queuedHide) return
         if (note.noteId != queuedNote) { done = null; onExtent(0f) }
-        queuedNote = note.noteId; queuedKey = key; queuedDark = dark
+        queuedNote = note.noteId; queuedKey = key; queuedDark = dark; queuedHide = hide
         val mine = ++generation
         executor.execute {
-            val result = try { render(note, key, dark) } catch (_: Throwable) { Done(key, dark, emptyList(), 0f) }
-            main.post { if (mine == generation) { done = result; onExtent(result.bottom); invalidate() } }
+            val before = done
+            val cell = cellUnits
+            val result = try { render(note, key, dark, hide, before, cell) } catch (_: Throwable) { Done(key, dark, emptyList(), 0f) }
+            main.post {
+                if (mine == generation) {
+                    done = result; onExtent(result.bottom)
+                    // Items new to a note already on screen dissolve in, unless the pen is busy or animations are off.
+                    if (!reduced && (Stipple.freeze != null || !penBusy())) for ((id, covers) in result.arrivals) {
+                        result.scene.items[id]?.let { dissolves += Dissolve(it, SystemClock.uptimeMillis(), covers) }
+                    }
+                    invalidate()
+                }
+            }
         }
     }
+
+    /** Whether the scene on screen leaves out the words of block [id], because the field above shows them. */
+    fun hides(id: String?): Boolean = id != null && done?.hidden == id
+
+    /** The document's own extra room and the text it was laid out for, from the scene on screen. */
+    fun extras(): Triple<Map<Int, Float>, Map<Int, Float>, String>? = done?.scene?.let { Triple(it.gaps, it.embeds, it.documentText) }
+
+    /** The task box at a point of the page, if the scene on screen has one there: its block and line. */
+    fun task(x: Float, y: Float): Pair<String, Int>? = done?.takeIf { it.key == queuedKey }?.scene?.tasks?.firstOrNull { it.contains(x, y) }?.let { it.blockId to it.line }
+
+    /** The document's visual lines in the scene on screen, empty until one is built. */
+    internal fun lines(): List<TextLine> = done?.takeIf { it.key == queuedKey }?.scene?.lines.orEmpty()
 
     fun hit(x: Float, y: Float): ContentTarget? = done?.takeIf { it.key == queuedKey }?.hits
         ?.asReversed()?.firstOrNull { it.contains(x, y) }?.target
@@ -93,10 +136,44 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
         return h
     }
 
-    private fun render(note: NoteSnapshot, key: Long, dark: Boolean): Done {
+    /** Draws the dissolves in progress (canvas space). True while one is still running and the view must draw again. */
+    fun drawDissolves(canvas: Canvas): Boolean {
+        if (dissolves.isEmpty()) return false
+        val now = SystemClock.uptimeMillis()
+        val frozen = Stipple.freeze
+        var running = false
+        val each = dissolves.iterator()
+        while (each.hasNext()) {
+            val d = each.next()
+            val p = frozen ?: ((now - d.start).toFloat() / Motion.REVEAL_MS)
+            if (frozen == null && p >= 1f) { each.remove(); continue }
+            val step = Stipple.frame(p).coerceIn(0, d.covers.lastIndex)
+            if (step < Motion.STIPPLE_FRAMES) canvas.drawBitmap(d.covers[step], null, RectF(d.box.x, d.box.y, d.box.x + d.box.w, d.box.y + d.box.h), coverPaint)
+            if (frozen == null) running = true
+        }
+        return running
+    }
+
+    /** The covers for each item that is in [scene] and was not in what was on screen for the same note. */
+    private fun arrivals(note: String, scene: NoteTextScene, before: Done?, dark: Boolean, cell: Float): Map<String, List<Bitmap>> {
+        if (before == null || before.noteId != note || before.scene === NoteTextScene.EMPTY) return emptyMap()
+        val paper = PaperPalette.paper(dark).toInt()
+        val out = HashMap<String, List<Bitmap>>()
+        for ((id, box) in scene.items) {
+            if (id in before.scene.items || box.w < 1f || box.h < 1f) continue
+            val columns = Stipple.columns(box.w, cell); val rows = Stipple.rows(box.h, cell)
+            out[id] = (0..Motion.STIPPLE_FRAMES).map { k ->
+                val shown = Stipple.mask(columns, rows, k)
+                Bitmap.createBitmap(IntArray(columns * rows) { if (shown[it]) 0 else paper }, columns, rows, Bitmap.Config.ARGB_8888)
+            }
+        }
+        return out
+    }
+
+    private fun render(note: NoteSnapshot, key: Long, dark: Boolean, hide: String?, before: Done?, cell: Float): Done {
         val shaper = AndroidShaper()
         val cache = HashMap<String, PictureDisplayList?>()
-        val scene = NoteTextSceneBuilder(shaper) { svg -> cache.getOrPut(svg) { try { pictureDisplayList(svg) } catch (_: Exception) { null } } }.build(note)
+        val scene = NoteTextSceneBuilder(shaper) { svg -> cache.getOrPut(svg) { try { pictureDisplayList(svg) } catch (_: Exception) { null } } }.build(note, hide)
         val painter = TextPainter(dark, scene.pictures)
         val bands = ArrayList<Band>()
         var top = 0f
@@ -113,7 +190,7 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
             }
             top = bottom
         }
-        return Done(key, dark, bands, scene.bottom, scene.hits)
+        return Done(key, dark, bands, scene.bottom, scene.hits, hide, scene, note.noteId, arrivals(note.noteId, scene, before, dark, cell))
     }
 
     private companion object {

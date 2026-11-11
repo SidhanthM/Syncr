@@ -154,6 +154,27 @@ class SubscriptionClient private constructor(context: Context) {
             .post(payload.toString().toRequestBody("application/json".toMediaType())).build()
         return exchange(request, SubscriptionTransport::stream)
     }
+    /**
+     * One explicit request on the signed-in ChatGPT plan: [input] is the whole user message ([PhoneCompanion.request]).
+     * [onText] sees the output so far while it streams, on a background thread, for showing only. Returns the complete
+     * output; throws when the stream did not finish, so nothing partial is ever saved. Never retried.
+     */
+    suspend fun ask(model: String, input: String, onText: (String) -> Unit = {}): String {
+        require(input.isNotBlank() && input.toByteArray().size <= 120_000) { "The request is too large." }
+        val payload = JSONObject().put("model", model).put("store", false).put("stream", true)
+            .put("instructions", PhoneCompanion.INSTRUCTIONS)
+            .put("input", JSONArray().put(JSONObject().put("role", "user").put("content", input)))
+        val request = Request.Builder().url("${SubscriptionProtocol.RESOURCE}/responses").header("Authorization", "Bearer ${token()}")
+            .header("Accept", "text/event-stream")
+            .post(payload.toString().toRequestBody("application/json".toMediaType())).build()
+        return exchange(request) { SubscriptionTransport.stream(it, onText) }
+    }
+
+    /** The model last chosen on this phone (its slug and its name), kept in plain preferences: it is not a secret. */
+    var model: Model?
+        get() = prefs.getString("model", null)?.let { id -> Model(id, prefs.getString("model_name", null) ?: id) }
+        set(value) { prefs.edit().putString("model", value?.id).putString("model_name", value?.name).apply() }
+    private val prefs get() = context.getSharedPreferences("companion", Context.MODE_PRIVATE)
     private fun form(values: Map<String, String>) = FormBody.Builder().apply { values.forEach { (k, v) -> add(k, v) } }.build()
     private suspend fun postForm(endpoint: String, values: Map<String, String>): JSONObject = JSONObject(exchange(
         Request.Builder().url("${SubscriptionProtocol.ISSUER}/api/accounts/oauth/$endpoint").post(form(values)).build(), ::bounded))
