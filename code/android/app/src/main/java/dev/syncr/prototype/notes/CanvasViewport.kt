@@ -33,11 +33,11 @@ internal class CanvasViewport {
         if (width > 0 && height > 0) mapping = mapping?.let(::clamp) ?: Viewport.defaultView(layout, width, height)
     }
 
-    /** Rotation and resizes keep the zoom but return to the left edge. */
+    /** Rotation and width changes keep the zoom but return to the left edge; a change of height alone (the keyboard) keeps the place. */
     fun resize(newWidth: Int, newHeight: Int, oldWidth: Int) {
         width = newWidth
         height = newHeight
-        mapping = Viewport.resized(layout, mapping?.takeIf { oldWidth > 0 }, newWidth, newHeight)
+        mapping = Viewport.resized(layout, mapping?.takeIf { oldWidth > 0 }, newWidth, newHeight, keepLeft = newWidth == oldWidth)
     }
 
     /** Back to the phone column at the fit scale, keeping the top canvas row. */
@@ -49,6 +49,11 @@ internal class CanvasViewport {
     fun zoomTo(scale: Float, focusX: Float, focusY: Float) {
         val m = mapping ?: return
         mapping = clamp(m.navigate(0f, 0f, scale / m.scale, focusX, focusY))
+    }
+
+    /** Zooms to [scale] with the sheet's left edge [tx] pixels in, keeping the sheet point at height [anchorSheetY] where it is on screen (the text column fills the width). */
+    fun fitText(scale: Float, tx: Float, anchorSheetY: Float, anchorScreenY: Float) {
+        mapping = clamp(SheetMapping(scale, tx, anchorScreenY - anchorSheetY * scale))
     }
 
     /** Pan by ([dx], [dy]) and zoom by [factor] about a screen point, within [Viewport.scaleRange]. */

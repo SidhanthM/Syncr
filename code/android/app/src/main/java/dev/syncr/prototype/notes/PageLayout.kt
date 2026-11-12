@@ -38,9 +38,10 @@ object Viewport {
         return clamp(SheetMapping(scale, 0f, -row * scale), layout, viewWidth, viewHeight)
     }
 
-    fun resized(layout: CanvasLayout, current: SheetMapping?, viewWidth: Int, viewHeight: Int): SheetMapping =
+    /** A width change returns to the left edge; a height-only change (the keyboard) keeps the horizontal place. */
+    fun resized(layout: CanvasLayout, current: SheetMapping?, viewWidth: Int, viewHeight: Int, keepLeft: Boolean = false): SheetMapping =
         if (current == null) defaultView(layout, viewWidth, viewHeight)
-        else clamp(current.copy(tx = 0f), layout, viewWidth, viewHeight)
+        else clamp(if (keepLeft) current else current.copy(tx = 0f), layout, viewWidth, viewHeight)
 
     fun scaleRange(fit: Float) = (fit * 0.5f)..max(fit * 6f, 3f)
 

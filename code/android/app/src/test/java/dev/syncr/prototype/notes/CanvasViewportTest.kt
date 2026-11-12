@@ -34,6 +34,18 @@ class CanvasViewportTest {
         assertEquals(0f, viewport.mapping!!.tx)
     }
 
+    @Test fun aHeightOnlyChangeKeepsTheHorizontalPlaceSoAnOpenKeyboardDoesNotShiftTheColumn() {
+        val viewport = CanvasViewport()
+        viewport.resize(1000, 2000, oldWidth = 0)
+        viewport.setLayout(CanvasLayout(10_000f))
+        viewport.fitText(1.2f, -90f, 0f, 0f)
+        assertEquals(-90f, viewport.mapping!!.tx, 1e-3f)
+        viewport.resize(1000, 1200, oldWidth = 1000) // the keyboard opens
+        assertEquals(-90f, viewport.mapping!!.tx, 1e-3f)
+        viewport.resize(1200, 1000, oldWidth = 1000) // a rotation
+        assertEquals(0f, viewport.mapping!!.tx, 1e-3f)
+    }
+
     @Test fun navigateKeepsTheFocusPointStillAndClampsToThePinchRange() {
         val viewport = portrait()
         viewport.navigate(0f, 0f, 2f, 500f, 1000f)

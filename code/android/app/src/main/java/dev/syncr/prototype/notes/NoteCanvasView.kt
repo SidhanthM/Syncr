@@ -54,13 +54,30 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     /** Finger-tap commands (undo/redo). FIT is handled here and also reported. */
     var onTap: (TapCommand) -> Unit = {}
     var onContent: (ContentTarget) -> Unit = {}
+    /** A tap on a rendered task box: the text block and the line to flip. */
+    var onTask: (String, Int) -> Unit = { _, _ -> }
     private val textInput = CanvasTextInput(this)
     private var lastTextTap: Pair<Float, Float>? = null
+    /** Where a tap on empty paper (or the Type tool) wants the caret; read once when the field opens. */
+    private var caretWish: CaretWish? = null
+    /** The field opened on a newline the tap added itself: nothing is stored unless something is typed. */
+    internal var startedOnNewLine = false
+        private set
+    /** Where the caret was when typing last ended, for the Type tool to return to. */
+    private var lastCaret: Int? = null
+    private var editingBlock: String? = null
+    private var editorBottom = 0f
     private var textSnapshot: dev.syncr.core.NoteSnapshot? = null
 
-    fun beginTextEditing(draft: TextDraft, value: String, changed: (String) -> Unit, selection: (Int, Int) -> Unit) {
-        textInput.changed = changed
-        textInput.selectionChanged = selection
+    /**
+     * Starts typing in block [draft] (the note's document when it has no ID). Like Obsidian's reading view, the page is
+     * zoomed so the text column fills the screen when the text would otherwise be under 15 sp; the zoom stays.
+     */
+    internal fun beginTextEditing(draft: TextDraft, value: String, state: (dev.syncr.prototype.editor.TextSel, Boolean, Boolean) -> Unit) {
+        textInput.onState = state
+        textInput.onPan = { dy -> viewport.navigate(0f, dy, 1f, 0f, 0f); invalidate() }
+        textInput.onFling = { vy -> fling(0f, vy) }
+        textInput.onExtent = { bottom -> editorBottom = if (bottom > 0f) bottom + 900f else 0f; viewport.setLayout(CanvasLayout(maxOf(scene.lowestInk(), textBottom, editorBottom))) }
         val block = textSnapshot?.textBlocks?.firstOrNull { it.id == draft.blockId }
         val document = block == null || block.role == dev.syncr.core.TextRole.DOCUMENT
         val rect = draft.blockId?.let(text::bounds) ?: if (document) {
@@ -69,11 +86,47 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
             RectF(block!!.originX + block.transform.tx.toFloat(), block.originY + block.transform.ty.toFloat(),
                 block.originX + block.transform.tx.toFloat() + block.width, block.originY + block.transform.ty.toFloat() + 64f)
         }
-        textInput.begin(value, rect, lastTextTap ?: (viewport.mapping?.toScreen(rect.left, rect.top) ?: (0f to 0f)))
-        lastTextTap = null
+        editingBlock = draft.blockId ?: textSnapshot?.textBlocks?.firstOrNull { it.role == dev.syncr.core.TextRole.DOCUMENT && !it.tombstone }?.id
+        // Where the tap landed on the page, kept in canvas units so a zoom changes nothing about it.
+        val sheetTap = lastTextTap?.let { viewport.mapping?.toSheet(it.first, it.second) } ?: (rect.left to rect.top)
+        legibleZoom(rect, sheetTap)
+        val extras = text.extras()?.takeIf { it.third == value }
+        val placed = caretWish?.let { TapRouter.place(it, value) }
+        startedOnNewLine = placed?.third == true
+        textInput.begin(placed?.first ?: value, rect, sheetTap, dev.syncr.prototype.editor.EditorExtras(extras?.first.orEmpty(), extras?.second.orEmpty()), dark, placed?.second)
+        lastTextTap = null; caretWish = null
+        text.show(textSnapshot, dark, editingBlock)
     }
 
-    fun endTextEditing() = textInput.end()
+    /** Zooms so the text column fills the width with a 16 dp gutter when body text would be under 15 sp (§5.3). */
+    private fun legibleZoom(rect: RectF, anchor: Pair<Float, Float>) {
+        val m = viewport.mapping ?: return
+        if (MacMetrics.BODY * m.scale / density >= LEGIBLE_SP) return
+        val target = (width - 2f * GUTTER_DP * density) / rect.width()
+        if (target <= m.scale) return
+        viewport.fitText(target, GUTTER_DP * density - rect.left * target, anchor.second, m.toScreen(anchor.first, anchor.second).second)
+        invalidate()
+    }
+
+    /** The IDs and sizes of the page's own lines are rebuilt for the new text once it is saved. */
+    internal fun textExtent() = text.extras()
+
+    internal fun setTextExtras(extras: dev.syncr.prototype.editor.EditorExtras) = textInput.setExtras(extras)
+    internal fun applyText(next: dev.syncr.prototype.editor.TextSel, step: Boolean = true) = textInput.apply(next, step)
+    internal fun currentText() = textInput.current()
+    internal fun undoText() = textInput.undo()
+    internal fun redoText() = textInput.redo()
+    internal fun resetText(value: String) = textInput.reset(value)
+    internal fun setTextInset(px: Int) { textInput.bottomInset = px }
+
+    /** The Type tool: typing starts where the caret was last, or on a new line at the end of the document. */
+    fun startTyping() {
+        caretWish = lastCaret?.let { CaretWish.At(it) } ?: CaretWish.EndOfDocumentNewLine
+        onContent(ContentTarget("", false))
+    }
+
+    fun endTextEditing() { if (textInput.active) lastCaret = textInput.current().end; textInput.end(); editingBlock = null; editorBottom = 0f; textSnapshot?.let { text.show(it, dark, null) }
+        viewport.setLayout(CanvasLayout(maxOf(scene.lowestInk(), textBottom))) }
     fun setTextEditingEnabled(enabled: Boolean) = textInput.setEnabled(enabled)
 
     /** Any new touch on the paper, e.g. to collapse floating tool chrome. */
@@ -99,6 +152,21 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     var brush = Brush(BrushFamily.PEN, BrushSize.MEDIUM, InkColour.INK)
     var eraser = false
     var lasso = false
+    /** The Type tool is active: finger taps type whatever the last pen tool was, and the pen still draws with it. */
+    var typing = false
+    /** The tool bar, its options or a menu is open (set by the screen); a tap that lands while it is only dismisses it. */
+    var chromeOpen = false
+    /** Hears whether the page's own title is on screen (the title chip hides while it is). */
+    var onTitleVisible: (Boolean) -> Unit = {}
+    private var titleVisible = true
+    /** Hears whether the page is scrolled, so that content sits under the status bar. */
+    var onContentUnderTop: (Boolean) -> Unit = {}
+    private var underTop = false
+    private var chromeAtDown = false
+    private var selectionAtDown = false
+    private var fitTookTap = false
+    private val startTypingNow = Runnable { startTypingPending() }
+    private var pendingWish: CaretWish? = null
 
     // Settings → Pen & gestures (ui/AppPreferences.kt), pushed in by NoteScreen.
     var sideButtonErases = true
@@ -117,7 +185,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     private var textBottom = 0f
     private val text = TextLayer(invalidate = ::invalidate, onExtent = { bottom ->
         textBottom = bottom
-        viewport.setLayout(CanvasLayout(maxOf(scene.lowestInk(), textBottom)))
+        viewport.setLayout(CanvasLayout(maxOf(scene.lowestInk(), textBottom, editorBottom)))
     })
     private val panZoom = PanZoomTracker()
     private val pen = PenCapture(scene, lassoStepPx = density)
@@ -215,8 +283,11 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         textSnapshot = state.snapshot
         scene.load(state)
         selection.dropIfStale()
-        viewport.setLayout(CanvasLayout(maxOf(scene.lowestInk(), textBottom)))
-        text.show(state.snapshot, night)
+        viewport.setLayout(CanvasLayout(maxOf(scene.lowestInk(), textBottom, editorBottom)))
+        text.penBusy = { activePointer != -1 || android.os.SystemClock.uptimeMillis() - lastPenUp < dev.syncr.prototype.ui.theme.Motion.PEN_QUIET_MS }
+        text.reduced = runCatching { dev.syncr.prototype.ui.theme.Motion.reducedMotion(context) }.getOrDefault(false)
+        text.cellUnits = dev.syncr.prototype.stipple.Stipple.cellUnits(viewport.mapping?.scale ?: 1f, density)
+        text.show(state.snapshot, night, editingBlock)
         dry.show(scene.previews, night)
         invalidate()
     }
@@ -285,12 +356,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         cancelGesture()
         viewport.resize(w, h, oldw)
-        textInput.bounds?.let { rect ->
-            viewport.mapping?.let { m ->
-                val (_, top) = m.toScreen(rect.left, rect.top)
-                if (top > h / 3f) viewport.navigate(0f, h / 3f - top, 1f, 0f, 0f)
-            }
-        }
+        if (textInput.active) post { textInput.ensureCaretVisible() }
     }
 
     override fun onAttachedToWindow() {
@@ -304,6 +370,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     }
 
     override fun onDetachedFromWindow() {
+        removeCallbacks(startTypingNow)
         text.clear()
         cancelGesture()
         wet.clear()
@@ -325,6 +392,11 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         canvas.drawColor(PaperPalette.desk(dark))
         val m = viewport.mapping ?: return
         scene.noteId?.let { onViewportChanged(it, m) }
+        // The page's own title (canvas y 70 to about 165) hides the floating title chip while any of it is on screen.
+        val titleShown = m.toScreen(0f, MacMetrics.TITLE_Y + 100f).second > 24f * density
+        if (titleShown != titleVisible) { titleVisible = titleShown; post { onTitleVisible(titleShown) } }
+        val under = m.ty < -1f
+        if (under != underTop) { underTop = under; post { onContentUnderTop(under) } }
         textInput.position(m, dark)
         dry.beginFrame()
         // The paper: the canvas's width, from its top edge down past the bottom of the screen.
@@ -339,8 +411,10 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
             scale(m.scale, m.scale)
             viewRect.set(-m.tx / m.scale, -m.ty / m.scale, (width - m.tx) / m.scale, (height - m.ty) / m.scale)
             save()
-            textInput.bounds?.let { clipOutRect(it) }
+            // Until the page's own copy of the words has been rebuilt without them, the field covers them.
+            textInput.bounds?.let { if (!text.hides(editingBlock)) clipOutRect(it) }
             text.draw(this, viewRect) // finished bands only; never waits for layout
+            if (text.drawDissolves(this)) postInvalidateOnAnimation()
             restore()
             trace(TraceNames.DRY_DRAW) {
                 // The visible part of the canvas, to skip strokes wholly off screen.
@@ -426,6 +500,9 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         }
         val action = event.actionMasked
         if (action == MotionEvent.ACTION_DOWN) {
+            // What was open when the finger landed decides whether its tap only dismisses; landing folds it.
+            chromeAtDown = chromeOpen; selectionAtDown = selection.ids.isNotEmpty(); fitTookTap = false
+            removeCallbacks(startTypingNow); pendingWish = null // a second touch within the double-tap window cancels typing
             onTouchStart()
             scroller.forceFinished(true)
         }
@@ -723,11 +800,27 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
                 if (tapCandidate && start != null && event.eventTime - start.third < ViewConfiguration.getTapTimeout() * 3L) {
                     viewport.mapping?.let { mapping ->
                         val (x, y) = mapping.toSheet(event.x, event.y)
-                        val target = if (!lasso && !eraser && strokeAt(event.x, event.y) == null) text.hit(x, y) else null
-                        if (target != null) {
-                            lastTextTap = event.x to event.y
-                            onContent(target)
-                        } else selection.tap(event.x, event.y, mapping)
+                        val textTools = typing || (!lasso && !eraser)
+                        val onStroke = strokeAt(event.x, event.y) != null
+                        val action = TapRouter.route(y, TapContext(
+                            palm = false, // fingers that land in the palm window never reach here
+                            selection = selectionAtDown, chrome = chromeAtDown,
+                            task = if (textTools) text.task(x, y) else null,
+                            content = if (textTools && !onStroke) text.hit(x, y) else null,
+                            onStroke = onStroke, typingAllowed = textTools, lines = text.lines()))
+                        when (action) {
+                            TapAction.Ignored -> Unit
+                            is TapAction.Task -> onTask(action.block, action.line)
+                            is TapAction.Content -> { lastTextTap = event.x to event.y; onContent(action.target) }
+                            is TapAction.Type -> {
+                                lastTextTap = event.x to event.y
+                                val wait = typingWaitMs(doubleTapFit, typing, ViewConfiguration.getDoubleTapTimeout().toLong())
+                                if (fitTookTap) Unit
+                                else if (wait == 0L) { pendingWish = action.wish; startTypingPending() }
+                                else { pendingWish = action.wish; postDelayed(startTypingNow, wait) }
+                            }
+                            TapAction.Dismiss, TapAction.Selection -> selection.tap(event.x, event.y, mapping)
+                        }
                     }
                 }
                 fingerMode = FingerMode.NONE
@@ -776,10 +869,20 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
                     if (strokeAt(tap.x, tap.y) != null) return // design §8.4: double-tap acts on empty paper only
                     if (viewport.mapping == null) return
                     if (!viewport.zoomInFromFit(tap.x, tap.y)) fit()
+                    fitTookTap = true; removeCallbacks(startTypingNow); pendingWish = null
                 }
                 onTap(tap.command)
             }
         }
+    }
+
+    /** The tap's wait is over (or there was none): open the field with the caret where the wish says. */
+    private fun startTypingPending() {
+        val wish = pendingWish ?: return
+        pendingWish = null
+        if (textInput.active) return
+        caretWish = wish
+        onContent(ContentTarget("", false))
     }
 
     private fun onLongPress() {
@@ -818,6 +921,8 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
 
     companion object {
         const val PALM_MS = 300L
+        private const val LEGIBLE_SP = 15f
+        private const val GUTTER_DP = 16f
 
         /** [sample]'s history index for the event's current position. */
         private const val CURRENT = -1
