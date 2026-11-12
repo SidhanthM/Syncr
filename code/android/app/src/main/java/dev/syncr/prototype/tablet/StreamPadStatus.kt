@@ -26,7 +26,7 @@ fun StreamPadStatus(state: StreamPadState, modifier: Modifier = Modifier, onActi
     if (message == null && state.action == null) return
     val c = Syncr.colors
     val shape = RoundedCornerShape(50)
-    Row(modifier.background(c.chrome, shape).border(1.dp, c.lineStrong, shape)
+    Row(modifier.background(c.surface3, shape).border(1.dp, c.lineStrong, shape)
         .padding(start = if (message != null) Space.l else Space.xs, end = Space.xs),
         verticalAlignment = Alignment.CenterVertically) {
         message?.let { Text(it, style = Syncr.type.caption, color = c.muted) }

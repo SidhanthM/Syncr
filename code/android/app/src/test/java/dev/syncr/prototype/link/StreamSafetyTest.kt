@@ -6,10 +6,7 @@ import dev.syncr.core.BrushSize
 import dev.syncr.core.InkColour
 import dev.syncr.core.PreviewBody
 import dev.syncr.core.SampleChannels
-import dev.syncr.prototype.tablet.MacScreen
-import dev.syncr.prototype.tablet.MappingMode
 import dev.syncr.prototype.tablet.PadRect
-import dev.syncr.prototype.tablet.PhoneDpi
 import dev.syncr.prototype.tablet.TabletMapper
 import org.junit.Assert.*
 import org.junit.Test
@@ -117,9 +114,9 @@ class StreamSafetyTest {
         assertNull(out.pop())
     }
 
-    @Test fun actualPadMapperAndStreamMappingAgreeInBothOrientations() {
+    @Test fun padMapperAndStreamMappingAgreeInBothOrientations() {
         for (bounds in listOf(PadRect(88.0, 34.0, 2300.0, 1000.0), PadRect(88.0, 34.0, 1000.0, 2300.0))) {
-            val mapper = TabletMapper(MappingMode.WHOLE_SCREEN, bounds, PhoneDpi(500.0, 500.0), MacScreen(4800.0, 3000.0))
+            val mapper = TabletMapper(bounds, 4800.0, 3000.0)
             val area = mapper.activeArea
             assertEquals(StreamMapping.area(bounds), area)
             assertEquals(0f to 0f, StreamMapping.toView(area, area.left, area.top))

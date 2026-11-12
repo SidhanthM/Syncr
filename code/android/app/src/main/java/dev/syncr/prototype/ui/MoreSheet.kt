@@ -79,7 +79,7 @@ fun MoreSheet(state: NotesState, actions: MoreActions) {
             tone = ActionTone.DESTRUCTIVE, onClick = actions.onDelete)
 
         Hairline(Modifier.padding(vertical = Space.s))
-        MenuRow("Tablet mode", "Use the phone as a pen pad for any Mac app over Bluetooth. Nothing is stored.",
+        MenuRow("Tablet mode", "Use the phone as a pen pad for the note open on your Mac, over Wi-Fi. Nothing is stored on the phone.",
             !state.busy, icon = SyncrIcons.Tablet, onClick = actions.onPointer)
         MenuRow("Back to library", null, !state.busy, icon = SyncrIcons.Folder, onClick = actions.onLibrary)
 

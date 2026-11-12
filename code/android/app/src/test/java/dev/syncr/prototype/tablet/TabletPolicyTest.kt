@@ -7,19 +7,6 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class TabletPolicyTest {
-    @Test fun automaticStreamRequiresEnabledAndPairedButNotConnected() {
-        for (enabled in listOf(false, true)) for (paired in listOf(false, true)) {
-            assertEquals(if (enabled && paired) TabletLink.STREAM else TabletLink.POINTER,
-                defaultTabletLink(null, enabled, paired))
-        }
-    }
-
-    @Test fun everyExplicitChoiceWinsOverAutomaticPolicy() {
-        for (choice in TabletLink.entries) for (enabled in listOf(false, true)) for (paired in listOf(false, true)) {
-            assertEquals(choice, defaultTabletLink(choice, enabled, paired))
-        }
-    }
-
     @Test fun offAndUnpairedEachHaveOneDirectRecoveryAction() {
         assertEquals(StreamPadState("Mac link is off", "Mac link is off", StreamAction.ENABLE),
             streamPadState(false, true, Phase.CONNECTED, "Mac", ready))
@@ -31,9 +18,9 @@ class TabletPolicyTest {
         assertEquals(StreamAction.PAIR, streamPadState(true, true, Phase.NEEDS_CODE, "Mac", ready).action)
     }
 
-    @Test fun disconnectedPairedPadOffersOnlySessionBluetoothFallback() {
+    @Test fun disconnectedPairedPadOffersTheMacLinkSettings() {
         for (phase in listOf(Phase.IDLE, Phase.CONNECTING)) {
-            assertEquals(StreamPadState("Waiting for M2mac. Is the Syncr Mac app running?", "Mac is not connected", StreamAction.POINTER),
+            assertEquals(StreamPadState("Waiting for M2mac. Is the Syncr Mac app running?", "Mac is not connected", StreamAction.PAIR),
                 streamPadState(true, true, phase, "M2mac", ready))
         }
     }
@@ -50,16 +37,10 @@ class TabletPolicyTest {
         assertEquals("M2mac · Ink is saved in the Mac's note", state.message)
         assertNull(state.problem)
         assertNull(state.action)
-        assertEquals("M2mac · Stream · Wi-Fi", LinkStatus.padCaptionStream("M2mac", state.problem))
+        assertEquals("M2mac · Stream · Wi-Fi", LinkStatus.padCaption("M2mac", state.problem))
     }
 
-    @Test fun fingersCannotDragStreamOrActivateCaptionAsARestingPalm() {
-        for (mode in MappingMode.entries) for (n in 0..3) {
-            assertEquals(false, tabletWindowDragAllowed(true, false, mode, n))
-        }
-        assertEquals(true, tabletWindowDragAllowed(false, false, MappingMode.ACTUAL_SIZE, 2))
-        assertEquals(false, tabletWindowDragAllowed(false, true, MappingMode.ACTUAL_SIZE, 2))
-        assertEquals(false, tabletWindowDragAllowed(false, false, MappingMode.WHOLE_SCREEN, 2))
+    @Test fun aRestingPalmCannotActivateThePictureJustAfterPenUp() {
         assertEquals(false, tabletCaptionTapAllowed(true, 2000, 1000))
         assertEquals(false, tabletCaptionTapAllowed(false, 1299, 1000))
         assertEquals(true, tabletCaptionTapAllowed(false, 1300, 1000))

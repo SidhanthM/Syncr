@@ -29,10 +29,7 @@ import dev.syncr.prototype.ui.RingKind
 class TabletBubbleActions(
     val open: () -> Unit,
     val close: () -> Unit,
-    val toggleMapping: () -> Unit,
     val toggleLocal: () -> Unit,
-    val recentre: () -> Unit,
-    val selectMac: () -> Unit,
     val settings: () -> Unit,
     val leave: () -> Unit,
 )
@@ -45,8 +42,8 @@ fun LinkState.ring() = when (this) {
 
 /**
  * Tablet mode's tool bubble: the same morphing bubble as in a note, docked in the black margin to the right of
- * the active area. It offers only what works for the Pointer link. While it is open a scrim takes every touch,
- * so nothing reaches the pad; the activity also disables pad input, which releases a held button.
+ * the active area. It offers the Local or whole-view choice, the settings and Leave. While it is open a scrim takes every touch,
+ * so nothing reaches the pad; the activity also disables pad input, which drops a stroke in progress.
  */
 @Composable
 fun TabletBubble(state: TabletUiState, open: Boolean, actions: TabletBubbleActions) {
@@ -77,22 +74,12 @@ fun TabletBubble(state: TabletUiState, open: Boolean, actions: TabletBubbleActio
 
 @Composable
 private fun BubbleBarScope.TabletBar(state: TabletUiState, actions: TabletBubbleActions) {
-    val pointer = state.linkChoice == TabletLink.POINTER
-    val actual = pointer && state.mode == MappingMode.ACTUAL_SIZE
-    val count = if (pointer) (if (actual) 5 else 4) else 3
-    var i = 0
     Row(Modifier.padding(horizontal = 6.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (pointer) BubbleChip(if (actual) "Actual size" else "Whole screen", i++, count,
-            description = "Mapping: ${if (actual) "Actual size" else "Whole screen"}. Switch to ${if (actual) "Whole screen" else "Actual size"}",
-            onClick = actions.toggleMapping)
-        if (!pointer) BubbleChip(if (state.streamLocal) "Local" else "Whole view", i++, count,
+        BubbleChip(if (state.streamLocal) "Local" else "Whole view", 0, 3,
             description = if (state.streamLocal) "The pad writes inside a frame on the Mac's page; two fingers move it, a pinch resizes it. Switch to the whole view"
             else "The pad covers the Mac's whole view. Switch to Local, a frame you move with two fingers",
             onClick = actions.toggleLocal)
-        if (actual) BubbleChip("Recentre", i++, count, description = "Recentre the window on the Mac screen", onClick = actions.recentre)
-        if (pointer) BubbleChip(if (state.knownHost && state.host == null) "Reconnect" else "Choose Mac", i++, count,
-            description = if (state.knownHost && state.host == null) "Reconnect to your Mac" else "Choose your paired Mac", onClick = actions.selectMac)
-        BubbleChip("Settings", i++, count, description = "Tablet settings", onClick = actions.settings)
-        BubbleChip("Leave", i++, count, description = "Leave Tablet mode", onClick = actions.leave)
+        BubbleChip("Settings", 1, 3, description = "Tablet settings", onClick = actions.settings)
+        BubbleChip("Leave", 2, 3, description = "Leave Tablet mode", onClick = actions.leave)
     }
 }

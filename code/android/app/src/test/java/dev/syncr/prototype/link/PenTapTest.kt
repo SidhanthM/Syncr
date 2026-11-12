@@ -7,10 +7,7 @@ import dev.syncr.core.CoordinateSpace
 import dev.syncr.core.InkColour
 import dev.syncr.core.PreviewBody
 import dev.syncr.core.SampleChannels
-import dev.syncr.prototype.tablet.MacScreen
-import dev.syncr.prototype.tablet.MappingMode
 import dev.syncr.prototype.tablet.PadRect
-import dev.syncr.prototype.tablet.PhoneDpi
 import dev.syncr.prototype.tablet.TabletMapper
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -296,9 +293,9 @@ class PenTapTest {
         assertFalse(StreamMapping.contains(area, 99.0, 350.0))
     }
 
-    @Test fun streamMappingAgreesWithTheWholeScreenPointerMathsOnA4800By3000Screen() {
+    @Test fun streamMappingAgreesWithThePadMapperOnA4800By3000View() {
         val bounds = PadRect(88.0, 20.0, 2300.0, 1000.0)
-        val m = TabletMapper(MappingMode.WHOLE_SCREEN, bounds, PhoneDpi(500.0, 500.0), MacScreen(4800.0, 3000.0))
+        val m = TabletMapper(bounds, 4800.0, 3000.0)
         assertEquals(StreamMapping.area(bounds), m.activeArea)
         for ((px, py) in listOf(500.0 to 300.0, 1234.5 to 678.9, 88.0 to 20.0)) {
             val (u, v) = m.uv(px, py)

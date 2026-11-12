@@ -24,38 +24,27 @@ import dev.syncr.prototype.link.android.PadPicture
  * The Tablet mode pad (design §8.7, the `tablet-screen` mock): pure black, one thin solid outline round the
  * active area, a short rose trail fading toward its tail, and a one-line caption in the area's bottom-right
  * corner. Nothing else is drawn; settings live in the tool bubble, which sits in the right margin.
- * Pen-only: the stylus drives the pointer; fingers never send pointer data. The only finger input on the pad
- * is a two-finger drag (Actual size: moves the window; Stream in Local mode: moves and, pinched, resizes the pen frame)
- * and a tap on the picture of what the pad covers.
+ * Pen-only: the stylus writes into the Mac's note over the Wi-Fi link. The only finger input on the pad
+ * is a two-finger drag (Local mode: moves and, pinched, resizes the pen frame) and a tap on the picture of what
+ * the pad covers.
  *
  * Stream in Local mode (rework-v1 §V): the active area is the pen frame, a rectangle of the Mac's page with the pad's
  * shape. The Mac owns it; fingers ask for a new one and the view shows the asked-for frame at once. The picture the Mac
  * sends of that region is drawn under the pen, large or in the corner, and the pen's own strokes are drawn over it at
  * once from the samples, so what is on the pad never waits for the Mac.
- *
- * [send] receives HID coordinates (0..32767) and the primary-button state.
  */
 @SuppressLint("ViewConstructor")
 class TabletPadView(
     context: Context,
-    private val send: (x: Int, y: Int, pressed: Boolean) -> Unit,
-    private val onWindowMoved: (offsetXMm: Double, offsetYMm: Double) -> Unit,
     private val onMapperChanged: (TabletMapper) -> Unit,
 ) : View(context) {
     private val density = resources.displayMetrics.density
     private fun dp(v: Float) = v * density
 
     // Configuration, set by the activity.
-    private var mode = MappingMode.ACTUAL_SIZE
-    private var screen = MacScreen.DEFAULT
-    private var dpi = PhoneDpi(resources.displayMetrics.xdpi.toDouble(), resources.displayMetrics.ydpi.toDouble())
-    private var requestedOffsetX = 0.0
-    private var requestedOffsetY = 0.0
     private var caption = ""
-    var onCaptionClick: (() -> Unit)? = null
-    private val captionBounds = RectF()
     private val tapSlop = ViewConfiguration.get(context).scaledTouchSlop
-    /** A finger tap in progress on the caption or on the picture; 0 when there is none. */
+    /** A finger tap in progress on the picture; 0 when there is none. */
     private var tap = 0
     private var tapX = 0f
     private var tapY = 0f
@@ -66,7 +55,7 @@ class TabletPadView(
 
     private var mapper: TabletMapper? = null
 
-    /** Stream link: pen strokes go to the Mac as view-relative preview and a stroke-commit; null is the Bluetooth Pointer. */
+    /** Pen strokes go to the Mac as view-relative preview and a stroke-commit; null until the link is bound. */
     private var stream: StreamPen? = null
 
     // Pen stroke.
@@ -76,11 +65,6 @@ class TabletPadView(
     private var lastY = 0f
     private var hoverX = Float.NaN
     private var hoverY = Float.NaN
-
-    // Two-finger window drag.
-    private var dragging = false
-    private var dragCx = 0f
-    private var dragCy = 0f
 
     // Stream, Local mode.
     private var localWanted = false
@@ -125,7 +109,7 @@ class TabletPadView(
     var onPictureLarge: (Boolean) -> Unit = {}
 
     private val frame: CanvasRect? get() {
-        if (stream == null || !localWanted) return null
+        if (!localWanted) return null
         val asked = askedFrame
         return if (asked != null && (gesturing || SystemClock.uptimeMillis() < askedUntil)) asked else target.frame
     }
@@ -156,14 +140,7 @@ class TabletPadView(
         typeface = Typeface.DEFAULT
     }
 
-    fun configure(mode: MappingMode, screen: MacScreen, offsetXMm: Double, offsetYMm: Double) {
-        if (mode != this.mode) releaseAll()
-        this.mode = mode; this.screen = screen
-        requestedOffsetX = offsetXMm; requestedOffsetY = offsetYMm
-        rebuildMapper()
-    }
-
-    /** Switches between Stream (non-null) and the Bluetooth Pointer (null). A stroke in progress is released first. */
+    /** Sets the pen that writes over the link (null: none). A stroke in progress is released first. */
     fun setStream(pen: StreamPen?) {
         if (pen === stream) return
         releaseAll()
@@ -173,9 +150,8 @@ class TabletPadView(
 
     /** The caption's words and the status dot's state. [description] is the spoken version. */
     fun setCaption(text: String, state: LinkState, description: String) {
-        caption = "$text  ⇄"; link = state
-        contentDescription = "$description Tap the caption to switch Stream · Wi-Fi and Pointer · Bluetooth."
-        isClickable = true
+        caption = text; link = state
+        contentDescription = description
         invalidate()
     }
 
@@ -215,21 +191,8 @@ class TabletPadView(
     /** A new connection: the Mac counts saved strokes from zero again. */
     fun linkReset() { strokesSent = 0; localStrokes.clear(); liveStroke = null; askedFrame = null; invalidate() }
 
-    /** Actual size: puts the window in the middle of the Mac screen. */
-    fun recentre() {
-        val m = mapper ?: return
-        if (m.mode != MappingMode.ACTUAL_SIZE) return
-        val moved = m.withOffset(m.maxOffsetXMm / 2, m.maxOffsetYMm / 2)
-        requestedOffsetX = moved.offsetXMm; requestedOffsetY = moved.offsetYMm
-        mapper = moved
-        persistWindow()
-        invalidate()
-    }
-
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        if (stream != null) releaseAll() // Never change the pad mapping in a Stream stroke.
-        val metrics = resources.displayMetrics
-        dpi = PhoneDpi(metrics.xdpi.toDouble(), metrics.ydpi.toDouble())
+        releaseAll() // Never change the pad mapping in a stroke.
         rebuildMapper()
     }
 
@@ -240,16 +203,14 @@ class TabletPadView(
         // and the bubble docks in the right margin, outside it.
         val edge = 12f * unit
         val side = maxOf(edge, dp(BUBBLE_ZONE_DP))
-        val top = if (stream != null) maxOf(edge, dp(40f)) else edge // Room for Stream's destination line.
+        val top = maxOf(edge, dp(40f)) // Room for the destination line.
         val bounds = PadRect(side.toDouble(), top.toDouble(), (width - 2 * side).toDouble(), (height - top - edge).toDouble())
         if (bounds.width <= 0 || bounds.height <= 0) return
-        // Stream maps the pad onto the Mac's 4800 x 3000 view with the Whole-screen maths: one scale, letterboxed.
-        // In Local mode the shape is the pen frame's, which the Mac made the pad's own shape, so the area fills the pad.
-        val local = if (stream != null && localWanted) target.frame else null
-        val m = if (stream != null) TabletMapper(MappingMode.WHOLE_SCREEN, bounds, dpi,
-            if (local != null) MacScreen(local.w, local.h) else MacScreen(StreamMapping.WIDTH, StreamMapping.HEIGHT))
-        else TabletMapper(mode, bounds, dpi, screen, requestedOffsetX, requestedOffsetY)
-        if (stream != null) onPadShape(bounds.width / bounds.height)
+        // The pad maps onto the Mac's 4800 x 3000 view: one scale, letterboxed. In Local mode the shape is the pen
+        // frame's, which the Mac made the pad's own shape, so the area fills the pad.
+        val local = if (localWanted) target.frame else null
+        val m = if (local != null) TabletMapper(bounds, local.w, local.h) else TabletMapper(bounds, StreamMapping.WIDTH, StreamMapping.HEIGHT)
+        onPadShape(bounds.width / bounds.height)
         mapper = m
         onMapperChanged(m)
         invalidate()
@@ -262,19 +223,12 @@ class TabletPadView(
         return t == MotionEvent.TOOL_TYPE_STYLUS || t == MotionEvent.TOOL_TYPE_ERASER
     }
 
-    private fun emit(x: Float, y: Float, pressed: Boolean) {
-        val m = mapper ?: return
-        val p = m.toHid(x.toDouble(), y.toDouble())
-        send(p.x, p.y, pressed)
-    }
-
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
         if (!inputEnabled) return true
         if (e.actionMasked == MotionEvent.ACTION_DOWN && !isPen(e, 0) && tabletCaptionTapAllowed(penId != -1, e.eventTime, lastPenUp)) {
             val hit = when {
-                captionBounds.contains(e.x, e.y) -> TAP_CAPTION
-                stream != null && picture != null && pictureBounds.contains(e.x, e.y) -> TAP_PICTURE
+                picture != null && pictureBounds.contains(e.x, e.y) -> TAP_PICTURE
                 else -> 0
             }
             if (hit != 0) { tap = hit; tapX = e.x; tapY = e.y; return true }
@@ -284,7 +238,6 @@ class TabletPadView(
                 MotionEvent.ACTION_UP -> {
                     val which = tap
                     tap = 0
-                    if (which == TAP_CAPTION && captionBounds.contains(e.x, e.y)) performClick()
                     if (which == TAP_PICTURE && pictureBounds.contains(e.x, e.y)) { pictureLarge = !pictureLarge; onPictureLarge(pictureLarge); invalidate() }
                     return true
                 }
@@ -300,28 +253,25 @@ class TabletPadView(
                 val i = e.actionIndex
                 if (isPen(e, i)) {
                     if (penId == -1) {
-                        // Stream only: deliver pen samples as they are measured, not once per display frame.
-                        // Pointer keeps frame batching: Bluetooth HID cannot carry more reports than that.
-                        if (stream != null) requestUnbufferedDispatch(e)
+                        // Deliver pen samples as they are measured, not once per display frame.
+                        requestUnbufferedDispatch(e)
                         penDown(e.getPointerId(i), e.getX(i), e.getY(i), e, i)
-                    } else if (stream != null) releaseAll() // A second pen cancels, never completes the first stroke.
-                    dragging = false
+                    } else releaseAll() // A second pen cancels, never completes the first stroke.
                     endFrameGesture()
                 } else updateDrag(e, excludeIndex = -1)
             }
             MotionEvent.ACTION_MOVE -> {
                 if (penId != -1) penMove(e)
-                else if (dragging) dragMove(e)
                 else if (gesturing) frameMove(e)
             }
             MotionEvent.ACTION_POINTER_UP -> {
                 val i = e.actionIndex
-                if (e.getPointerId(i) == penId) { if (stream != null && !isCanceled(e)) penMove(e); penUp(e.getX(i), e.getY(i), canceled = isCanceled(e)) }
+                if (e.getPointerId(i) == penId) { if (!isCanceled(e)) penMove(e); penUp(canceled = isCanceled(e)) }
                 else updateDrag(e, excludeIndex = i)
             }
             MotionEvent.ACTION_UP -> {
-                if (e.getPointerId(0) == penId) { if (stream != null && !isCanceled(e)) penMove(e); penUp(e.x, e.y, canceled = isCanceled(e)) }
-                endDrag()
+                if (e.getPointerId(0) == penId) { if (!isCanceled(e)) penMove(e); penUp(canceled = isCanceled(e)) }
+                endFrameGesture()
             }
             MotionEvent.ACTION_CANCEL -> {
                 releaseAll()
@@ -336,54 +286,35 @@ class TabletPadView(
         penId = id; lastX = x; lastY = y
         hoverX = Float.NaN
         addTrail(x, y, starts = true)
-        val pen = stream
-        if (pen != null) { streamDown(pen, e, index); return }
-        // Position without clicking first, so the host does not draw a line from the old cursor position.
-        emit(x, y, false)
-        emit(x, y, true)
+        val pen = stream ?: return
+        streamDown(pen, e, index)
     }
 
     private fun penMove(e: MotionEvent) {
         val i = e.findPointerIndex(penId)
         if (i < 0) { releaseAll(); return }
-        val pen = stream
-        if (pen != null) { streamMove(pen, e, i); return }
-        // Every historical sample, oldest first, then the current one.
-        for (h in 0 until e.historySize) {
-            lastX = e.getHistoricalX(i, h); lastY = e.getHistoricalY(i, h)
-            addTrail(lastX, lastY, starts = false)
-            emit(lastX, lastY, true)
-        }
-        lastX = e.getX(i); lastY = e.getY(i)
-        addTrail(lastX, lastY, starts = false)
-        emit(lastX, lastY, true)
+        val pen = stream ?: return
+        streamMove(pen, e, i)
     }
 
-    /** Pen lifted: the final point with the button held, then the release. A canceled pointer skips the final point. */
-    private fun penUp(x: Float, y: Float, canceled: Boolean) {
+    /** Pen lifted: the stroke is committed, or dropped when the pointer was canceled. */
+    private fun penUp(canceled: Boolean) {
         lastPenUp = SystemClock.uptimeMillis()
         val pen = stream
-        if (pen != null) {
-            val whole = if (canceled) { pen.cancel(); false } else pen.up()
-            finishLocalStroke(whole)
-            penId = -1
-            return
-        }
-        if (!canceled) { lastX = x; lastY = y; emit(x, y, true) }
-        emit(lastX, lastY, false)
+        val whole = if (pen == null) false else if (canceled) { pen.cancel(); false } else pen.up()
+        finishLocalStroke(whole)
         penId = -1
     }
 
-    /** Releases the button (if held) and stops any drag. Called on cancel, pause, focus loss, bubble and panel open. */
+    /** Drops the stroke in progress and stops any gesture. Called on cancel, pause, focus loss, bubble and panel open. */
     fun releaseAll() {
         tap = 0
         if (penId != -1) {
             lastPenUp = SystemClock.uptimeMillis()
-            stream?.cancel() ?: emit(lastX, lastY, false)
+            stream?.cancel()
             finishLocalStroke(whole = false)
             penId = -1
         }
-        endDrag()
         endFrameGesture()
     }
 
@@ -505,36 +436,10 @@ class TabletPadView(
         return if (n == 0) Triple(0, 0f, 0f) else Triple(n, sx / n, sy / n)
     }
 
-    /** Starts, re-anchors or ends a window drag whenever the set of fingers changes. */
+    /** Starts, re-anchors or ends the frame gesture whenever the set of fingers changes. */
     private fun updateDrag(e: MotionEvent, excludeIndex: Int) {
         val (n, cx, cy) = fingerCentroid(e, excludeIndex)
         updateFrameGesture(e, excludeIndex, n, cx, cy)
-        val wasDragging = dragging
-        dragging = tabletWindowDragAllowed(stream != null, penId != -1, mode, n)
-        if (dragging) { dragCx = cx; dragCy = cy }
-        else if (wasDragging) persistWindow()
-    }
-
-    private fun dragMove(e: MotionEvent) {
-        val m = mapper ?: return
-        val (n, cx, cy) = fingerCentroid(e, -1)
-        if (n != 2) return
-        val moved = m.movedBy((cx - dragCx).toDouble(), (cy - dragCy).toDouble())
-        dragCx = cx; dragCy = cy
-        requestedOffsetX = moved.offsetXMm; requestedOffsetY = moved.offsetYMm
-        mapper = moved
-        invalidate()
-    }
-
-    private fun endDrag() {
-        if (dragging) { dragging = false; persistWindow() }
-        endFrameGesture()
-    }
-
-    private fun persistWindow() {
-        val m = mapper ?: return
-        onWindowMoved(m.offsetXMm, m.offsetYMm)
-        onMapperChanged(m)
     }
 
     override fun onHoverEvent(e: MotionEvent): Boolean {
@@ -545,23 +450,12 @@ class TabletPadView(
                     hoverX = e.x; hoverY = e.y
                     val pen = stream
                     val m = mapper
-                    if (pen != null) {
-                        if (m != null) { val f = frame; pen.hover(streamX(m, f, e.x), streamY(m, f, e.y), e.eventTime) }
-                        invalidate()
-                        return true
-                    }
-                    emit(e.x, e.y, false) // Hover moves the cursor without clicking.
+                    if (pen != null && m != null) { val f = frame; pen.hover(streamX(m, f, e.x), streamY(m, f, e.y), e.eventTime) }
                     invalidate()
                 }
             }
             MotionEvent.ACTION_HOVER_EXIT -> { hoverX = Float.NaN; invalidate() }
         }
-        return true
-    }
-
-    override fun performClick(): Boolean {
-        super.performClick()
-        onCaptionClick?.invoke()
         return true
     }
 
@@ -578,10 +472,10 @@ class TabletPadView(
         val a = m.activeArea
         val r = u(10f, 8f, 16f)
         val inset = outlinePaint.strokeWidth / 2
-        if (stream != null) drawPicture(canvas, a)
+        drawPicture(canvas, a)
         canvas.drawRoundRect(a.left.toFloat() + inset, a.top.toFloat() + inset, a.right.toFloat() - inset, a.bottom.toFloat() - inset,
             r, r, outlinePaint)
-        if (stream != null) { drawLocalStrokes(canvas, a); drawMap(canvas, a) }
+        drawLocalStrokes(canvas, a); drawMap(canvas, a)
         drawTrail(canvas)
         drawCaption(canvas, a)
     }
@@ -692,7 +586,7 @@ class TabletPadView(
     }
 
     /**
-     * One line inside the area's bottom-right corner: a status dot, then e.g. "Mac · Pointer · Bluetooth".
+     * One line inside the area's bottom-right corner: a status dot, then e.g. "Mac · Stream · Wi-Fi".
      * The dot is readable without colour: filled = connected, hollow = not connected, filled amber with the
      * problem named in the words = needs attention.
      */
@@ -704,7 +598,6 @@ class TabletPadView(
             (a.width.toFloat() - 2 * pad - dp(16f)).coerceAtLeast(1f), android.text.TextUtils.TruncateAt.MIDDLE).toString()
         val textLeft = a.right.toFloat() - pad - captionPaint.measureText(visible)
         canvas.drawText(visible, textLeft, baseline, captionPaint)
-        captionBounds.set(textLeft - dp(16f), baseline - dp(36f), a.right.toFloat(), baseline + dp(12f))
         val dot = u(3f, 2.5f, 4f)
         val cx = textLeft - dot - u(5f, 5f, 8f)
         val cy = baseline - captionPaint.textSize * 0.34f
@@ -719,7 +612,6 @@ class TabletPadView(
     companion object {
         /** Room kept free on each side of the active area; the tool bubble docks in the right one. */
         const val BUBBLE_ZONE_DP = 88f
-        private const val TAP_CAPTION = 1
         private const val TAP_PICTURE = 2
         /** How long the asked-for frame stays on the pad after a gesture, for the Mac's answer to arrive. */
         private const val ASKED_HOLD_MS = 450L

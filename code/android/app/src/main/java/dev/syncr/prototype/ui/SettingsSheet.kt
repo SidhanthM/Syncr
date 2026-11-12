@@ -14,8 +14,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import dev.syncr.prototype.notes.InkPreferencesStore
 import dev.syncr.prototype.notes.PenLook
-import dev.syncr.prototype.tablet.MappingMode
-import dev.syncr.prototype.tablet.ScreenSizeFields
 import dev.syncr.prototype.tablet.TabletSettings
 import dev.syncr.prototype.ui.theme.Space
 import dev.syncr.prototype.ui.theme.Syncr
@@ -34,8 +32,6 @@ fun SettingsSheet(appearance: Appearance, location: String, onAppearance: (Appea
     val ink by remember(context) { InkPreferencesStore.state(context) }.collectAsState()
     val app by remember(context) { AppPreferencesStore.state(context) }.collectAsState()
     val tablet = remember(context) { TabletSettings(context) }
-    var mapping by remember { mutableStateOf(tablet.mode) }
-    var screen by remember { mutableStateOf(tablet.screen) }
     var trail by remember { mutableFloatStateOf(tablet.trailMs.toFloat()) }
     fun app(change: (AppPreferences) -> AppPreferences) = AppPreferencesStore.update(context, change)
     fun ink(change: (dev.syncr.prototype.notes.InkPreferences) -> dev.syncr.prototype.notes.InkPreferences) =
@@ -78,14 +74,6 @@ fun SettingsSheet(appearance: Appearance, location: String, onAppearance: (Appea
 
         Hairline(Modifier.padding(top = Space.l))
         SectionLabel("Tablet mode")
-        SettingsChoices("Mapping", listOf(MappingMode.ACTUAL_SIZE, MappingMode.WHOLE_SCREEN), mapping, label = {
-            when (it) { MappingMode.ACTUAL_SIZE -> "Actual size"; MappingMode.WHOLE_SCREEN -> "Whole screen" }
-        }) { mode -> mapping = mode; tablet.mode = mode }
-        Label("Mac screen size", Modifier.padding(top = Space.m, bottom = Space.xs))
-        ScreenSizeFields(screen) { next ->
-            if (next != tablet.screen) { tablet.screen = next; tablet.calibrated = false } // A new size has not been checked.
-            screen = next
-        }
         SettingsSlider("Trail length", (trail - TabletSettings.TRAIL_MIN_MS) / (TabletSettings.TRAIL_MAX_MS - TabletSettings.TRAIL_MIN_MS),
             "Short", "Long", valueText = "${trail.roundToInt()} ms",
             onFinished = { tablet.trailMs = trail.roundToInt().toLong() }) { v ->
