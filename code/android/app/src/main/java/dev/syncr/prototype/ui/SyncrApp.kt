@@ -33,6 +33,7 @@ fun SyncrApp(vm: NotesViewModel = viewModel(), dark: Boolean, appearance: Appear
     onAppearance: (Appearance) -> Unit,
     onFinish: () -> Unit, onPointer: () -> Unit) {
     val repo = vm.repository
+    StippleDebug.Listen()
     val state by repo.state.collectAsStateWithLifecycle()
     val guard = remember(vm) { ClosureGuard(vm) }
     var paper by remember { mutableStateOf<NoteCanvasView?>(null) }
@@ -105,6 +106,7 @@ fun SyncrApp(vm: NotesViewModel = viewModel(), dark: Boolean, appearance: Appear
             onMove = { overlay = Overlay.MOVE },
             onExport = { guard.confirmExport = true },
             onPointer = { overlay = Overlay.NONE; closeNote(onPointer) },
+            onFit = { overlay = Overlay.NONE; paper?.fit() },
             onLibrary = { overlay = Overlay.NONE; closeNote {} },
             onArchive = { archived -> vm.run { repo.archiveOpenNote(archived) } },
             // Close through the guard (unsaved changes), then delete the now-closed note; the library offers Undo.

@@ -37,7 +37,7 @@ private val draftSaver = listSaver<TextDraft, String>(
     restore = { TextDraft(it[0], it[1].ifEmpty { null }, it[2].ifEmpty { null }, it[3]) })
 
 /** How long a pause in typing waits before the text is stored (§5.3). */
-private const val SAVE_PAUSE_MS = 750L
+private const val SAVE_PAUSE_MS = 600L
 
 /**
  * Typing on the page, Obsidian-style (editor-v2 §3 to §5.3): the field lives in [canvas]; this holds what is around

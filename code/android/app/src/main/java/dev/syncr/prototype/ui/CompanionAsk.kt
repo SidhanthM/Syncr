@@ -198,6 +198,7 @@ internal fun AskCompanion(repo: NotesRepository, title: String, draft: TextDraft
     }
 
     Dialog(onDismissRequest = { if (!busy) dismiss() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        SheetSystemBars(c.dark)
         Column(Modifier.fillMaxSize().background(c.surface2).safeDrawingPadding().imePadding()
             .verticalScroll(rememberScrollState()).padding(horizontal = Space.xl).padding(top = Space.s, bottom = Space.xl),
             verticalArrangement = Arrangement.spacedBy(Space.l)) {

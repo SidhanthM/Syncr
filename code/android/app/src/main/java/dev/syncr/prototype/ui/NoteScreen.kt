@@ -39,6 +39,7 @@ import dev.syncr.core.BrushSize
 import dev.syncr.core.InkColour
 import dev.syncr.core.newId
 import dev.syncr.prototype.link.android.LinkController
+import dev.syncr.prototype.notes.InkPreferencesStore
 import dev.syncr.prototype.notes.InkPreview
 import dev.syncr.prototype.notes.NoteCanvasView
 import dev.syncr.prototype.notes.NotesState
@@ -55,9 +56,13 @@ data class ToolState(
     val lasso: Boolean = false,
     val barOpen: Boolean = false,
     val optionsOpen: Boolean = false,
+    /** The Type tool: finger taps type. The pen tool fields keep the last pen tool, which the bubble returns to. */
+    val typing: Boolean = false,
 ) {
-    val pen get() = !eraser && !lasso && brush.family == BrushFamily.PEN
-    val highlighter get() = !eraser && !lasso && brush.family == BrushFamily.HIGHLIGHTER
+    val pen get() = !typing && !eraser && !lasso && brush.family == BrushFamily.PEN
+    val highlighter get() = !typing && !eraser && !lasso && brush.family == BrushFamily.HIGHLIGHTER
+    /** The pen went into (true) or came out of (false) its holster. */
+    fun holster(inserted: Boolean) = copy(typing = inserted, optionsOpen = optionsOpen && !inserted)
     /** Folds the bar and its options back into the bubble. */
     fun folded() = copy(barOpen = false, optionsOpen = false)
 }
@@ -84,16 +89,22 @@ fun NoteScreen(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: Tool
     val c = Syncr.colors
     var view by remember { mutableStateOf<NoteCanvasView?>(null) }
     var selected by remember(snapshot.noteId) { mutableIntStateOf(0) }
+    var temporaryEraser by remember(snapshot.noteId) { mutableStateOf(false) }
     var contentId by androidx.compose.runtime.saveable.rememberSaveable(snapshot.noteId) { mutableStateOf<String?>(null) }
     var response by androidx.compose.runtime.saveable.rememberSaveable(snapshot.noteId) { mutableStateOf(false) }
+    var titleOnScreen by remember(snapshot.noteId) { mutableStateOf(true) }
+    var underTop by remember(snapshot.noteId) { mutableStateOf(false) }
     Box(Modifier.fillMaxSize().background(c.desk).imePadding()) {
         NoteCanvas(vm, state, dark, tools, actions, onView = { view = it }, onSelection = { selected = it },
+            onTitle = { titleOnScreen = it }, onUnderTop = { underTop = it },
+            onTemporaryEraser = { temporaryEraser = it },
             onContent = { if (contentId == null) { contentId = it.id; response = it.response } })
 
+        StatusBarScrim(underTop, Modifier.align(Alignment.TopCenter))
         Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().safeDrawingPadding()
             .padding(horizontal = Space.l, vertical = Space.s), verticalArrangement = Arrangement.spacedBy(Space.s)) {
             val notebook = snapshot.notebook ?: "Inbox"
-            AnimatedVisibility(tools.barOpen, enter = fadeIn(tween(Motion.FADE_MS)), exit = fadeOut(tween(Motion.FADE_MS))) {
+            AnimatedVisibility(tools.barOpen && !titleOnScreen, enter = Motion.fadeInOnly(Syncr.reducedMotion), exit = Motion.fadeOutOnly(Syncr.reducedMotion)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(Space.s)) {
                     Text("${snapshot.title} · $notebook", style = Syncr.type.label, color = c.muted, maxLines = 1,
@@ -104,7 +115,7 @@ fun NoteScreen(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: Tool
             }
             banner()
             AnimatedVisibility(selected > 0, Modifier.align(Alignment.CenterHorizontally),
-                enter = fadeIn(tween(Motion.FADE_MS)), exit = fadeOut(tween(Motion.FADE_MS))) {
+                enter = Motion.fadeInOnly(Syncr.reducedMotion), exit = Motion.fadeOutOnly(Syncr.reducedMotion)) {
                 SelectionBar(selected,
                     onColour = { colour -> view?.restyleSelection(colour) },
                     onDelete = { view?.deleteSelection() },
@@ -113,17 +124,14 @@ fun NoteScreen(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: Tool
         }
 
         if (contentId != null && !response) {
-            Box(Modifier.align(Alignment.BottomCenter).safeDrawingPadding().padding(8.dp)) {
+            Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().safeDrawingPadding()) {
                 androidx.compose.runtime.key(snapshot.noteId, contentId) {
                     MobileTextEditor(vm.repository, contentId?.ifEmpty { null }, view) { contentId = null }
                 }
             }
         } else {
-            androidx.compose.material3.FilledTonalButton(
-                onClick = { contentId = ""; response = false },
-                modifier = Modifier.align(Alignment.BottomCenter).safeDrawingPadding().padding(bottom = 80.dp),
-                enabled = !state.closing) { Text("Type") }
-            NoteBubble(state, tools, actions)
+            NoteBubble(state, tools, actions, temporaryEraser, onType = { view?.startTyping() })
+            PenHolsterEffect { inserted -> actions.onTools(tools.holster(inserted)) }
         }
     }
     contentId?.let { id ->
@@ -134,7 +142,8 @@ fun NoteScreen(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: Tool
 /** The canvas view, wired to the repository and the tool state. */
 @Composable
 private fun NoteCanvas(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: ToolState, actions: NoteActions,
-    onView: (NoteCanvasView) -> Unit, onSelection: (Int) -> Unit,
+    onView: (NoteCanvasView) -> Unit, onSelection: (Int) -> Unit, onTitle: (Boolean) -> Unit, onUnderTop: (Boolean) -> Unit,
+    onTemporaryEraser: (Boolean) -> Unit,
     onContent: (dev.syncr.prototype.notes.ContentTarget) -> Unit) {
     val repo = vm.repository
     val context = LocalContext.current
@@ -149,6 +158,8 @@ private fun NoteCanvas(vm: NotesViewModel, state: NotesState, dark: Boolean, too
     } }, modifier = Modifier.fillMaxSize(),
         update = { canvas ->
             canvas.brush = tools.brush; canvas.eraser = tools.eraser; canvas.lasso = tools.lasso
+            canvas.typing = tools.typing; canvas.chromeOpen = tools.barOpen; canvas.onTitleVisible = onTitle; canvas.onContentUnderTop = onUnderTop
+            canvas.onTemporaryEraser = onTemporaryEraser
             canvas.sideButtonErases = gestures.sideButton == SideButtonAction.ERASE
             canvas.doubleTapFit = gestures.doubleTapFit; canvas.palmMs = gestures.palmDelay.millis
             canvas.onError = repo::message
@@ -169,6 +180,7 @@ private fun NoteCanvas(vm: NotesViewModel, state: NotesState, dark: Boolean, too
                 }
             }
             canvas.onContent = onContent
+            canvas.onTask = { block, line -> vm.run { try { repo.flipTask(block, line) } catch (e: Exception) { repo.message(e.message ?: "Could not change the box.") } } }
             canvas.onSelection = onSelection
             canvas.onTouchStart = { if (tools.barOpen) actions.onTools(tools.folded()) }
             canvas.update(state, dark)
@@ -177,34 +189,39 @@ private fun NoteCanvas(vm: NotesViewModel, state: NotesState, dark: Boolean, too
 
 /** The draggable tool bubble and its bar. Choosing a tool folds the bar; tapping the active tool (or a long press) opens its options. */
 @Composable
-private fun NoteBubble(state: NotesState, tools: ToolState, actions: NoteActions) {
+private fun NoteBubble(state: NotesState, tools: ToolState, actions: NoteActions, temporaryEraser: Boolean, onType: () -> Unit) {
     val snapshot = state.snapshot ?: return
     val c = Syncr.colors
+    val context = LocalContext.current
     val status = saveStatus(state)
     val canUndo = dev.syncr.prototype.notes.handwritingHistoryAvailable(snapshot, false) && !state.unsaved && !state.busy
     val canRedo = dev.syncr.prototype.notes.handwritingHistoryAvailable(snapshot, true) && !state.unsaved && !state.busy
     val onTools = actions.onTools
     fun choose(next: ToolState) = onTools(next.folded())
-    fun options(family: BrushFamily) = onTools(tools.copy(eraser = false, lasso = false,
+    fun options(family: BrushFamily) = onTools(tools.copy(eraser = false, lasso = false, typing = false,
         brush = tools.brush.copy(family = family), optionsOpen = true))
-    val pip = if (tools.eraser || tools.lasso) null else Color(inkColour(tools.brush, c.dark))
-    FloatingChrome(open = tools.barOpen, optionsOpen = tools.optionsOpen && !tools.eraser && !tools.lasso,
-        description = bubbleDescription(tools.brush, tools.eraser, tools.lasso, status), stateDescription = status.headline,
+    val ink by remember(context) { InkPreferencesStore.state(context) }.collectAsState()
+    val displayed = if (temporaryEraser) tools.copy(eraser = true, lasso = false, typing = false) else tools
+    val pip = if (displayed.eraser || displayed.lasso || displayed.typing) null else Color(inkColour(tools.brush, c.dark))
+    FloatingChrome(open = tools.barOpen, optionsOpen = tools.optionsOpen && !displayed.eraser && !displayed.lasso,
+        description = bubbleDescription(displayed.brush, displayed.eraser, displayed.lasso, status, displayed.typing), stateDescription = status.headline,
         onOpen = { onTools(tools.copy(barOpen = true, optionsOpen = false)) },
         ring = { BubbleRing(status.ring.kind(), pip) },
-        glyph = { ToolGlyph(tools.brush, tools.eraser, tools.lasso) },
-        bar = { drag, release -> NoteToolBar(tools.brush, tools.eraser,
+        glyph = { TemporaryEraserGlyph(tools, temporaryEraser) },
+        bar = { drag, release -> NoteToolBar(displayed.brush, displayed.eraser, displayed.typing,
             canUndo = canUndo, canRedo = canRedo,
             onPen = { if (tools.pen) onTools(tools.copy(optionsOpen = !tools.optionsOpen))
-                else choose(tools.copy(eraser = false, lasso = false, brush = tools.brush.copy(family = BrushFamily.PEN))) },
+                else choose(tools.copy(eraser = false, lasso = false, typing = false, brush = tools.brush.copy(family = BrushFamily.PEN))) },
             onHighlighter = { if (tools.highlighter) onTools(tools.copy(optionsOpen = !tools.optionsOpen))
-                else choose(tools.copy(eraser = false, lasso = false, brush = tools.brush.copy(family = BrushFamily.HIGHLIGHTER))) },
-            onEraser = { choose(tools.copy(eraser = true, lasso = false)) },
-            onUndo = actions.onUndo, onRedo = actions.onRedo, onFit = actions.onFit, onMore = actions.onMore,
-            lasso = tools.lasso, onLasso = { choose(tools.copy(lasso = true, eraser = false)) },
+                else choose(tools.copy(eraser = false, lasso = false, typing = false, brush = tools.brush.copy(family = BrushFamily.HIGHLIGHTER))) },
+            onEraser = { choose(tools.copy(eraser = true, lasso = false, typing = false)) },
+            onTyping = { choose(tools.copy(typing = true)); onType() },
+            onUndo = actions.onUndo, onRedo = actions.onRedo, onMore = actions.onMore,
+            lasso = displayed.lasso, onLasso = { choose(tools.copy(lasso = true, eraser = false, typing = false)) },
             onPenOptions = { options(BrushFamily.PEN) }, onHighlighterOptions = { options(BrushFamily.HIGHLIGHTER) },
             onDrag = drag, onRelease = release) },
-        options = { ToolOptions(tools.brush,
+        options = { ToolOptions(tools.brush, penLook = if (tools.pen) ink.penLook else null,
+            onPenLook = { look -> InkPreferencesStore.update(context) { it.copy(penLook = look) } },
             onSize = { onTools(tools.copy(brush = tools.brush.copy(size = it))) },
             onColour = { onTools(tools.copy(brush = tools.brush.copy(colour = it))) }) })
 }

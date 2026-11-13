@@ -4,6 +4,7 @@
     <style name="Platform.Theme.Syncr" parent="android:Theme.Material.Light.NoActionBar" />
 
     <style name="Base.Theme.Syncr" parent="Platform.Theme.Syncr">
+        <item name="android:windowFullscreen">true</item>
         <item name="android:windowBackground">@color/syncr_page</item>
         <item name="android:colorBackground">@color/syncr_page</item>
         <item name="android:colorAccent">@color/syncr_ink</item>

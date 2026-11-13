@@ -170,6 +170,23 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
 
     // Settings → Pen & gestures (ui/AppPreferences.kt), pushed in by NoteScreen.
     var sideButtonErases = true
+        set(value) {
+            field = value
+            if (!value) setTemporaryEraser(false)
+        }
+    /** Transient hardware override only; never changes the owner's selected tool. */
+    var onTemporaryEraser: (Boolean) -> Unit = {}
+    private var temporaryEraser = false
+    private fun setTemporaryEraser(active: Boolean) {
+        if (temporaryEraser == active) return
+        temporaryEraser = active
+        onTemporaryEraser(active)
+    }
+    private fun updateTemporaryEraser(event: MotionEvent) {
+        val pen = (0 until event.pointerCount).any { isPenTool(event.getToolType(it)) }
+        if (pen) setTemporaryEraser(sideButtonErases &&
+            (event.buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0)
+    }
     var doubleTapFit = true
     var palmMs = PALM_MS
 
@@ -305,6 +322,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
      * The eraser is the exception: what it already swept has visibly gone, so that is committed too.
      */
     fun cancelGesture() {
+        setTemporaryEraser(false)
         if (pen.mode == PenMode.ERASE && !pen.rejected) commitErase(android.os.SystemClock.uptimeMillis(), force = true)
         eraseGesture = null
         wet.cancel()
@@ -477,23 +495,42 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
 
     override fun onInterceptHoverEvent(event: MotionEvent) = true
 
-    override fun onHoverEvent(event: MotionEvent): Boolean = isPenTool(event.getToolType(0)) || super.onHoverEvent(event)
+    override fun onHoverEvent(event: MotionEvent): Boolean {
+        if (!isPenTool(event.getToolType(0))) return super.onHoverEvent(event)
+        if (event.actionMasked == MotionEvent.ACTION_HOVER_EXIT) setTemporaryEraser(false)
+        else updateTemporaryEraser(event)
+        return true
+    }
+
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_BUTTON_PRESS || event.actionMasked == MotionEvent.ACTION_BUTTON_RELEASE) {
+            updateTemporaryEraser(event)
+        }
+        return super.onGenericMotionEvent(event)
+    }
+
+    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+        super.onWindowFocusChanged(hasWindowFocus)
+        if (!hasWindowFocus) setTemporaryEraser(false)
+    }
 
     override fun onResolvePointerIcon(event: MotionEvent, pointerIndex: Int): PointerIcon? {
         if (!isPenTool(event.getToolType(pointerIndex))) return super.onResolvePointerIcon(event, pointerIndex)
         val scale = viewport.mapping?.scale ?: return super.onResolvePointerIcon(event, pointerIndex)
         val units = when {
-            eraser -> ERASER_HOVER_UNITS
+            eraser || temporaryEraser -> ERASER_HOVER_UNITS
             lasso -> 0f
             else -> brushWidth(brush)
         }
-        val colour = if (lasso) accent else PaperPalette.quiet(dark)
-        return hoverIcon.icon(units * scale, colour, dashed = lasso)
+        val selecting = lasso && !eraser && !temporaryEraser
+        val colour = if (selecting) accent else PaperPalette.quiet(dark)
+        return hoverIcon.icon(units * scale, colour, dashed = selecting)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean = trace(TraceNames.TOUCH_INPUT) { handleTouch(event) }
 
     private fun handleTouch(event: MotionEvent): Boolean {
+        updateTemporaryEraser(event)
         if (scene.closing) {
             cancelGesture()
             return true

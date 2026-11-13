@@ -29,6 +29,7 @@ class MoreActions(
     val onMove: () -> Unit,
     val onExport: () -> Unit,
     val onPointer: () -> Unit,
+    val onFit: () -> Unit,
     val onLibrary: () -> Unit,
     val onArchive: (Boolean) -> Unit,
     val onDelete: () -> Unit,
@@ -69,6 +70,7 @@ fun MoreSheet(state: NotesState, actions: MoreActions) {
             icon = SyncrIcons.Export, onClick = actions.onExport)
 
         Hairline(Modifier.padding(top = Space.l, bottom = Space.s))
+        MenuRow("Fit page to screen", "Double-tap empty paper does the same", icon = SyncrIcons.Fit, onClick = actions.onFit)
         MenuRow("Move to notebook…", enabled = editable, icon = SyncrIcons.Folder, onClick = actions.onMove)
         MenuRow("Rename…", enabled = editable, icon = SyncrIcons.Pencil, onClick = actions.onRename)
         if (snapshot.archived) MenuRow("Unarchive", "Show it in All and its notebook again", editable,

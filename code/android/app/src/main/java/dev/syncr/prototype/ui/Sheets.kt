@@ -39,6 +39,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.view.WindowInsetsCompat
 import dev.syncr.prototype.ui.theme.Radius
 import dev.syncr.prototype.ui.theme.Space
 import dev.syncr.prototype.ui.theme.Syncr
@@ -70,7 +71,7 @@ fun SyncrSheet(onDismiss: () -> Unit, title: String? = null, content: @Composabl
     }
 }
 
-/** Sheets and dialogs get their own window; keep its bar icons readable against our colours. */
+/** Sheets/dialogs have separate windows: keep the status bar hidden there too. */
 @Composable
 fun SheetSystemBars(dark: Boolean) {
     val view = LocalView.current
@@ -79,6 +80,8 @@ fun SheetSystemBars(dark: Boolean) {
             WindowInsetsControllerCompat(window, window.decorView).apply {
                 isAppearanceLightStatusBars = !dark
                 isAppearanceLightNavigationBars = !dark
+                systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                hide(WindowInsetsCompat.Type.statusBars())
             }
         }
     }

@@ -38,8 +38,6 @@ data class SyncrColors(
     val desk: Color,
     /** The note's paper ([NotePalette]); also the card thumbnails' ground. */
     val paper: Color,
-    /** `--card`: cards, sheets, dialogs, the tool bubble and its bar. */
-    val chrome: Color,
     /** Note cards, the editing field's backing, inline panels. */
     val surface1: Color,
     /** Sheets, the tool bubble and its bar, the editor toolbar, the ask sheet. */
@@ -78,7 +76,6 @@ data class SyncrColors(
 internal val LightColors = SyncrColors(
     desk = Color(0xfffbfbfa),
     paper = Color(NotePalette.paper(false)),
-    chrome = Color(0xffffffff),
     surface1 = Color(0xffffffff),
     surface2 = Color(0xffffffff),
     surface3 = Color(0xffffffff),
@@ -101,7 +98,6 @@ internal val LightColors = SyncrColors(
 internal val DarkColors = SyncrColors(
     desk = Color(0xff141414),
     paper = Color(NotePalette.paper(true)),
-    chrome = Color(0xff1e1e1e),
     surface1 = Color(0xff1b1b1b),
     surface2 = Color(0xff222221),
     surface3 = Color(0xff2a2a29),
