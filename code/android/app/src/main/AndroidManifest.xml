@@ -12,12 +12,12 @@
         android:theme="@style/Theme.Syncr"
         android:enableOnBackInvokedCallback="true"
         tools:targetApi="33">
-        <!-- Tablet mode is a landscape pen pad by design; it is not meant to rotate with the phone. -->
+        <!-- Tablet orientation is selected in-app; rotation cancels active pad/trackpad gestures. -->
         <activity
             android:name=".PointerActivity"
             android:exported="false"
             android:label="@string/tablet_mode"
-            android:screenOrientation="sensorLandscape"
+            android:screenOrientation="unspecified"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode"
             android:theme="@style/Theme.Syncr.Tablet"
             tools:ignore="DiscouragedApi" />

@@ -64,6 +64,19 @@ struct TargetInfo: Equatable, Sendable {
     var pageHeight: Double? = nil
 }
 
+struct PointerPacket: Equatable, Sendable {
+    let seq: UInt64
+    let dx: Double
+    let dy: Double
+    let sx: Double
+    let sy: Double
+    let buttons: Int
+    /// 0: none, 1: left, 2: right, 3: double-left.
+    let click: Int
+    /// Closes a two-finger scroll (the "ended" phase). Optional `se` on the wire; older phones never send it.
+    var scrollEnd = false
+}
+
 /// One control message (`t` field). `unknown` keeps the name so it can be logged and ignored.
 enum LinkControl: Equatable, Sendable {
     case hello(v: Int, device: String?, phoneId: String?, token: String?)
@@ -94,6 +107,10 @@ enum LinkControl: Equatable, Sendable {
     case frame(CGRect)
     /// Mac: preview frames may also be sent as datagrams to this port, each starting with this key (16 hex characters).
     case udp(port: UInt16, key: String)
+    /// Independently versioned pointer extension; only authenticated sessions may enable it.
+    case pointerMode(version: Int, on: Bool)
+    case pointerState(version: Int, ready: Bool, message: String)
+    case pointer(PointerPacket)
     case unknown(String)
 
     // MARK: Encoding
@@ -140,6 +157,12 @@ enum LinkControl: Equatable, Sendable {
         case .padMode(let local, let pics, let aspect): return ["t": "padmode", "local": local, "pics": pics, "aspect": aspect]
         case .frame(let r): return ["t": "frame", "x": Self.tenth(r.minX), "y": Self.tenth(r.minY), "w": Self.tenth(r.width), "h": Self.tenth(r.height)]
         case .udp(let port, let key): return ["t": "udp", "port": Int(port), "key": key]
+        case .pointerMode(let v, let on): return ["t": "pointermode", "v": v, "on": on]
+        case .pointerState(let v, let ready, let message): return ["t": "pointerstate", "v": v, "ready": ready, "message": message]
+        case .pointer(let p):
+            var json: [String: Any] = ["t": "pointer", "v": 1, "seq": p.seq, "dx": p.dx, "dy": p.dy, "sx": p.sx, "sy": p.sy, "buttons": p.buttons, "click": p.click]
+            if p.scrollEnd { json["se"] = true }
+            return json
         case .unknown(let t): return ["t": t]
         }
     }
@@ -183,6 +206,20 @@ enum LinkControl: Equatable, Sendable {
             return try string(key)
         }
         switch t {
+        case "pointermode":
+            guard let v = obj["v"].flatMap(integer), v <= 100, let on = obj["on"] as? Bool else { throw bad("pointer mode") }
+            return .pointerMode(version: Int(v), on: on)
+        case "pointerstate":
+            guard let v = obj["v"].flatMap(integer), v <= 100, let ready = obj["ready"] as? Bool, let message = obj["message"] as? String, message.utf8.count <= 1024 else { throw bad("pointer state") }
+            return .pointerState(version: Int(v), ready: ready, message: message)
+        case "pointer":
+            guard obj["v"].flatMap(integer) == 1, let seq = obj["seq"].flatMap(integer), seq > 0,
+                  let buttons = obj["buttons"].flatMap(integer), (0...1).contains(buttons),
+                  let click = obj["click"].flatMap(integer), (0...3).contains(click),
+                  let dx = Self.number(obj["dx"]), let dy = Self.number(obj["dy"]),
+                  let sx = Self.number(obj["sx"]), let sy = Self.number(obj["sy"]),
+                  [dx, dy, sx, sy].allSatisfy({ $0.isFinite && abs($0) <= 2048 }) else { throw bad("pointer bounds") }
+            return .pointer(PointerPacket(seq: seq, dx: dx, dy: dy, sx: sx, sy: sy, buttons: Int(buttons), click: Int(click), scrollEnd: obj["se"] as? Bool ?? false))
         case "hello":
             guard let v = obj["v"].flatMap(integer), let version = Int(exactly: v) else { throw bad("v is not an integer") }
             return .hello(v: version, device: obj["device"] as? String, phoneId: obj["phone_id"] as? String, token: try optionalString("token"))

@@ -168,6 +168,8 @@ func viewportAndOffscreenMeshPixels() throws {
             if CommandLine.arguments.contains("--settings") { try settingsChecks(); return }
             if CommandLine.arguments.contains("--companion-v2") { try companionV2Checks(); return }
             if CommandLine.arguments.contains("--round2") { try notebookRound2Checks(); return }
+            if CommandLine.arguments.contains("--link") { try linkChecks(); print("Phone link checks: OK"); return }
+            if CommandLine.arguments.contains("--pointer") { try pointerScrollChecks(); print("Pointer scroll checks: OK (phases, remainders, direction, idle end, event fields, wire)"); return }
             if CommandLine.arguments.contains("--editor") { try editorRuleChecks(); return }
             try notebookLogicChecks()
             try markdownMappingChecks()
@@ -191,6 +193,7 @@ func viewportAndOffscreenMeshPixels() throws {
             try readOnlyAndSessionChecks()
             try liveInkChecks()
             try linkChecks()
+            try pointerScrollChecks()
             print("Mac viewer checks: OK (migration, newer copies, cancelled loads, MSAA, overlap/wrap, GPU reuse, notebooks, switcher, read-only vs Mac notes, session, live ink, phone link)")
         } catch {
             fputs("Mac viewer checks: FAILED: \(error)\n", stderr)

@@ -25,6 +25,8 @@ import dev.syncr.core.NoteSummary
 import dev.syncr.core.NotebookSummary
 import dev.syncr.prototype.notes.LibraryFilter
 import dev.syncr.prototype.notes.NotesState
+import dev.syncr.prototype.tablet.TrackpadControls
+import dev.syncr.prototype.tablet.TrackpadTuning
 import dev.syncr.prototype.ui.theme.Space
 import dev.syncr.prototype.ui.theme.Syncr
 import dev.syncr.prototype.ui.theme.SyncrTheme
@@ -124,6 +126,12 @@ private fun SelectionBarPreview() = PreviewSurface { SelectionBar(3, {}, {}, {})
 @Composable
 private fun GuardDialogPreview() = PreviewSurface {
     Column { GuardDialog(NotesState(error = "StorageFull: disk"), {}, {}, {}, {}, {}) }
+}
+
+@ThemePreviews
+@Composable
+private fun TrackpadControlsPreview() = PreviewSurface {
+    Column { TrackpadControls(TrackpadTuning()) {} }
 }
 
 @ThemePreviews

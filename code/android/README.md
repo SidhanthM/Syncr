@@ -1,7 +1,7 @@
 # Syncr Android
 
-Offline handwriting notes for the phone (S Pen first), plus **Tablet mode**: Wi-Fi **Stream** writes into the Mac's note;
-Bluetooth **Pointer** is the fallback for other Mac apps or when Syncr is not running. Kotlin + Compose, AndroidX Ink 1.0.0 for
+Offline handwriting notes for the phone (S Pen first), plus **Tablet mode**: **Pen** writes into the Mac's note;
+**Trackpad** controls the Mac cursor with fingers. Both use the paired Wi-Fi Mac link, not Bluetooth. Kotlin + Compose, AndroidX Ink 1.0.0 for
 rendering, and the Rust core (`../core`) for all storage, history and validation through generated
 UniFFI/JNA bindings (`../core/generated/kotlin`, `../core/generated/jniLibs`, arm64-v8a only).
 
@@ -88,7 +88,7 @@ What to look for in the Perfetto UI:
 | `notes/PageLayout.kt`, `SheetGeometry.kt`, `Selection.kt` | Pure canvas geometry, measured samples, affine math. |
 | `notes/InkBrushes.kt`, `InkPreferences.kt` | Brush styles and Ink families; local rendering prefs. |
 | `notes/Thumbnails.kt`, `RecoveryExport.kt`, `Notebooks.kt`, `FingerTaps.kt` | Cards, recovery JSON, notebook names/filters, tap classifier. |
-| `PointerActivity.kt`, `HidController.kt`, `AbsoluteMouse.kt`, `tablet/` | Pointer mode; see [POINTER.md](POINTER.md). |
+| `PointerActivity.kt`, `tablet/` | Portrait/landscape Pen and finger Trackpad modes; see [POINTER.md](POINTER.md). |
 | `link/` | The Mac link, plain JVM (no Android imports): wire framing and control messages, session state machine, sync sender, send scheduler, pen ring and frame pump, reconnect. |
 | `link/android/` | The Android shell of the link: `LinkController` (lifecycle, Wi-Fi lock, notes bridge), `NsdFinder`, `PrefsPairingStore`. UI: `ui/MacLink.kt`. |
 
@@ -109,14 +109,12 @@ pairing token and the notes are readable by anyone who can capture the Wi-Fi tra
 - **Live mirror.** While you write in a note, one preview frame per input batch goes out in Canvas space with the stroke's real ID (the ID
   the stroke is then saved under), so the Mac's copy neither blinks nor doubles. Real samples only, never predicted points. Preview only:
   the next synced copy is the durable result.
-- **Tablet Stream.** With no explicit pad-link preference, Tablet mode chooses **Stream · Wi-Fi** when Mac link is enabled and a pairing exists,
-  otherwise **Pointer · Bluetooth**. Tap the pad's corner caption (`⇄`) once to switch; that explicit choice persists, as does the panel's Link choice.
-  Stream is letterboxed 4800:3000 with one scale in either orientation and uses the pen last used in a phone note. It writes live frames and a
-  durable stroke-commit into the Mac's writable target. The top message says where ink is saved, or offers the one useful action: turn Mac link on,
-  open Mac link settings (directly on the pad), or **Use Bluetooth pointer** when paired but disconnected. This recovery action is session-only and
-  never changes the saved choice. While connected without a writable target it says `Waiting for a writable note on the Mac`; pad-on asks the Mac
-  to create a note if needed. Pause/leaving sends pad-off. A target/revision change during contact cancels the whole stroke; lift and start again.
-  Nothing is stored on the phone. Pointer's HID reports and mappings are unchanged.
+- **Tablet mode.** Pen writes live frames and durable stroke commits into the Mac's writable note. Local maps to a movable pen frame;
+  Whole view is letterboxed 4800:3000. Trackpad instead sends relative cursor, click, drag and finger-scroll controls through an independently
+  versioned pointer extension. It requires Mac approval and Accessibility permission, works without a note/S Pen, and never creates a note.
+  Both modes offer persisted Landscape / Portrait / Auto orientation and local fading trails. Trackpad has four themed sliders for pointer/scroll
+  speed and acceleration, defaulting to 3× pointer speed and 4× scrolling before the adjustable fast-swipe boost. Older Macs without the extension
+  retain pen/sync support and show an update message for Trackpad. See [POINTER.md](POINTER.md) for controls, safety limits and pending verification.
 - **Where the pen touches the link** (and why it costs the local ink nothing). `NoteCanvasView` calls `InkMirror` (a `link.PenFeed` ring)
   only after the wet ink has been given the sample: `begin` after `wet.start`, `sample` after `pen.addInkSample`, `flush` after
   `wet.add`, `end` after `wet.finish`. The ring is a fixed array of preallocated slots written by the UI thread and published with one

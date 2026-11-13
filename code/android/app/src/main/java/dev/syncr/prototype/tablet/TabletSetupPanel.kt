@@ -40,6 +40,9 @@ data class TabletUiState(
     val streamSummary: String = "",
     /** The pad writes inside a pen frame on the Mac's page (Local) rather than over the whole view. */
     val streamLocal: Boolean = true,
+    val trackpad: Boolean = false,
+    val orientation: TabletOrientation = TabletOrientation.LANDSCAPE,
+    val tuning: TrackpadTuning = TrackpadTuning(),
 ) {
     val link: LinkState get() = LinkStatus.state(host != null, problem)
     val caption: String get() = LinkStatus.padCaption(host, problem)
@@ -49,6 +52,9 @@ class TabletSetupActions(
     val close: () -> Unit,
     val setTrail: (Long) -> Unit,
     val setLocal: (Boolean) -> Unit,
+    val setTrackpad: (Boolean) -> Unit,
+    val setOrientation: (TabletOrientation) -> Unit,
+    val setTuning: (TrackpadTuning) -> Unit,
     val leave: () -> Unit,
     val enableMacLink: () -> Unit,
     val macLinkSettings: () -> Unit,
@@ -59,8 +65,15 @@ class TabletSetupActions(
 fun TabletSetupPanel(state: TabletUiState, actions: TabletSetupActions) {
     val c = Syncr.colors
     SyncrSheet(actions.close, title = "Tablet mode") {
-        Text("Look at the Mac, write on the phone. The stroke is saved in the Mac's note, not on the phone.",
-            style = Syncr.type.caption, color = c.muted)
+        SettingsChoices("Input", listOf(false, true), state.trackpad,
+            label = { if (it) "Trackpad" else "Pen" },
+            detail = { if (it) "One finger moves the Mac cursor; tap clicks. Two fingers scroll or tap to right-click. Double tap and hold to drag. No S Pen needed."
+                else "Write into the Mac's open note with the S Pen." },
+            onSelect = actions.setTrackpad)
+        SettingsChoices("Orientation", TabletOrientation.entries, state.orientation,
+            label = { when (it) { TabletOrientation.LANDSCAPE -> "Landscape"; TabletOrientation.PORTRAIT -> "Portrait"; TabletOrientation.AUTO -> "Auto" } },
+            detail = { when (it) { TabletOrientation.LANDSCAPE -> "Horizontal pad"; TabletOrientation.PORTRAIT -> "Vertical pad"; TabletOrientation.AUTO -> "Follow the device orientation" } },
+            onSelect = actions.setOrientation)
 
         SectionLabel("Connection")
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -76,7 +89,8 @@ fun TabletSetupPanel(state: TabletUiState, actions: TabletSetupActions) {
         MenuRow("Mac link settings", "Pair, reconnect or forget the Mac.", onClick = actions.macLinkSettings)
 
         Hairline(Modifier.padding(top = Space.l))
-        SettingsChoices("View", listOf(true, false), state.streamLocal,
+        if (state.trackpad) TrackpadControls(state.tuning, actions.setTuning)
+        if (!state.trackpad) SettingsChoices("View", listOf(true, false), state.streamLocal,
             label = { if (it) "Local" else "Whole view" },
             detail = { if (it) "A frame on the Mac's page. Two fingers move it, a pinch resizes it." else "The pad covers the Mac's whole view." },
             onSelect = actions.setLocal)

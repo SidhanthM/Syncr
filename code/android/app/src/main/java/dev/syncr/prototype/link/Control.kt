@@ -133,6 +133,21 @@ sealed class Control {
         override fun json() = mapOf("t" to "udp", "port" to port.toLong(), "key" to key)
     }
 
+    data class PointerMode(val on: Boolean, val v: Int = 1) : Control() {
+        override fun json() = mapOf("t" to "pointermode", "v" to v.toLong(), "on" to on)
+    }
+    data class PointerState(val v: Int, val ready: Boolean, val message: String) : Control() {
+        override fun json() = mapOf("t" to "pointerstate", "v" to v.toLong(), "ready" to ready, "message" to message)
+    }
+    data class Pointer(val seq: Long, val input: PointerInput) : Control() {
+        override fun json(): Map<String, Any?> {
+            val m = linkedMapOf<String, Any?>("t" to "pointer", "v" to 1L, "seq" to seq, "dx" to input.dx, "dy" to input.dy,
+                "sx" to input.sx, "sy" to input.sy, "buttons" to input.buttons.toLong(), "click" to input.click.toLong())
+            if (input.scrollEnd) m["se"] = true // optional, so a Mac that predates it just sees a zero packet
+            return m
+        }
+    }
+
     companion object {
         /** Sent in hello. A Mac that answers `welcome` with version 0 is an older app: the phone then syncs one way only. */
         const val VERSION = 1
@@ -168,6 +183,18 @@ sealed class Control {
                 "file_error" -> FileError(m.u32("xfer"), m.str("id", 64), m.str("reason", MAX_STRING))
                 "viewing" -> Viewing(m.optStr("id", 64))
                 "pad" -> Pad(m.bool("on"))
+                "pointermode" -> PointerMode(m.bool("on"), m.pointerVersion())
+                "pointerstate" -> PointerState(m.pointerVersion(), m.bool("ready"), m.str("message"))
+                "pointer" -> {
+                    if (m.int("v") != 1L) throw LinkProtocolException("pointer version")
+                    val buttons = m.int("buttons"); val click = m.int("click")
+                    if (buttons !in 0L..1L || click !in 0L..3L) throw LinkProtocolException("pointer buttons")
+                    val input = PointerInput(m.num("dx"), m.num("dy"), m.num("sx"), m.num("sy"), buttons.toInt(), click.toInt(),
+                        scrollEnd = m.optBool("se"))
+                    val seq = m.int("seq")
+                    if (!input.valid() || seq < 1) throw LinkProtocolException("pointer bounds")
+                    Pointer(seq, input)
+                }
                 "target" -> {
                     val note = m.optStr("note", 64)
                     if (note == null) Target(null, null, false, 0)
@@ -235,6 +262,10 @@ sealed class Control {
         fun int(key: String): Long = map[key] as? Long ?: throw LinkProtocolException("field $key is not an integer")
 
         fun u32(key: String): Long = int(key).also { if (it !in 0..0xFFFF_FFFFL) throw LinkProtocolException("field $key out of range") }
+
+        fun pointerVersion(): Int = int("v").also { if (it !in 0L..100L) throw LinkProtocolException("pointer version") }.toInt()
+
+        fun optBool(key: String): Boolean = map[key] as? Boolean ?: false
 
         fun bool(key: String): Boolean = map[key] as? Boolean ?: throw LinkProtocolException("field $key is not a boolean")
 

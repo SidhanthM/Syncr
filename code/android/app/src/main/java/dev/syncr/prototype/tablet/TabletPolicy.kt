@@ -15,7 +15,7 @@ fun tabletCaptionTapAllowed(penDown: Boolean, eventTime: Long, lastPenUp: Long):
     !penDown && eventTime - lastPenUp >= 300
 
 enum class StreamAction(val label: String) {
-    ENABLE("Turn on Mac link"), PAIR("Open Mac link settings"),
+    ENABLE("Turn on Mac link"), PAIR("Open Mac link settings"), RETRY_POINTER("Retry Trackpad"),
 }
 
 data class StreamPadState(val message: String, val problem: String?, val action: StreamAction? = null)

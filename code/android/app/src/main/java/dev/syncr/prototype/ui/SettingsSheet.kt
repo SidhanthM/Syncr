@@ -35,6 +35,7 @@ import dev.syncr.prototype.link.android.LinkController
 import dev.syncr.prototype.notes.InkPreferences
 import dev.syncr.prototype.notes.InkPreferencesStore
 import dev.syncr.prototype.tablet.TabletSettings
+import dev.syncr.prototype.tablet.TrackpadControls
 import dev.syncr.prototype.ui.theme.Motion
 import dev.syncr.prototype.ui.theme.Radius
 import dev.syncr.prototype.ui.theme.Space
@@ -120,6 +121,7 @@ private fun SettingsPageBody(page: SettingsPage, appearance: Appearance, locatio
     val tablet = remember(context) { TabletSettings(context) }
     var trail by remember { mutableFloatStateOf(tablet.trailMs.toFloat()) }
     var local by remember { mutableStateOf(tablet.streamLocal) }
+    var tuning by remember { mutableStateOf(tablet.trackpadTuning) }
     fun app(change: (AppPreferences) -> AppPreferences) = AppPreferencesStore.update(context, change)
     fun ink(change: (InkPreferences) -> InkPreferences) = InkPreferencesStore.update(context, change)
 
@@ -157,6 +159,11 @@ private fun SettingsPageBody(page: SettingsPage, appearance: Appearance, locatio
         SettingsPage.COMPANION -> CompanionAccount()
         SettingsPage.MAC -> MacLinkSection()
         SettingsPage.TABLET -> {
+            TrackpadControls(tuning) { next ->
+                tablet.trackpadTuning = next
+                tuning = tablet.trackpadTuning
+            }
+            SectionLabel("Pen view")
             SettingsChoices("Starts as", listOf(true, false), local, label = { if (it) "Local" else "Whole view" },
                 detail = { if (it) "A frame on the Mac's page that you move with two fingers." else "The pad covers the Mac's whole view." }) { next ->
                 local = next; tablet.streamLocal = next

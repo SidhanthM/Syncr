@@ -24,12 +24,16 @@ import dev.syncr.prototype.ui.BubbleChip
 import dev.syncr.prototype.ui.BubbleRing
 import dev.syncr.prototype.ui.MorphingBubble
 import dev.syncr.prototype.ui.PenGlyph
+import dev.syncr.prototype.ui.SyncrIcon
+import dev.syncr.prototype.ui.SyncrIcons
+import dev.syncr.prototype.ui.theme.Syncr
 import dev.syncr.prototype.ui.RingKind
 
 class TabletBubbleActions(
     val open: () -> Unit,
     val close: () -> Unit,
     val toggleLocal: () -> Unit,
+    val toggleTrackpad: () -> Unit,
     val settings: () -> Unit,
     val leave: () -> Unit,
 )
@@ -67,19 +71,22 @@ fun TabletBubble(state: TabletUiState, open: Boolean, actions: TabletBubbleActio
             description = "Tablet mode options. ${state.caption}", stateDescription = state.caption,
             onOpen = actions.open,
             ring = { BubbleRing(state.link.ring()) },
-            glyph = { PenGlyph() },
+            glyph = { if (state.trackpad) SyncrIcon(SyncrIcons.Trackpad, Syncr.colors.ink, size = 22.dp) else PenGlyph() },
             bar = { TabletBar(state, actions) })
     }
 }
 
 @Composable
 private fun BubbleBarScope.TabletBar(state: TabletUiState, actions: TabletBubbleActions) {
+    val count = if (state.trackpad) 3 else 4
     Row(Modifier.padding(horizontal = 6.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-        BubbleChip(if (state.streamLocal) "Local" else "Whole view", 0, 3,
+        BubbleChip(if (state.trackpad) "Trackpad" else "Pen", 0, count,
+            description = "Switch between pen tablet and finger trackpad", onClick = actions.toggleTrackpad)
+        if (!state.trackpad) BubbleChip(if (state.streamLocal) "Local" else "Whole view", 1, count,
             description = if (state.streamLocal) "The pad writes inside a frame on the Mac's page; two fingers move it, a pinch resizes it. Switch to the whole view"
             else "The pad covers the Mac's whole view. Switch to Local, a frame you move with two fingers",
             onClick = actions.toggleLocal)
-        BubbleChip("Settings", 1, 3, description = "Tablet settings", onClick = actions.settings)
-        BubbleChip("Leave", 2, 3, description = "Leave Tablet mode", onClick = actions.leave)
+        BubbleChip("Settings", count - 2, count, description = "Tablet settings", onClick = actions.settings)
+        BubbleChip("Leave", count - 1, count, description = "Leave Tablet mode", onClick = actions.leave)
     }
 }

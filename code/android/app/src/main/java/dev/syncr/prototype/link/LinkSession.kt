@@ -4,6 +4,7 @@ package dev.syncr.prototype.link
 interface SessionEvents {
     fun status(status: SessionStatus)
     fun target(target: StreamTarget)
+    fun pointer(status: PointerStatus) {}
 
     /** The session is over on the Mac's say-so or ours. [fatal]: reconnecting cannot help until the user acts. */
     fun close(reason: String, fatal: Boolean)
@@ -44,6 +45,10 @@ class LinkSession(
     private var openId: String? = null
     private var viewing: String? = null
     private var padOn = false
+    private var peerVersion = 0
+    private var pointerWanted = false
+    private var pointerStatus = PointerStatus()
+    private var pointerSeq = 0L
     private var padWish: PadWish? = null
     private var sentToken: String? = null
     private var pendingToken: String? = null
@@ -96,6 +101,13 @@ class LinkSession(
             is Control.Udp -> if (phase == Phase.CONNECTED && version >= 1) {
                 events.datagrams(c.port, java.lang.Long.parseUnsignedLong(c.key, 16))
             }
+            is Control.PointerState -> if (phase == Phase.CONNECTED && peerVersion >= 1) {
+                val discovered = pointerStatus.version == 0
+                pointerStatus = PointerStatus(c.v, c.ready && c.v == 1, c.message)
+                events.pointer(pointerStatus)
+                if (discovered && pointerWanted && c.v == 1) scheduler.sendControl(Control.PointerMode(true))
+            }
+            is Control.PointerMode, is Control.Pointer -> Unit
             // The Mac never sends these; a confused or hostile one is ignored rather than trusted.
             is Control.Hello, is Control.Code, is Control.Viewing, is Control.Pad, is Control.PadMode, is Control.Frame -> Unit
         }
@@ -106,6 +118,7 @@ class LinkSession(
             events.close("This Mac app speaks a different link version.", fatal = true)
             return
         }
+        peerVersion = c.v
         val token = pendingToken
         val existing = store.pairing()
         if (token != null) store.save(Pairing(c.macId, c.mac, token))
@@ -185,13 +198,26 @@ class LinkSession(
         if (phase == Phase.CONNECTED && padOn) sendPadWish()
     }
 
+    fun setPointer(on: Boolean) {
+        if (pointerWanted == on) return
+        pointerWanted = on
+        if (phase == Phase.CONNECTED && pointerStatus.version == 1) scheduler.sendControl(Control.PointerMode(on))
+    }
+
+    fun pointerInput(input: PointerInput) {
+        if (phase == Phase.CONNECTED && pointerWanted && pointerStatus.ready && input.valid()) {
+            scheduler.sendControl(Control.Pointer(++pointerSeq, input))
+        }
+    }
+
     /** Asks the Mac for this pen frame (a finger gesture on the pad). */
     fun requestFrame(rect: CanvasRect) {
         if (phase == Phase.CONNECTED && padOn && version >= 1) scheduler.sendControl(Control.Frame(rect))
     }
 
     /** The app's wishes survive a reconnect: [viewing] and [pad] are re-sent after the next welcome. */
-    fun adopt(viewing: String?, pad: Boolean, open: String?, wish: PadWish? = null) {
+    fun adopt(viewing: String?, pad: Boolean, open: String?, wish: PadWish? = null, pointer: Boolean = false) {
+        this.pointerWanted = pointer
         this.viewing = viewing
         this.padOn = pad
         this.openId = open

@@ -51,7 +51,8 @@ class FileStream(private val file: File, private val xfer: Long, val chunks: Lon
  * No chunk is started while the pen is writing or hovering ([FeedPump.penActive]): the link loop looks again shortly.
  */
 class SendScheduler(private val out: PreviewOut, private val pump: FeedPump) {
-    private val control = ConcurrentLinkedQueue<ByteArray>()
+    private data class Pending(val command: Control, val at: Long = System.nanoTime())
+    private val control = ConcurrentLinkedQueue<Pending>()
 
     /** The transfer in flight, if any; set by the sync sender after its `file` message is queued. */
     @Volatile var file: FileSource? = null
@@ -59,13 +60,23 @@ class SendScheduler(private val out: PreviewOut, private val pump: FeedPump) {
     @Volatile var wake: Runnable? = null
 
     fun sendControl(c: Control) {
-        control.add(c.encode())
+        if (c is Control.PointerMode && !c.on) control.removeIf { it.command is Control.Pointer }
+        if (c is Control.Pointer && control.count { it.command is Control.Pointer } >= 64) {
+            control.removeIf { it.command is Control.Pointer }
+            control.add(Pending(Control.PointerMode(false))) // Stop rather than replay stale clicks/drags.
+        } else control.add(Pending(c))
         wake?.run()
     }
 
     /** The next message, unframed, or null when there is nothing to send. */
     fun next(): ByteArray? {
-        control.poll()?.let { return it }
+        control.poll()?.let {
+            if (it.command is Control.Pointer && System.nanoTime() - it.at > 200_000_000L) {
+                control.removeIf { entry -> entry.command is Control.Pointer }
+                return Control.PointerMode(false).encode()
+            }
+            return it.command.encode()
+        }
         pump.pump()
         out.pop()?.let { return it }
         if (pump.penActive()) return null

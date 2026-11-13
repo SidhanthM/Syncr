@@ -1,5 +1,6 @@
 package dev.syncr.prototype
 
+import android.content.pm.ActivityInfo
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
@@ -37,6 +38,8 @@ import dev.syncr.prototype.tablet.TabletBubbleActions
 import dev.syncr.prototype.tablet.TabletMacLinkSettings
 import dev.syncr.prototype.tablet.TabletPadView
 import dev.syncr.prototype.tablet.TabletSettings
+import dev.syncr.prototype.tablet.TabletOrientation
+import dev.syncr.prototype.tablet.TrackpadView
 import dev.syncr.prototype.tablet.TabletSetupActions
 import dev.syncr.prototype.tablet.TabletSetupPanel
 import dev.syncr.prototype.tablet.TabletUiState
@@ -53,6 +56,7 @@ import kotlinx.coroutines.launch
 class PointerActivity : ComponentActivity() {
     private lateinit var settings: TabletSettings
     private lateinit var pad: TabletPadView
+    private lateinit var trackpad: TrackpadView
     private var ui by mutableStateOf(TabletUiState())
     private var panelOpen by mutableStateOf(false)
     private var bubbleOpen by mutableStateOf(false)
@@ -62,12 +66,17 @@ class PointerActivity : ComponentActivity() {
     private var padAspect = 0.0
     /** Local: the frame width of last time is asked for once per connection, when the Mac first says where the frame is. */
     private var frameRestored = false
-    private val streamState get() = streamPadState(linkUi.enabled, linkUi.pairedMac != null,
+    private val streamState get() = if (settings.trackpad && linkUi.connected) {
+        dev.syncr.prototype.tablet.StreamPadState(linkUi.pointer.message,
+            if (linkUi.pointer.ready) null else linkUi.pointer.message,
+            if (!linkUi.pointer.ready && linkUi.pointer.version == 1) StreamAction.RETRY_POINTER else null)
+    } else streamPadState(linkUi.enabled, linkUi.pairedMac != null,
         linkUi.status.phase, linkUi.status.macName ?: linkUi.pairedMac, linkUi.target)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         settings = TabletSettings(this)
+        applyOrientation()
         link = LinkController.get(this)
         linkUi = link.state.value
         link.bind(this)
@@ -81,9 +90,16 @@ class PointerActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         hideSystemBars()
 
-        ui = ui.copy(trailMs = settings.trailMs, streamLocal = settings.streamLocal)
+        ui = ui.copy(trailMs = settings.trailMs, streamLocal = settings.streamLocal,
+            trackpad = settings.trackpad, orientation = settings.orientation, tuning = settings.trackpadTuning)
+        trackpad = TrackpadView(this).also {
+            it.onInput = link::pointerInput
+            it.trailMs = settings.trailMs
+            it.tuning = ui.tuning
+            it.onArea = { area -> if (settings.trackpad) ui = ui.copy(area = area) }
+        }
 
-        pad = TabletPadView(this, onMapperChanged = { m -> ui = ui.copy(area = m.activeArea) })
+        pad = TabletPadView(this, onMapperChanged = { m -> if (!settings.trackpad) ui = ui.copy(area = m.activeArea) })
         pad.setTrailMs(settings.trailMs)
         pad.setStream(link.streamPen)
         pad.setLocal(settings.streamLocal)
@@ -105,6 +121,7 @@ class PointerActivity : ComponentActivity() {
                     pad.setTarget(next.target)
                     restoreFrameWidth(next.target.frame)
                     refreshCaption()
+                    syncPadInput()
                 }
             }
         }
@@ -112,7 +129,9 @@ class PointerActivity : ComponentActivity() {
         setContent {
             SyncrTheme(dark = true) {
                 Box(Modifier.fillMaxSize()) {
-                    AndroidView(factory = { pad }, modifier = Modifier.fillMaxSize())
+                    androidx.compose.runtime.key(ui.trackpad) {
+                        AndroidView(factory = { if (ui.trackpad) trackpad else pad }, modifier = Modifier.fillMaxSize())
+                    }
                     TabletBubble(ui, bubbleOpen, bubbleActions)
                     if (!panelOpen && !bubbleOpen && !macLinkOpen) {
                         StreamPadStatus(streamState, Modifier.align(Alignment.TopCenter).padding(top = 8.dp), ::streamAction)
@@ -130,12 +149,46 @@ class PointerActivity : ComponentActivity() {
             settings.trailMs = ms
             ui = ui.copy(trailMs = settings.trailMs)
             pad.setTrailMs(settings.trailMs)
+            trackpad.trailMs = settings.trailMs
+        },
+        setTrackpad = ::setTrackpad,
+        setOrientation = { orientation ->
+            pad.releaseAll(); trackpad.releaseAll()
+            settings.orientation = orientation
+            ui = ui.copy(orientation = orientation)
+            applyOrientation()
+        },
+        setTuning = { tuning ->
+            settings.trackpadTuning = tuning
+            ui = ui.copy(tuning = settings.trackpadTuning)
+            trackpad.tuning = ui.tuning
         },
         setLocal = { local -> setLocal(local) },
         leave = { finish() },
         enableMacLink = { link.setEnabled(true) },
         macLinkSettings = { panelOpen = false; macLinkOpen = true; syncPadInput() },
     )
+
+    private fun applyOrientation() {
+        requestedOrientation = when (settings.orientation) {
+            TabletOrientation.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            TabletOrientation.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            TabletOrientation.AUTO -> ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+        }
+    }
+
+    private fun setTrackpad(on: Boolean) {
+        if (on == settings.trackpad) return
+        pad.releaseAll(); trackpad.releaseAll()
+        link.pointerOpened(false); link.padOpened(false)
+        settings.trackpad = on
+        ui = ui.copy(trackpad = on, area = if (on && trackpad.width > 0)
+            dev.syncr.prototype.tablet.PadRect(0.0, 0.0, trackpad.width.toDouble(), trackpad.height.toDouble()) else pad.activeArea)
+        syncPadInput(); pushPadWish(); refreshCaption()
+        if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+            link.pointerOpened(on); link.padOpened(!on)
+        }
+    }
 
     private fun setLocal(local: Boolean) {
         if (local == settings.streamLocal) return
@@ -148,12 +201,12 @@ class PointerActivity : ComponentActivity() {
 
     /** What the pad asks of the Mac: pictures of what it covers, and its shape. Nothing before the shape is known. */
     private fun pushPadWish() {
-        link.setPadWish(if (padAspect > 0) PadWish(settings.streamLocal, pics = true, aspect = padAspect) else null)
+        link.setPadWish(if (!settings.trackpad && padAspect > 0) PadWish(settings.streamLocal, pics = true, aspect = padAspect) else null)
     }
 
     /** The Mac starts a new frame at half its view; ask once for the width used last time, around the same centre. */
     private fun restoreFrameWidth(frame: CanvasRect?) {
-        if (frame == null || frameRestored || !settings.streamLocal) return
+        if (settings.trackpad || frame == null || frameRestored || !settings.streamLocal) return
         frameRestored = true
         val w = settings.frameWidth.toDouble()
         if (w < 1 || kotlin.math.abs(w - frame.w) < 1) return
@@ -165,6 +218,7 @@ class PointerActivity : ComponentActivity() {
         when (action) {
             StreamAction.ENABLE -> link.setEnabled(true)
             StreamAction.PAIR -> { macLinkOpen = true; syncPadInput() }
+            StreamAction.RETRY_POINTER -> { link.pointerOpened(false); link.pointerOpened(true) }
         }
     }
 
@@ -173,12 +227,15 @@ class PointerActivity : ComponentActivity() {
         open = { bubbleOpen = true; syncPadInput() },
         close = { bubbleOpen = false; syncPadInput() },
         toggleLocal = { setLocal(!settings.streamLocal) },
+        toggleTrackpad = { setTrackpad(!settings.trackpad); bubbleOpen = false; syncPadInput() },
         settings = { bubbleOpen = false; openPanel() },
         leave = { finish() },
     )
 
     private fun syncPadInput() {
-        pad.inputEnabled = !bubbleOpen && !panelOpen && !macLinkOpen // Disabling drops a stroke in progress first.
+        val available = !bubbleOpen && !panelOpen && !macLinkOpen && hasWindowFocus()
+        pad.inputEnabled = available && !settings.trackpad // Disabling drops a stroke in progress first.
+        trackpad.enabledForInput = available && settings.trackpad && linkUi.connected && linkUi.pointer.ready
     }
 
     private fun openPanel() {
@@ -204,20 +261,28 @@ class PointerActivity : ComponentActivity() {
         super.onResume()
         hideSystemBars()
         refreshCaption()
+        ui = ui.copy(tuning = settings.trackpadTuning)
+        trackpad.tuning = ui.tuning
         pad.setInk(inkColour(link.penBrush, dark = true), brushWidth(link.penBrush))
         pushPadWish()
-        link.padOpened(true) // The Mac creates a note for the pad if none is open
+        link.padOpened(!settings.trackpad) // Only Pen mode may create a note.
+        link.pointerOpened(settings.trackpad)
+        syncPadInput()
     }
 
     override fun onPause() {
-        pad.releaseAll() // Never leave a stream stroke open.
+        pad.releaseAll() // Never leave a stream stroke or remote drag open.
+        trackpad.releaseAll()
+        link.pointerOpened(false)
         link.padOpened(false)
         super.onPause()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) { if (!panelOpen) hideSystemBars() } else pad.releaseAll()
+        if (hasFocus) { if (!panelOpen) hideSystemBars() }
+        else { pad.releaseAll(); trackpad.releaseAll() }
+        syncPadInput()
     }
 
     private fun hideSystemBars() {
@@ -229,6 +294,7 @@ class PointerActivity : ComponentActivity() {
 
     override fun onDestroy() {
         if (::pad.isInitialized) pad.releaseAll()
+        if (::trackpad.isInitialized) trackpad.releaseAll()
         super.onDestroy()
     }
 }

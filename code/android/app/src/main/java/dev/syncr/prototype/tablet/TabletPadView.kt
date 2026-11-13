@@ -54,6 +54,7 @@ class TabletPadView(
         set(value) { if (!value) releaseAll(); field = value }
 
     private var mapper: TabletMapper? = null
+    val activeArea: PadRect? get() = mapper?.activeArea
 
     /** Pen strokes go to the Mac as view-relative preview and a stroke-commit; null until the link is bound. */
     private var stream: StreamPen? = null

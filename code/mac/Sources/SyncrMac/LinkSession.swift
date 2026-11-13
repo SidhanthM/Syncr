@@ -42,12 +42,16 @@ protocol LinkSessionHost: AnyObject {
     func sessionPadMode(_ session: LinkSession, local: Bool, pics: Bool, aspect: Double)
     /// The phone asks for this pen frame, in canvas units.
     func sessionFrame(_ session: LinkSession, rect: CGRect)
+    func sessionPointerMode(_ session: LinkSession, version: Int, on: Bool)
+    func sessionPointer(_ session: LinkSession, packet: PointerPacket)
     func sessionClock(_ session: LinkSession, clock: ClockSync)
     func sessionClosed(_ session: LinkSession)
     func sessionLog(_ line: String)
 }
 
 extension LinkSessionHost {
+    func sessionPointerMode(_ session: LinkSession, version: Int, on: Bool) {}
+    func sessionPointer(_ session: LinkSession, packet: PointerPacket) {}
     func sessionPadMode(_ session: LinkSession, local: Bool, pics: Bool, aspect: Double) {}
     func sessionFrame(_ session: LinkSession, rect: CGRect) {}
 }
@@ -196,6 +200,8 @@ final class LinkSession: @unchecked Sendable {
             case .viewing(let id):
                 if let id, !LinkIds.valid(id) { return }
                 host?.sessionViewing(self, id: id)
+            case .pointerMode(let v, let on): if peerVersion >= 1 { host?.sessionPointerMode(self, version: v, on: on) }
+            case .pointer(let packet): if peerVersion >= 1 { host?.sessionPointer(self, packet: packet) }
             case .pad(let on): host?.sessionPad(self, on: on)
             case .padMode(let local, let pics, let aspect): host?.sessionPadMode(self, local: local, pics: pics, aspect: aspect)
             case .frame(let rect): host?.sessionFrame(self, rect: rect)
@@ -257,6 +263,9 @@ final class LinkSession: @unchecked Sendable {
         if peerVersion >= 1, let port = config.udpPort, config.udpKey != 0 { send(.udp(port: port, key: String(format: "%016llx", config.udpKey))) }
         nextPingNs = ns
         host?.sessionWelcomed(self)
+        if peerVersion >= 1 {
+            send(.pointerState(version: 1, ready: false, message: "Choose Trackpad on the phone to request Mac control."))
+        }
         sendPing(at: ns)
     }
 

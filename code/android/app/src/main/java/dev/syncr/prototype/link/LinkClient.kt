@@ -31,6 +31,7 @@ fun interface Transport {
 interface ClientListener {
     fun onStatus(status: SessionStatus)
     fun onTarget(target: StreamTarget)
+    fun onPointer(status: PointerStatus) {}
 
     /** A session reached `welcome` on [endpoint]. */
     fun onConnected(endpoint: Endpoint) {}
@@ -139,6 +140,8 @@ class LinkClient(
     // What the app wants, kept across connections.
     @Volatile private var appViewing: String? = null
     @Volatile private var appPad = false
+    @Volatile private var appPointer = false
+    private val pointerQueued = java.util.concurrent.atomic.AtomicInteger(0)
     @Volatile private var appPadWish: PadWish? = null
     private var datagrams: DatagramPath? = null
     @Volatile private var appOpen: String? = null
@@ -226,6 +229,26 @@ class LinkClient(
 
     fun requestFrame(rect: CanvasRect) = post { session?.requestFrame(rect) }
 
+    fun setPointer(on: Boolean) {
+        appPointer = on
+        post { session?.setPointer(on) }
+    }
+
+    fun pointerInput(input: PointerInput) {
+        if (!appPointer || !input.valid()) return
+        if (pointerQueued.incrementAndGet() > 64) { pointerQueued.decrementAndGet(); setPointer(false); return }
+        val sent = cfg.clock.nowMs()
+        val original = session
+        post {
+            pointerQueued.decrementAndGet()
+            // Never replay an old gesture on a new connection or after a transport stall.
+            if (original === session && appPointer) {
+                if (cfg.clock.nowMs() - sent <= 200) session?.pointerInput(input)
+                else setPointer(false)
+            }
+        }
+    }
+
     // ---- LinkLoop ----
 
     override fun post(task: Runnable) {
@@ -244,6 +267,8 @@ class LinkClient(
         if (line != lastStatusLine) { cfg.log(line); lastStatusLine = line }
         listener.onStatus(status)
     }
+
+    override fun pointer(status: PointerStatus) { listener.onPointer(status) }
 
     override fun target(target: StreamTarget) {
         cfg.log(targetLine(target))
@@ -330,6 +355,7 @@ class LinkClient(
                 this@LinkClient.status(status)
             }
             override fun target(target: StreamTarget) = this@LinkClient.target(target)
+            override fun pointer(status: PointerStatus) = this@LinkClient.pointer(status)
             override fun close(reason: String, fatal: Boolean) = this@LinkClient.close(reason, fatal)
             override fun datagrams(port: Int, key: Long) {
                 if (!cfg.datagrams || datagrams != null) return
@@ -338,7 +364,7 @@ class LinkClient(
             }
         }
         val sess = LinkSession(cfg.device, cfg.store, endpoint, scheduler, sync, pump, cfg.feed, cfg.clock, latency, cfg.source, events, cfg.linkVersion)
-        sess.adopt(appViewing, appPad, appOpen, appPadWish)
+        sess.adopt(appViewing, appPad, appOpen, appPadWish, appPointer)
         session = sess
         lastInbound = cfg.clock.nowMs()
         val output = try { s.getOutputStream() } catch (e: IOException) { closeSocket(); return false }

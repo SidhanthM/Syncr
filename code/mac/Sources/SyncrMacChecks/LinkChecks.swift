@@ -236,6 +236,10 @@ private final class SessionRig: LinkSessionHost, @unchecked Sendable {
 
     var padModes: [(local: Bool, pics: Bool, aspect: Double)] = []
     var frames: [CGRect] = []
+    var pointerModes: [(Int, Bool)] = []
+    var pointerPackets: [PointerPacket] = []
+    func sessionPointerMode(_ session: LinkSession, version: Int, on: Bool) { pointerModes.append((version, on)) }
+    func sessionPointer(_ session: LinkSession, packet: PointerPacket) { pointerPackets.append(packet) }
     func sessionPadMode(_ session: LinkSession, local: Bool, pics: Bool, aspect: Double) { padModes.append((local, pics, aspect)) }
     func sessionFrame(_ session: LinkSession, rect: CGRect) { frames.append(rect) }
 
@@ -1097,7 +1101,7 @@ private func padChecks() throws {
     let after = view.offsetBy(dx: 0, dy: scroll.dy)
     frame.place(below, view: after)
     try check(abs(frame.rect(in: after).maxY - after.maxY) < 0.01, "after the scroll the frame sits at the bottom edge")
-    try check(PadFrame.cleanAspect(CGFloat.nan) == 1.6 && PadFrame.cleanAspect(99) == 4 && PadFrame.cleanAspect(0.01) == 0.5, "aspect limits")
+    try check(PadFrame.cleanAspect(CGFloat.nan) == 1.6 && PadFrame.cleanAspect(99) == 4 && PadFrame.cleanAspect(0.01) == 0.25, "aspect limits")
 
     // Two paths, one ordered run: each frame is handed on once, in order, whichever path brings it first.
     func f(_ n: UInt8) -> Data { Data([0x50, n]) }
@@ -1136,6 +1140,19 @@ private func padChecks() throws {
     rig.feed(.padMode(local: true, pics: true, aspect: 2.05)); rig.feed(.frame(CGRect(x: 1, y: 2, width: 300, height: 150)))
     try check(rig.padModes.count == 1 && rig.padModes[0].aspect == 2.05 && rig.frames == [CGRect(x: 1, y: 2, width: 300, height: 150)], "padmode and frame reach the host")
 
+    // Pointer controls cannot reach a host before pairing; v0 remains unchanged.
+    let pointerRig = SessionRig()
+    let pointerPacket = PointerPacket(seq: 1, dx: 5, dy: -3, sx: 0, sy: 0, buttons: 0, click: 0)
+    pointerRig.feed(.pointerMode(version: 1, on: true)); pointerRig.feed(.pointer(pointerPacket))
+    try check(pointerRig.pointerModes.isEmpty && pointerRig.pointerPackets.isEmpty, "pointer input before pairing is ignored")
+    try pointerRig.welcome(v: 1)
+    try check(pointerRig.controls.contains(.pointerState(version: 1, ready: false, message: "Choose Trackpad on the phone to request Mac control.")), "pointer capability is advertised only after welcome")
+    pointerRig.feed(.pointerMode(version: 1, on: true)); pointerRig.feed(.pointer(pointerPacket))
+    try check(pointerRig.pointerModes.count == 1 && pointerRig.pointerPackets == [pointerPacket], "authenticated pointer request reaches the consent-gated host")
+    let oldPointerRig = SessionRig(); try oldPointerRig.welcome(v: 0)
+    oldPointerRig.feed(.pointerMode(version: 1, on: true)); oldPointerRig.feed(.pointer(pointerPacket))
+    try check(oldPointerRig.pointerModes.isEmpty && oldPointerRig.pointerPackets.isEmpty, "v0 does not participate in the pointer extension")
+
     // Wire: the target's additions, the phone's two messages, and the picture.
     var info = TargetInfo(note: "N1", sheet: "S1", writable: true, rev: 3)
     try check(LinkControl.target(info).object.count == 5, "a target without pad additions is the v0 message")
@@ -1143,11 +1160,17 @@ private func padChecks() throws {
     let json = try JSONSerialization.data(withJSONObject: LinkControl.target(info).object)
     guard case .target(let back?) = try LinkControl.parse(json: json) else { throw CheckFailure(description: "target with additions did not parse") }
     try check(back.frame == info.frame && back.view == info.view && abs((back.pageHeight ?? 0) - 4000.3) < 0.001, "target additions round-trip to a tenth (\(back))")
-    for c in [LinkControl.padMode(local: false, pics: true, aspect: 1.9), .frame(CGRect(x: 10, y: 20.5, width: 300, height: 150)), .udp(port: 9, key: "0123456789abcdef")] {
+    for c in [LinkControl.padMode(local: false, pics: true, aspect: 1.9), .frame(CGRect(x: 10, y: 20.5, width: 300, height: 150)), .udp(port: 9, key: "0123456789abcdef"),
+              .pointerMode(version: 1, on: true), .pointerState(version: 1, ready: false, message: "Allow on Mac"),
+              .pointer(PointerPacket(seq: 7, dx: -1.25, dy: 9, sx: 2, sy: -8.5, buttons: 1, click: 3))] {
         try check(try LinkControl.parse(json: JSONSerialization.data(withJSONObject: c.object)) == c, "\(c) round-trips")
     }
     for bad in [#"{"t":"frame","x":0,"y":0,"w":0,"h":1}"#, #"{"t":"frame","x":true,"y":0,"w":1,"h":1}"#, #"{"t":"padmode","local":true,"pics":true,"aspect":0}"#,
-                #"{"t":"udp","port":70000,"key":"0123456789abcdef"}"#, #"{"t":"udp","port":9,"key":"xyz"}"#] {
+                #"{"t":"udp","port":70000,"key":"0123456789abcdef"}"#, #"{"t":"udp","port":9,"key":"xyz"}"#,
+                #"{"t":"pointer","v":1,"seq":0,"dx":0,"dy":0,"sx":0,"sy":0,"buttons":0,"click":0}"#,
+                #"{"t":"pointer","v":2,"seq":1,"dx":0,"dy":0,"sx":0,"sy":0,"buttons":0,"click":0}"#,
+                #"{"t":"pointer","v":1,"seq":1,"dx":true,"dy":0,"sx":0,"sy":0,"buttons":0,"click":0}"#,
+                #"{"t":"pointer","v":1,"seq":1,"dx":2049,"dy":0,"sx":0,"sy":0,"buttons":0,"click":0}"#] {
         try check((try? LinkControl.parse(json: Data(bad.utf8))) == nil, "malformed \(bad) is refused")
     }
     guard case .target(let lenient?) = try LinkControl.parse(json: Data(#"{"t":"target","note":"N","sheet":"S","writable":true,"rev":1,"frame":{"x":"a"},"view":5}"#.utf8)) else {

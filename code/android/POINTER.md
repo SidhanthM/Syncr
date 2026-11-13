@@ -1,80 +1,90 @@
-# Syncr Tablet mode (Wi-Fi Stream, Bluetooth Pointer fallback)
+# Tablet mode: Pen and Trackpad over Wi-Fi
 
-Tablet mode defaults to **Stream · Wi-Fi** if Mac link is on and a pairing exists, otherwise **Pointer · Bluetooth**. An explicit selection
-wins and persists. Tap the corner caption (`⇄`) once to switch links, or use Link in the setup panel. Stream writes with pressure/optional
-tilt into the note open in Syncr on the Mac, saved there and never on the phone. Pointer is a Bluetooth HID **absolute mouse** for any Mac app;
-it has no pressure/tilt and Syncr stores nothing. Code: `PointerActivity.kt` (name retained for existing entry points), `tablet/` and `link/`.
+Both modes use the existing **Mac link** pairing. Bluetooth/HID is not used. The existing TCP link is **not encrypted**; use Trackpad only on trusted Wi-Fi. Pairing is not protection against an on-path attacker who can capture its token. `PointerActivity.kt` retains its old name for existing entry points.
 
-## Stream · Wi-Fi
+## Open and configure
 
-- Turn Mac link on and pair in phone Settings; open Syncr on the Mac. With no explicit pad-link choice, opening Tablet mode now selects Stream.
-  Check the caption says **Stream · Wi-Fi**, not Pointer. The pad is a separately foreground-counted activity and brings the link up itself.
-- The top message says `<Mac> · Ink is saved in the Mac's note` only while connected with a writable target. Other states:
-  - `Mac link is off` → **Turn on Mac link**.
-  - `Pair your Mac in Mac link settings` → **Open Mac link settings**, directly on the pad (discovery, manual address and four-digit code).
-  - `Waiting for <Mac>. Is the Syncr Mac app running?` → **Use Bluetooth pointer**. This fallback is only for this pad session, including rotation;
-    it does not replace the saved preference. A caption/panel selection, in contrast, persists.
-  - `Waiting for a writable note on the Mac` → wait: pad-on creates a Mac note when none is active. Read-only targets cannot receive ink.
-- One scale maps the letterboxed active area to 4800 × 3000, independent of Pointer mapping. Fingers/palms cannot ink or move this letterbox.
-  Hover sends position only. Real history is traversed oldest first; pen-up includes the final point and pressure clamps to 0..1.
-  Cancel, second pen, lost contact, resize, focus loss or pause abandons the stroke. A target/sheet/writability/revision change mid-stroke also
-  cancels whole, rather than saving against a stale view; lift and try again. Leaving or switching away sends `pad off`.
-- Stream input and UI are not hardware-verified. The owner previously verified Wi-Fi pairing and live note mirror, **not Stream**.
+1. Enable Mac link and pair the phone with Syncr on the Mac (phone Settings → Mac link, four-digit code).
+2. Open Tablet mode. The bubble's first chip switches **Pen / Trackpad**; Settings has the same choice.
+3. Settings → **Orientation** offers **Landscape**, **Portrait**, or **Auto**. Mode, orientation, trail length and the Pen view choice persist locally.
 
-### Exact logcat events
+The pad is black and immersive. Rotation cancels active gestures before remapping; no ongoing stroke or drag is stretched into a new orientation. Pen's Local frame now accepts portrait aspect ratios down to 0.25. Whole view continues to letterbox the Mac's landscape view instead of distorting it.
 
-Owner-run filter: `adb logcat -v time SyncrLink:I '*:S'`. For a normal Stream stroke, the message text is (values vary; IDs are eight-character prefixes):
+## Pen
 
-```text
-state connecting mac=M2mac
-state connected mac=M2mac
-wifi lock acquired held=true requested=WIFI_MODE_FULL_LOW_LATENCY low-latency-effect=unobservable(public API reports isHeld only)
-pad on sent
-target present=true writable=true rev=7 note=12345678 sheet=abcdefgh
-stream stroke begin id=87654321 note=12345678 sheet=abcdefgh rev=7
-stream stroke end id=87654321 samples=240
-stream stroke commit queued id=87654321
-latency stroke N: pen-event-to-socket-write n=… p50=… p95=… max=… | round-trip n=… p50=… p95=… max=… | wifi-lock-held=true requested=WIFI_MODE_FULL_LOW_LATENCY low-latency-effect=unobservable wifi-speed=…Mbps wifi-frequency=…MHz band=5GHz rssi=…dBm battery-saver=false location-fields=not-read(no-location-permission) | excludes: digitiser, display scan-out, Mac decode and present (the Mac logs phone-send to Mac-presented)
-pad off sent
+S Pen input writes into the note open in Syncr on the Mac, saved there rather than on the phone. A note is created when Pen opens if no writable destination is available under the existing pad rules.
+
+- **Local:** maps onto a pen frame on the Mac page. Two fingers move the frame; pinch resizes it.
+- **Whole view:** covers the Mac's current canvas view with uniform scaling.
+- The Mac sends pictures of the covered region. Local stroke feedback is drawn immediately while waiting for the next picture.
+- Cancel, second pen, resize, focus loss or pause drops an unfinished stroke. Changes to target/sheet/writability/revision cancel a stroke rather than commit against stale coordinates.
+
+## Trackpad
+
+No note or S Pen is required. Finger input controls the **Mac system pointer**, including other apps:
+
+| Gesture | Action |
+|---|---|
+| One-finger move | Relative cursor movement |
+| One-finger tap | Left click |
+| Two-finger drag | Vertical / horizontal scroll |
+| Two-finger tap | Right click |
+| Double tap, keeping the second contact down | Left-button drag once the finger moves or holds (about 150 ms); lift releases |
+| Two quick taps | Double click |
+
+S Pen contact can also move/tap, but there is no pen-only requirement. Adding/lifting contacts reanchors the gesture so the cursor does not jump, and the last finger after a two-finger scroll cannot accidentally start moving the cursor. A third finger brushing past pauses a scroll (no click, no cursor motion) and the scroll resumes from where it is once back to two fingers. A scroll starting right after a tap never presses the button: a drag is only a candidate until the finger moves or holds.
+
+Scrolling is phased like a Mac trackpad: the Mac sends began, changed and ended scroll events in whole pixels. The phone closes each scroll with an optional `se` key on a pointer packet (finger lift, cancel, drag start); if it is lost, the Mac ends the scroll after 150 ms of quiet. Direction follows the Mac's natural-scrolling setting (`com.apple.swipescrolldirection`), natural when unreadable. Not built: momentum after lift.
+
+Every active contact gets an independent coloured fading trail and a contact dot, including both scrolling fingers. Trails are local feedback, bounded in memory, never connected across fingers, and never stored as note ink. Trail length follows the existing setting.
+
+### Pointer and scroll response
+
+Tablet bubble → **Settings → Trackpad response** has four Syncr-drawn sliders (themed rail/fill/thumb, 48dp targets and accessibility adjustment), not native/Material sliders. They are also available in phone **Settings → Tablet mode**.
+
+| Control | Default | Range |
+|---|---|---|
+| Pointer speed | 3.0× | 0.5–8.0× |
+| Pointer acceleration | 75% additional fast-swipe speed | 0–200% |
+| Scroll speed | 4.0× | 0.5–12.0× |
+| Scroll acceleration | 50% additional fast-swipe speed | 0–200% |
+
+Base speeds are relative to the former 1dp → 1 Mac-point mapping, so existing installs without saved tuning immediately get faster defaults. Slow corrections use base speed; fast swipes smoothly add the selected acceleration (75% means up to 1.75× base speed). Set acceleration to 0% for constant gain. **Reset Trackpad response** restores all four defaults.
+
+Values save when the slider is released or adjusted through accessibility, survive restarts/rotation, and apply when returning to the pad. Acceleration uses dp/second, not distance per sample. Only the velocity estimate is smoothed; no extra frame queue or delayed movement is introduced. Contact changes, cancellation and tuning changes clear its history. This does not scale tap thresholds, clicks, drag/release state, trails or Pen input. Boosted output remains within the existing ±2048-point wire bounds, with the same response convention on both axes.
+
+### Mac approval and permissions
+
+Choosing Trackpad requests local approval on the Mac. The Mac must allow that paired phone and have **System Settings → Privacy & Security → Accessibility → Syncr** enabled. The OS permission prompt is requested only after clicking Allow on the Mac, not on connection or startup. After granting permission use **Retry Trackpad** on the phone. One connection may control the pointer at a time. Closing Trackpad or disconnecting ends its approval; reconnecting requires approval again.
+
+Status distinguishes pairing/offline, an older Mac without pointer support, Mac approval, Accessibility permission, and ready. Trackpad does not enable Pen's `pad` state, request note pictures, or create a note. There is no keyboard injection.
+
+## Versioned pointer extension
+
+The existing Wi-Fi link remains version 1 (compatible note sync and pen streams). Pointer support has its **own version 1**, advertised as a `pointerstate` after an authenticated welcome. An older Mac never advertises it, so the phone shows an update message and does not send pointer controls.
+
+- `pointerstate`: `v`, `ready`, `message` (Mac → phone).
+- `pointermode`: `v`, `on` (phone → Mac); explicit approval required for `on`.
+- `pointer`: `v=1`, monotonic `seq`, bounded finite `dx/dy/sx/sy`, `buttons` (0 or left-held=1), `click` (0=none, 1=left, 2=right, 3=double-left/second-contact drag). Relative values are logical screen points, not backing pixels.
+
+Pointer controls use paired TCP with control-message priority, not the preview UDP path. Queued pointer packets are capped and expire after 200 ms; overflow/stall disables control rather than replay old clicks. Buttons are current state, never toggles. Cancel, mode changes, panels, background, resize and disconnect release an active drag. The Mac also ends a held drag after a 1.2-second input timeout; stationary drags send a 150-ms heartbeat. Permission loss refuses further input.
+
+## Verification handoff
+
+**Compilation verified:** Mac `swift build` passes after the source-target/import fixes. Android app, JVM regression sources and instrumentation sources compile with `:app:compileDebugKotlin :app:compileDebugUnitTestKotlin :app:compileDebugAndroidTestKotlin`.
+
+**Test execution and hardware verification remain deferred to Claude.** No physical-phone deployment, actual cursor injection, or real Accessibility approval was performed by the assistant. No runtime speed/feel or light/dark rendering claims are made from compilation alone.
+
+Added regression sources: `TrackpadGestureTest`, `PointerProtocolTest`, `TrackpadResponseTest` (gain, acceleration, timing independence, reset, finite bounds and sanitization), `TrackpadControlsTest` (light/dark slider actions, reset, isolated preference persistence), and pointer round-trip/hostile-input cases plus portrait aspect expectations in `SyncrMacChecks/LinkChecks.swift`. The Compose gallery includes light/dark Trackpad controls previews.
+
+Suggested next steps for Claude:
+
+```sh
+cd code/android
+./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest
+cd ../mac
+swift build
+swift run SyncrMacChecks
 ```
 
-`state needs code mac=M2mac` means pairing is needed. Disconnect: `state disconnected reason=<reason>` and
-`wifi lock released held=false requested=WIFI_MODE_FULL_LOW_LATENCY`. Cancel: `stream stroke cancel id=<prefix> samples=<n> reason=<reason>`.
-Rejected down: `stream stroke not sent reason=Mac link is off` (or Mac needs pairing code / Mac is not paired / Mac is disconnected / no target /
-target not writable / no stroke ID available / link disconnected or pen queue full). A revision change also reports
-`stream stroke not sent reason=target changed mid-stroke (including rev)`. Logging runs on workers, never directly on pen input.
-Commit queued is **not** a Mac-save acknowledgement; the Mac's `link: stroke-saved` line and visible note are the durable confirmation.
-
-Radio metrics use existing normal permissions and say `unavailable` when redacted/unreadable. No SSID, BSSID or scan/location data is read.
-Lock acquisition proves only API-reported ownership, not that the driver enabled low-latency operation. Metrics are captured at report time;
-no fix for the owner's earlier slow round trips is claimed.
-
-## Tablet mode
-
-- Black, immersive, landscape (`sensorLandscape`). A dotted outline marks the active area; the pen leaves a ~500 ms fading trail (local feedback only, **not** a mirror of the Mac).
-- **Pen only.** Stylus down = button down, move = absolute move (all historical samples), up = final point then release, cancel/pause/focus loss/back/setup panel = release. Hover moves without clicking. Fingers never send pointer data; their only jobs are a two-finger drag (moves the Actual-size window) and a tap on the corner caption (switches the link). A resting palm within 300 ms of pen-up cannot activate the caption.
-- **Corner caption:** `POINTER · BLUETOOTH · CONNECTED TO <NAME>` or `NOT CONNECTED`, the mapping, `UNCALIBRATED` in Actual size until you tick the ruler check, and (Actual size) a mini-map of where the window sits on the Mac screen. Connection state is read from `HidController`'s status messages.
-- **Corner caption:** ends in `⇄`; a finger tap switches Stream · Wi-Fi ↔ Pointer · Bluetooth and saves that explicit selection.
-- **Setup panel** (bubble > Settings; opens automatically in Pointer until a Mac has been chosen): link, mapping, Mac screen size in mm (default 290 x 189, M2 Air), ruler check, Bluetooth permission, Bluetooth settings, Select paired Mac. Choices, the window position and the last Mac (auto-reconnected) persist in SharedPreferences `tablet_mode`.
-
-## Mapping (`tablet/TabletMapping.kt`, tested in `TabletMappingTest`)
-
-One scale for both axes, always (the old u = x/w, v = y/h stretched shapes).
-
-- **Actual size (default):** 1 mm of pen = 1 mm of cursor, from `DisplayMetrics.xdpi/ydpi` and the Mac size: `u = (ox + x*25.4/dx) / W`, `v = (oy + y*25.4/dy) / H`, with the window corner (ox, oy) clamped to `0..W - w*25.4/dx`, `0..H - h*25.4/dy`.
-- **Whole screen:** the active area is the largest W:H rectangle centred on the pad; `u = (x - ax)/aw`, `v = (y - ay)/ah`.
-- **Both:** `X = round(clamp(u,0,1) * 32767)`. That integer is passed to the unchanged `AbsoluteMouse.report(X, Y, 32767, 32767, pressed)`, which encodes exactly X (tested for every value). The HID descriptor and report format are unchanged.
-
-## Hardware check
-
-Build and install as in [README.md](README.md) (`./syncr app_update`). The app logs connection status under the `SyncrHid` tag (`./syncr logcat`). Bluetooth HID pairing is separate from ADB pairing.
-
-Requires Android 9+ and a device exposing Android's `BluetoothHidDevice` profile; Android 12+ requires granting Nearby Devices / Bluetooth Connect. The S23 Ultra and macOS behavior **has not been tested** here (no connected phone).
-
-1. Enable Bluetooth on both devices. Open **Bluetooth settings / pair** in the app; pair the S23 and Mac through their system Bluetooth settings. Return to Syncr, grant the Bluetooth permission, and tap **Select paired Mac**. If a stale device entry persists after changing the HID descriptor, forget the pairing on both sides and pair again.
-2. Open any simple Mac drawing canvas, select its pen/brush, and put the canvas on the display you wish to test. Write on the pad with the S Pen: down holds the primary mouse button, move sends absolute X/Y, and up/cancel releases it. Hover moves without clicking. In Actual size, draw a 5 cm line along a ruler on the phone and measure it on the Mac; if they match, tick the ruler check in setup. Draw a circle in both mappings and check it is not stretched.
-3. Test a long continuous stroke, pen lift, cancellation (switch apps mid-stroke), and reconnect. Closing the app unregisters HID and attempts to release the mouse button.
-
-**Acceptance gate:** Check whether macOS actually treats the generic HID mouse descriptor's X/Y fields as absolute coordinates. Standard HID supports absolute axes, but macOS may handle them differently or not expose a useful pointer. The Gradle tests verify report bytes, **not** host interpretation, S23 HID support, pairing, or latency. If coordinates drift or fail to land at fixed screen locations, do not claim absolute tablet control; investigate macOS digitizer HID support or ask before adding a Mac receiver or switching to relative movement. Still unverified on hardware: how accurate the phone's reported DPI is (Samsung's screen-resolution setting may make `xdpi` disagree with the real pixel pitch; the setup panel shows the pad size in mm to check with a ruler), which display macOS maps the pointer to with more than one connected, whether S Pen edge strokes trigger the system back gesture, and the feel of the fading trail.
-
-No Samsung private libraries or Appground code are used. Stream uses the Wi-Fi wire contract in `../../tasks/contracts/wifi-link-v0.md`; Pointer's Bluetooth protocol is unchanged.
+Manual checks must cover portrait/landscape/auto in both modes, pen regressions, contact trails, cursor and multi-display edges, two-finger scroll/right-click, double-tap-drag, approval/denial/permission retry, old Mac compatibility, disconnect/background/rotation during a drag, stalled transport, and switching back to Pen without spurious pointer or note input. Check all four speed/acceleration sliders and reset, save/reopen/rotation, slow precise versus fast swipes, both scroll axes, and different screen densities/touch rates. Inspect custom slider rendering in light/dark themes and narrow portrait sheets.

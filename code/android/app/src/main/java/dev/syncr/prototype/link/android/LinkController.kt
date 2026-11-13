@@ -42,6 +42,8 @@ import dev.syncr.prototype.link.Phase
 import dev.syncr.prototype.link.SessionStatus
 import dev.syncr.prototype.link.StreamPen
 import dev.syncr.prototype.link.StreamTarget
+import dev.syncr.prototype.link.PointerInput
+import dev.syncr.prototype.link.PointerStatus
 import dev.syncr.prototype.notes.NotesRepository
 import dev.syncr.prototype.notes.NotesState
 import java.io.File
@@ -68,6 +70,7 @@ data class LinkUi(
     /** The paired Mac's name, or null when this phone is not paired. */
     val pairedMac: String? = null,
     val target: StreamTarget = StreamTarget(),
+    val pointer: PointerStatus = PointerStatus(),
 ) {
     val connected get() = status.phase == Phase.CONNECTED
 }
@@ -139,6 +142,7 @@ class LinkController private constructor(private val app: Application) {
     private var repo: NotesRepository? = null
     private var notesJob: Job? = null
     @Volatile private var padOn = false
+    @Volatile private var pointerOn = false
 
     private data class Projection(val notes: List<NoteMeta>, val open: String?)
 
@@ -184,6 +188,9 @@ class LinkController private constructor(private val app: Application) {
         padOn = on
         client?.setPad(on)
     }
+
+    fun pointerOpened(on: Boolean) { pointerOn = on; client?.setPointer(on) }
+    fun pointerInput(input: PointerInput) { client?.pointerInput(input) }
 
     /** How the pad maps and whether it wants pictures (rework-v1 §V); null when the pad is not asking. */
     fun setPadWish(wish: PadWish?) {
@@ -287,12 +294,16 @@ class LinkController private constructor(private val app: Application) {
             override fun onStatus(status: SessionStatus) {
                 if (client !== self) return // a client that was stopped
                 if (status.phase != Phase.CONNECTED) { target = StreamTarget(); picture.value = null }
-                ui.update { it.copy(status = status, pairedMac = store.pairing()?.macName, target = target) }
+                ui.update { it.copy(status = status, pairedMac = store.pairing()?.macName, target = target,
+                    pointer = if (status.phase == Phase.CONNECTED) it.pointer else PointerStatus()) }
                 updateWifiLock()
             }
             override fun onTarget(target: StreamTarget) {
                 this@LinkController.target = target
                 ui.update { it.copy(target = target) }
+            }
+            override fun onPointer(status: PointerStatus) {
+                if (client === self) ui.update { it.copy(pointer = status) }
             }
             override fun onConnected(endpoint: Endpoint) = store.saveEndpoint(endpoint.host, endpoint.port)
             override fun onPicture(message: ByteArray) = receivePicture(message)
@@ -304,6 +315,7 @@ class LinkController private constructor(private val app: Application) {
         c.setViewing(latest.open)
         c.setPad(padOn)
         c.setPadWish(padWish)
+        c.setPointer(pointerOn)
         c.start()
     }
 
@@ -313,7 +325,7 @@ class LinkController private constructor(private val app: Application) {
         c.stop()
         target = StreamTarget()
         picture.value = null
-        ui.update { it.copy(status = SessionStatus(), found = emptyList(), target = target) }
+        ui.update { it.copy(status = SessionStatus(), found = emptyList(), target = target, pointer = PointerStatus()) }
     }
 
     /** Where the paired Mac is: seen by discovery, or the address of the last good connection. */

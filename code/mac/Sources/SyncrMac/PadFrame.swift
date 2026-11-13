@@ -21,7 +21,7 @@ struct PadFrame: Equatable, Sendable {
 
     init(aspect: CGFloat) { self.aspect = Self.cleanAspect(aspect) }
 
-    static func cleanAspect(_ a: CGFloat) -> CGFloat { a.isFinite ? min(4, max(0.5, a)) : 1.6 }
+    static func cleanAspect(_ a: CGFloat) -> CGFloat { a.isFinite ? min(4, max(0.25, a)) : 1.6 }
 
     /// The part of the view that is paper: the canvas is 0...4800 across and starts at 0 down.
     static func usable(_ view: CGRect) -> CGRect {

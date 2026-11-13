@@ -125,6 +125,16 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
     func sessionPad(_ session: LinkSession, on: Bool) { main { $0.phonePad(on) } }
     func sessionPadMode(_ session: LinkSession, local: Bool, pics: Bool, aspect: Double) { main { $0.phonePadMode(local: local, pics: pics, aspect: aspect) } }
     func sessionFrame(_ session: LinkSession, rect: CGRect) { main { $0.phoneFrame(rect) } }
+    func sessionPointerMode(_ session: LinkSession, version: Int, on: Bool) {
+        main { $0.pointerMode(session, version: version, on: on) }
+    }
+    func sessionPointer(_ session: LinkSession, packet: PointerPacket) {
+        let received = monotonicNs()
+        main { controller in
+            if monotonicNs() &- received > 200_000_000 { controller.remotePointer.request(session, version: 1, on: false) }
+            else { controller.pointerInput(session, packet: packet) }
+        }
+    }
     func sessionClock(_ session: LinkSession, clock: ClockSync) { main { $0.clockUpdated(clock) } }
     func sessionClosed(_ session: LinkSession) {
         all.withLock { $0[ObjectIdentifier(session)] = nil }
@@ -181,6 +191,16 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
     var liveNote: String? { registry.sessions.isEmpty ? nil : (padOn ? workspace.active : viewing) }
     private let bridge = LinkBridge()
     private let registry = LinkRegistry<LinkSession>()
+    fileprivate let remotePointer = RemotePointer()
+
+    fileprivate func pointerMode(_ session: LinkSession, version: Int, on: Bool) {
+        guard registry.phoneId(of: session) != nil else { return }
+        remotePointer.request(session, version: version, on: on)
+    }
+    fileprivate func pointerInput(_ session: LinkSession, packet: PointerPacket) {
+        guard registry.phoneId(of: session) != nil else { return }
+        remotePointer.receive(packet, from: session)
+    }
     private var server: LinkServer?
     private var pairingSession: LinkSession?
     private var pendingFollow: String?
@@ -315,6 +335,7 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
     }
 
     private func stopServer(bye: String) {
+        remotePointer.stopAll()
         server?.stop(); server = nil; port = nil
         for s in bridge.sessions { let s = s; s.onExecutor { s.close(bye: bye) } }
         pairingSession = nil; setPairing(nil)
@@ -353,6 +374,7 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
     // MARK: Forget
 
     func forget(phoneId: String) {
+        if let session = registry.byPhone[phoneId] { remotePointer.stop(session) }
         store.forget(id: phoneId)
         if let s = registry.byPhone[phoneId] { let s = s; s.onExecutor { s.close(bye: "unpaired") } }
         for s in bridge.sessions where s.phoneId == phoneId { let s = s; s.onExecutor { s.close(bye: "unpaired") } }
@@ -376,6 +398,7 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
     fileprivate func welcomed(_ session: LinkSession) {
         guard let id = session.phoneId else { return }
         if let old = registry.register(phoneId: id, session) {
+            remotePointer.stop(old)
             let old = old
             old.onExecutor { old.close(bye: nil) }
         }
@@ -390,6 +413,7 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
     }
 
     fileprivate func closed(_ session: LinkSession) {
+        remotePointer.stop(session)
         let wasRegistered = registry.phoneId(of: session) != nil
         registry.remove(session)
         announced[ObjectIdentifier(session)] = nil
