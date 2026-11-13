@@ -4,6 +4,7 @@
 <key>CFBundleIdentifier</key><string>local.syncr.mac</string>
 <key>CFBundleName</key><string>Syncr</string>
 <key>CFBundleExecutable</key><string>SyncrMac</string>
+<key>CFBundleIconFile</key><string>Syncr</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>2.0</string>
 <key>NSHighResolutionCapable</key><true/>

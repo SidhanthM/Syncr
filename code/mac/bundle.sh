@@ -5,8 +5,9 @@ cd "$(dirname "$0")"
 out=${1:-/tmp/Syncr-local.app}
 case "$out" in *.app) ;; *) echo 'Output must end in .app' >&2; exit 1 ;; esac
 [ ! -e "$out" ] || { echo 'Refusing to replace an existing path' >&2; exit 1; }
-mkdir -p "$out/Contents/MacOS" "$out/Contents/Frameworks"
+mkdir -p "$out/Contents/MacOS" "$out/Contents/Frameworks" "$out/Contents/Resources"
 cp Info.plist "$out/Contents/Info.plist"
+cp Resources/Syncr.icns "$out/Contents/Resources/"
 cp .build/debug/SyncrMac "$out/Contents/MacOS/"
 cp Native/libsyncr_core.dylib "$out/Contents/Frameworks/"
 install_name_tool -add_rpath @executable_path/../Frameworks "$out/Contents/MacOS/SyncrMac"

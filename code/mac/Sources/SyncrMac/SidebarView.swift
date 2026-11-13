@@ -111,9 +111,12 @@ private final class Outline: NSOutlineView {
         scroll.hasVerticalScroller = true
         scroll.drawsBackground = false
         scroll.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(header); addSubview(scroll)
+        let wordmark = WordmarkView()
+        wordmark.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(wordmark); addSubview(header); addSubview(scroll)
         NSLayoutConstraint.activate([
-            header.topAnchor.constraint(equalTo: topAnchor, constant: 10), header.heightAnchor.constraint(equalToConstant: 24),
+            wordmark.topAnchor.constraint(equalTo: topAnchor, constant: 12), wordmark.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            header.topAnchor.constraint(equalTo: wordmark.bottomAnchor, constant: 10), header.heightAnchor.constraint(equalToConstant: 24),
             header.leadingAnchor.constraint(equalTo: leadingAnchor), header.trailingAnchor.constraint(equalTo: trailingAnchor),
             scroll.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 8),
             scroll.leadingAnchor.constraint(equalTo: leadingAnchor), scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
