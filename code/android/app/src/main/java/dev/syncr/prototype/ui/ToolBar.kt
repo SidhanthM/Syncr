@@ -1,5 +1,11 @@
 package dev.syncr.prototype.ui
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -35,6 +41,7 @@ import dev.syncr.core.BrushFamily
 import dev.syncr.core.BrushSize
 import dev.syncr.core.InkColour
 import dev.syncr.prototype.notes.inkColour
+import dev.syncr.prototype.ui.theme.Motion
 import dev.syncr.prototype.ui.theme.Radius
 import dev.syncr.prototype.ui.theme.Space
 import dev.syncr.prototype.ui.theme.Syncr
@@ -82,15 +89,25 @@ fun PenGlyph() = SyncrIcon(SyncrIcons.Pen, Syncr.colors.ink, size = 22.dp)
 private fun BarItem(icon: ImageVector, description: String, modifier: Modifier, selected: Boolean = false, width: Dp = TouchTarget,
     enabled: Boolean = true, onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
     val c = Syncr.colors
+    // The selected tool's disc grows and fades in (and out) as the selection moves; no box at rest, never a square flash.
+    val on by animateFloatAsState(if (selected) 1f else 0f, if (Syncr.reducedMotion) snap() else Motion.quick<Float>(), label = "tool disc")
     Box(modifier.size(width, TouchTarget).padding(3.dp)
-        .background(if (selected) c.accentSoft else Color.Transparent, Radius.pill)
+        .drawBehind {
+            if (on <= 0.01f) return@drawBehind
+            val radius = size.minDimension / 2
+            val grow = 0.7f + 0.3f * on
+            val w = size.width * grow
+            val h = size.height * grow
+            val at = Offset((size.width - w) / 2, (size.height - h) / 2)
+            val ring = 1.5.dp.toPx()
+            drawRoundRect(c.accentSoft.copy(alpha = c.accentSoft.alpha * on), at, Size(w, h), CornerRadius(radius * grow))
+            drawRoundRect(c.accent.copy(alpha = on), at + Offset(ring / 2, ring / 2), Size(w - ring, h - ring),
+                CornerRadius(radius * grow - ring / 2), style = Stroke(ring))
+        }
         .combinedClickable(enabled = enabled, role = Role.Button, onLongClickLabel = onLongClick?.let { "Sizes and colours" },
             onLongClick = onLongClick, onClick = onClick)
         .semantics { contentDescription = description; if (selected) stateDescription = "Selected" },
         contentAlignment = Alignment.Center) {
-        if (selected) Canvas(Modifier.size(width - 6.dp, 42.dp)) {
-            drawCircle(c.accent, radius = size.minDimension / 2 - 0.75.dp.toPx(), style = Stroke(1.5.dp.toPx()))
-        }
         SyncrIcon(icon, if (enabled) c.ink else c.faint, size = 22.dp)
     }
 }

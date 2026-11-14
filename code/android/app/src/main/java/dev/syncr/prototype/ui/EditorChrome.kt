@@ -108,7 +108,7 @@ internal class ToolButton(val icon: ImageVector, val label: String, val enabled:
 internal fun EditorToolbar(buttons: List<ToolButton>, modifier: Modifier = Modifier) {
     val c = Syncr.colors
     @Composable fun button(b: ToolButton) {
-        Box(Modifier.size(TouchTarget).padding(3.dp).clip(RoundedCornerShape(10.dp)).background(if (b.on) c.selectedFill else Color.Transparent)
+        Box(Modifier.size(TouchTarget).padding(3.dp).clip(androidx.compose.foundation.shape.CircleShape).background(if (b.on) c.selectedFill else Color.Transparent)
             .clickable(enabled = b.enabled, role = Role.Button, onClick = b.onClick)
             .semantics { contentDescription = b.label; selected = b.on }, contentAlignment = Alignment.Center) {
             SyncrIcon(b.icon, if (b.enabled) c.ink else c.faint, size = 22.dp)

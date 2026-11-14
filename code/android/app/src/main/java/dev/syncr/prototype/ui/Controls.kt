@@ -238,7 +238,7 @@ fun MenuItem(title: String, onClick: () -> Unit, icon: ImageVector? = null, enab
         tone == ActionTone.DESTRUCTIVE -> c.destructive
         else -> c.ink
     }
-    Row(Modifier.fillMaxWidth().heightIn(min = TouchTarget).clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+    Row(Modifier.fillMaxWidth().heightIn(min = TouchTarget).clip(Radius.s).clickable(enabled = enabled, role = Role.Button, onClick = onClick)
         .padding(horizontal = Space.l), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.m)) {
         if (icon != null) SyncrIcon(icon, colour, size = 20.dp)
         Text(title, style = Syncr.type.body, color = colour, maxLines = 1, overflow = TextOverflow.Ellipsis)

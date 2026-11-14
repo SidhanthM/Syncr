@@ -3,7 +3,10 @@ package dev.syncr.prototype.ui
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.indication
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,6 +22,7 @@ import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -141,14 +145,16 @@ fun Chip(text: String, selected: Boolean, modifier: Modifier = Modifier, icon: I
         quiet -> c.muted
         else -> c.ink
     }
+    // The press fill belongs to the visible pill, not the 48dp target around it.
+    val press = remember { MutableInteractionSource() }
     Box(modifier.heightIn(min = TouchTarget)
-        .combinedClickable(enabled = enabled, role = Role.Tab, onLongClickLabel = onLongClickLabel,
-            onLongClick = onLongClick, onClick = onClick)
+        .combinedClickable(interactionSource = press, indication = null, enabled = enabled, role = Role.Tab,
+            onLongClickLabel = onLongClickLabel, onLongClick = onLongClick, onClick = onClick)
         .semantics(mergeDescendants = true) {
             if (description != null) contentDescription = description
             this.selected = selected
         }, contentAlignment = Alignment.Center) {
-        Row(Modifier.heightIn(min = 32.dp).clip(Radius.pill)
+        Row(Modifier.heightIn(min = 32.dp).clip(Radius.pill).indication(press, LocalIndication.current)
             .then(when {
                 selected -> Modifier.background(c.ink, Radius.pill)
                 quiet -> Modifier

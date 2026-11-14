@@ -61,6 +61,9 @@ object Motion {
     fun <T> shape(reduced: Boolean): FiniteAnimationSpec<T> = if (reduced) snap() else shape()
     fun <T> quick(reduced: Boolean): FiniteAnimationSpec<T> = if (reduced) snap() else quick()
 
+    /** The press fill arriving under a finger (quick) and leaving it (a fade). */
+    fun <T> press(down: Boolean, reduced: Boolean = false): FiniteAnimationSpec<T> = tween(if (reduced) REDUCED_MS else if (down) MENU_MS else FADE_MS)
+
     /** A plain fade, [FADE_MS] (or [REDUCED_MS] with animations off), for things appearing or leaving in place. */
     fun <T> fade(reduced: Boolean = false): FiniteAnimationSpec<T> = tween(if (reduced) REDUCED_MS else FADE_MS)
     /** The owner's own panels (menus, popovers, the slash menu, the editor toolbar): a fade of [MENU_MS]. */

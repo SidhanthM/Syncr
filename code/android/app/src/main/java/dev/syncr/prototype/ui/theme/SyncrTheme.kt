@@ -1,5 +1,6 @@
 package dev.syncr.prototype.ui.theme
 
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
@@ -53,6 +54,10 @@ fun SyncrTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () ->
         labelLarge = t.label, labelMedium = t.label, labelSmall = t.caption,
     )
     CompositionLocalProvider(LocalColors provides c, LocalType provides t, LocalReducedMotion provides reduced) {
-        MaterialTheme(colorScheme = scheme, typography = typography, content = content)
+        MaterialTheme(colorScheme = scheme, typography = typography) {
+            // Inside MaterialTheme, which would otherwise put its square-cornered ripple back.
+            val indication = remember(c, reduced) { SyncrIndication(c.accentSoft, reduced) }
+            CompositionLocalProvider(LocalIndication provides indication, content = content)
+        }
     }
 }
