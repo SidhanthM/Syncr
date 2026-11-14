@@ -8,6 +8,7 @@
 //! symbol order per codegen unit (one per module), so moving an export into a submodule
 //! reorders the generated bindings.
 mod catalog;
+mod delta;
 mod note;
 mod notebooks;
 pub(crate) mod sync;
@@ -261,6 +262,10 @@ impl SyncrLibrary {
     pub fn note_sync_digest(&self, note_id: Id) -> CoreResult<SyncDigest> {
         sync::note_sync_digest(self, note_id)
     }
+    /// `Note::sync_heads` for a note that may be closed (read-only when closed).
+    pub fn note_sync_heads(&self, note_id: Id) -> CoreResult<Vec<AuthorHead>> {
+        delta::note_heads(self, note_id)
+    }
 }
 
 #[uniffi::export]
@@ -295,6 +300,27 @@ impl Note {
     /// Rejected operations are reported, not applied. See `tasks/contracts/sync-v1.md`.
     pub fn merge_copy(&self, copy_path: String) -> CoreResult<MergeReport> {
         sync::merge_copy(self, copy_path)
+    }
+    /// The newest operation ID per author: what a peer sends to ask for a delta.
+    pub fn sync_heads(&self) -> CoreResult<Vec<AuthorHead>> {
+        delta::heads(self)
+    }
+    /// Writes to `destination_path` the operations whose author made something newer than
+    /// (or the same millisecond as) that author's entry in `heads`, and every operation of an
+    /// author not listed. `anchored` is false, and nothing is written, when `heads` is empty
+    /// or the delta would not be smaller than the note: send a copy instead.
+    pub fn export_delta(
+        &self,
+        heads: Vec<AuthorHead>,
+        destination_path: String,
+    ) -> CoreResult<DeltaReceipt> {
+        delta::export_delta(self, heads, destination_path)
+    }
+    /// Merges a delta file like `merge_copy` merges a copy. Rejected operations are reported.
+    /// `complete` is false when the note still holds fewer operations from some author than
+    /// the sender does (the delta skipped something): ask for a whole copy then.
+    pub fn merge_delta(&self, delta_path: String) -> CoreResult<DeltaMerge> {
+        delta::merge_delta(self, delta_path)
     }
     pub fn close_note(&self) -> CoreResult<()> {
         note::close_note(self)

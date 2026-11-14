@@ -309,6 +309,11 @@ void uniffi_syncr_core_fn_method_note_close_note(uint64_t ptr, RustCallStatus *_
 RustBuffer uniffi_syncr_core_fn_method_note_export_copy(uint64_t ptr, RustBuffer destination_path, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_NOTE_EXPORT_DELTA
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_NOTE_EXPORT_DELTA
+RustBuffer uniffi_syncr_core_fn_method_note_export_delta(uint64_t ptr, RustBuffer heads, RustBuffer destination_path, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_NOTE_GET_IMAGE_BYTES
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_NOTE_GET_IMAGE_BYTES
 RustBuffer uniffi_syncr_core_fn_method_note_get_image_bytes(uint64_t ptr, RustBuffer image_id, RustCallStatus *_Nonnull out_status
@@ -329,6 +334,11 @@ RustBuffer uniffi_syncr_core_fn_method_note_lookup_operation(uint64_t ptr, RustB
 RustBuffer uniffi_syncr_core_fn_method_note_merge_copy(uint64_t ptr, RustBuffer copy_path, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_NOTE_MERGE_DELTA
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_NOTE_MERGE_DELTA
+RustBuffer uniffi_syncr_core_fn_method_note_merge_delta(uint64_t ptr, RustBuffer delta_path, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_NOTE_SNAPSHOT
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_NOTE_SNAPSHOT
 RustBuffer uniffi_syncr_core_fn_method_note_snapshot(uint64_t ptr, RustCallStatus *_Nonnull out_status
@@ -347,6 +357,11 @@ RustBuffer uniffi_syncr_core_fn_method_note_submit_agent(uint64_t ptr, RustBuffe
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_NOTE_SYNC_DIGEST
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_NOTE_SYNC_DIGEST
 RustBuffer uniffi_syncr_core_fn_method_note_sync_digest(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_NOTE_SYNC_HEADS
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_NOTE_SYNC_HEADS
+RustBuffer uniffi_syncr_core_fn_method_note_sync_heads(uint64_t ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_CLONE_SYNCRLIBRARY
@@ -412,6 +427,11 @@ RustBuffer uniffi_syncr_core_fn_method_syncrlibrary_lookup_creation(uint64_t ptr
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_SYNCRLIBRARY_NOTE_SYNC_DIGEST
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_SYNCRLIBRARY_NOTE_SYNC_DIGEST
 RustBuffer uniffi_syncr_core_fn_method_syncrlibrary_note_sync_digest(uint64_t ptr, RustBuffer note_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_SYNCRLIBRARY_NOTE_SYNC_HEADS
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_SYNCRLIBRARY_NOTE_SYNC_HEADS
+RustBuffer uniffi_syncr_core_fn_method_syncrlibrary_note_sync_heads(uint64_t ptr, RustBuffer note_id, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_METHOD_SYNCRLIBRARY_OPEN_NOTE
@@ -1017,6 +1037,12 @@ uint16_t uniffi_syncr_core_checksum_method_note_export_copy(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_NOTE_EXPORT_DELTA
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_NOTE_EXPORT_DELTA
+uint16_t uniffi_syncr_core_checksum_method_note_export_delta(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_NOTE_GET_IMAGE_BYTES
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_NOTE_GET_IMAGE_BYTES
 uint16_t uniffi_syncr_core_checksum_method_note_get_image_bytes(void
@@ -1041,6 +1067,12 @@ uint16_t uniffi_syncr_core_checksum_method_note_merge_copy(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_NOTE_MERGE_DELTA
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_NOTE_MERGE_DELTA
+uint16_t uniffi_syncr_core_checksum_method_note_merge_delta(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_NOTE_SNAPSHOT
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_NOTE_SNAPSHOT
 uint16_t uniffi_syncr_core_checksum_method_note_snapshot(void
@@ -1062,6 +1094,12 @@ uint16_t uniffi_syncr_core_checksum_method_note_submit_agent(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_NOTE_SYNC_DIGEST
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_NOTE_SYNC_DIGEST
 uint16_t uniffi_syncr_core_checksum_method_note_sync_digest(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_NOTE_SYNC_HEADS
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_NOTE_SYNC_HEADS
+uint16_t uniffi_syncr_core_checksum_method_note_sync_heads(void
     
 );
 #endif
@@ -1128,6 +1166,12 @@ uint16_t uniffi_syncr_core_checksum_method_syncrlibrary_lookup_creation(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_SYNCRLIBRARY_NOTE_SYNC_DIGEST
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_SYNCRLIBRARY_NOTE_SYNC_DIGEST
 uint16_t uniffi_syncr_core_checksum_method_syncrlibrary_note_sync_digest(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_SYNCRLIBRARY_NOTE_SYNC_HEADS
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_METHOD_SYNCRLIBRARY_NOTE_SYNC_HEADS
+uint16_t uniffi_syncr_core_checksum_method_syncrlibrary_note_sync_heads(void
     
 );
 #endif

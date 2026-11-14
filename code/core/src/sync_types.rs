@@ -25,3 +25,36 @@ pub struct MergeReport {
     pub duplicates: u32,
     pub rejected: Vec<RejectedOperation>,
 }
+
+/// What `export_delta` wrote. Without `anchored` nothing was written.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, uniffi::Record)]
+pub struct DeltaReceipt {
+    pub anchored: bool,
+    pub operations: u32,
+    pub bytes: u64,
+    pub exported_local_sequence: u64,
+}
+
+impl DeltaReceipt {
+    pub(crate) fn unanchored(exported_local_sequence: u64) -> Self {
+        Self {
+            anchored: false,
+            operations: 0,
+            bytes: 0,
+            exported_local_sequence,
+        }
+    }
+}
+
+/// The newest operation a log holds from one author.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, uniffi::Record)]
+pub struct AuthorHead {
+    pub author_id: Id,
+    pub newest_id: Id,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, uniffi::Record)]
+pub struct DeltaMerge {
+    pub report: MergeReport,
+    pub complete: bool,
+}

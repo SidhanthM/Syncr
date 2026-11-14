@@ -90,7 +90,7 @@ pub(crate) fn sha256_hex(data: &[u8]) -> String {
     h.iter().map(|v| format!("{v:08x}")).collect()
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(super) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
@@ -172,11 +172,11 @@ fn rejection(error: &CoreError) -> Option<&'static str> {
     })
 }
 
-struct LogRow {
-    id: Id,
-    author: Id,
-    canonical: Vec<u8>,
-    payload: String,
+pub(super) struct LogRow {
+    pub(super) id: Id,
+    pub(super) author: Id,
+    pub(super) canonical: Vec<u8>,
+    pub(super) payload: String,
 }
 
 fn log_rows(copy: &Connection) -> CoreResult<Vec<LogRow>> {
@@ -197,9 +197,50 @@ fn log_rows(copy: &Connection) -> CoreResult<Vec<LogRow>> {
         .map_err(storage)
 }
 
+/// Which side table a left-out byte string lives in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Extra {
+    Samples,
+    Image,
+}
+
+/// Where left-out bytes come from: a copy's tables, or the extras a delta carries.
+pub(super) type Fetch<'a> = dyn FnMut(Extra, &str) -> CoreResult<Option<Vec<u8>>> + 'a;
+
+/// Reads left-out bytes from a database's `samples` and `images` tables.
+pub(super) fn table_fetch(
+    db: &Connection,
+) -> impl FnMut(Extra, &str) -> CoreResult<Option<Vec<u8>>> + '_ {
+    move |kind, key| match kind {
+        Extra::Samples => db
+            .query_row("SELECT bytes FROM samples WHERE mark_id=?1", [key], |r| {
+                r.get(0)
+            })
+            .optional()
+            .map_err(storage),
+        Extra::Image => {
+            let has_table: bool = db
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='images')",
+                    [],
+                    |r| r.get(0),
+                )
+                .map_err(storage)?;
+            if !has_table {
+                return Ok(None);
+            }
+            db.query_row("SELECT bytes FROM images WHERE image_id=?1", [key], |r| {
+                r.get(0)
+            })
+            .optional()
+            .map_err(storage)
+        }
+    }
+}
+
 /// Puts back the bytes the stored payload leaves out: stroke samples (kept in `samples`
 /// when the payload has none) and image bytes (always skipped in payload JSON).
-fn fill_bytes(copy: &Connection, command: &mut Command) -> CoreResult<()> {
+pub(super) fn fill_bytes(command: &mut Command, fetch: &mut Fetch) -> CoreResult<()> {
     match &mut command.body {
         CommandBody::Marks { mutations } => {
             for m in mutations {
@@ -208,15 +249,7 @@ fn fill_bytes(copy: &Connection, command: &mut Command) -> CoreResult<()> {
                 } = m
                     && samples.is_empty()
                 {
-                    *samples = copy
-                        .query_row(
-                            "SELECT bytes FROM samples WHERE mark_id=?1",
-                            [&*mark_id],
-                            |r| r.get(0),
-                        )
-                        .optional()
-                        .map_err(storage)?
-                        .unwrap_or_default();
+                    *samples = fetch(Extra::Samples, mark_id)?.unwrap_or_default();
                 }
             }
         }
@@ -226,27 +259,61 @@ fn fill_bytes(copy: &Connection, command: &mut Command) -> CoreResult<()> {
                     image_id, bytes, ..
                 } = m
                     && bytes.is_empty()
-                    && copy
-                        .query_row(
-                            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='images')",
-                            [],
-                            |r| r.get::<_, bool>(0),
-                        )
-                        .map_err(storage)?
                 {
-                    *bytes = copy
-                        .query_row(
-                            "SELECT bytes FROM images WHERE image_id=?1",
-                            [&*image_id],
-                            |r| r.get(0),
-                        )
-                        .optional()
-                        .map_err(storage)?
-                        .unwrap_or_default();
+                    *bytes = fetch(Extra::Image, image_id)?.unwrap_or_default();
                 }
             }
         }
         _ => {}
+    }
+    Ok(())
+}
+
+/// Applies one stored operation of another device's log to `note`, counting it in `report`.
+pub(super) fn apply_row(
+    note: &Note,
+    note_id: &Id,
+    row: &LogRow,
+    fetch: &mut Fetch,
+    report: &mut MergeReport,
+) -> CoreResult<()> {
+    let reject = |reason: String| RejectedOperation {
+        operation_id: row.id.clone(),
+        author_id: row.author.clone(),
+        payload_json: row.payload.clone(),
+        canonical_hex: hex(&row.canonical),
+        reason,
+    };
+    let have = {
+        let r = lock(&note.runtime)?;
+        store::lookup(r.db()?, &row.id)?
+    };
+    if let Some((stored, _)) = have {
+        if stored == row.canonical {
+            report.duplicates += 1;
+        } else {
+            report.rejected.push(reject("id collision".into()));
+        }
+        return Ok(());
+    }
+    let Ok(mut command) = store::parse::<Command>(&row.payload) else {
+        report.rejected.push(reject("unreadable payload".into()));
+        return Ok(());
+    };
+    fill_bytes(&mut command, fetch)?;
+    let recomputed = validation::id(&row.author)
+        .and_then(|()| canonical::command(&command, note_id, &row.author));
+    if !matches!(&recomputed, Ok(c) if *c == row.canonical) {
+        report.rejected.push(reject("canonical mismatch".into()));
+        return Ok(());
+    }
+    match note::submit_checked(note, command, &row.author, false) {
+        Ok(receipt) if receipt.duplicate => report.duplicates += 1,
+        Ok(_) => report.applied += 1,
+        Err(e) => match rejection(&e) {
+            Some(reason) => report.rejected.push(reject(reason.into())),
+            None => return Err(e),
+        },
     }
     Ok(())
 }
@@ -274,48 +341,12 @@ fn merge_from(note: &Note, copy: &Connection) -> CoreResult<MergeReport> {
         duplicates: 0,
         rejected: vec![],
     };
+    let mut fetch = table_fetch(copy);
     for row in log_rows(copy)? {
         if row.id == creation {
             continue;
         }
-        let reject = |reason: String| RejectedOperation {
-            operation_id: row.id.clone(),
-            author_id: row.author.clone(),
-            payload_json: row.payload.clone(),
-            canonical_hex: hex(&row.canonical),
-            reason,
-        };
-        let have = {
-            let r = lock(&note.runtime)?;
-            store::lookup(r.db()?, &row.id)?
-        };
-        if let Some((stored, _)) = have {
-            if stored == row.canonical {
-                report.duplicates += 1;
-            } else {
-                report.rejected.push(reject("id collision".into()));
-            }
-            continue;
-        }
-        let Ok(mut command) = store::parse::<Command>(&row.payload) else {
-            report.rejected.push(reject("unreadable payload".into()));
-            continue;
-        };
-        fill_bytes(copy, &mut command)?;
-        let recomputed = validation::id(&row.author)
-            .and_then(|()| canonical::command(&command, &note_id, &row.author));
-        if !matches!(&recomputed, Ok(c) if *c == row.canonical) {
-            report.rejected.push(reject("canonical mismatch".into()));
-            continue;
-        }
-        match note::submit_checked(note, command, &row.author, false) {
-            Ok(receipt) if receipt.duplicate => report.duplicates += 1,
-            Ok(_) => report.applied += 1,
-            Err(e) => match rejection(&e) {
-                Some(reason) => report.rejected.push(reject(reason.into())),
-                None => return Err(e),
-            },
-        }
+        apply_row(note, &note_id, &row, &mut fetch, &mut report)?;
     }
     Ok(report)
 }

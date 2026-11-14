@@ -882,3 +882,314 @@ fn poisoned_locks_recover_and_sync_continues() {
         .rebase_onto_copy(r.note_id.clone(), path(&copy))
         .unwrap();
 }
+
+// ---- delta sync -----------------------------------------------------------------------
+
+/// Delta from `from` for what `to` lacks, merged into `to`. Returns the receipt and report.
+fn delta(from: &Device, to: &Device) -> (DeltaReceipt, MergeReport) {
+    let tmp = tempfile::tempdir().unwrap();
+    let file = tmp.path().join("d.syncr-delta");
+    let heads = to.note.sync_heads().unwrap();
+    let receipt = from.note.export_delta(heads, path(&file)).unwrap();
+    assert_eq!(file.exists(), receipt.anchored);
+    let report = if receipt.anchored {
+        let merged = to.note.merge_delta(path(&file)).unwrap();
+        assert!(merged.complete, "{merged:?}");
+        merged.report
+    } else {
+        MergeReport {
+            applied: 0,
+            duplicates: 0,
+            rejected: vec![],
+        }
+    };
+    (receipt, report)
+}
+
+#[test]
+fn a_delta_carries_only_the_new_operations_and_converges() {
+    let (a, b, r) = pair();
+    let s1 = stroke(&a, &r, 1.0);
+    converge(&a, &b);
+    // New on A: a stroke, a move, an image (bytes travel as an extra), a rename and text.
+    let s2 = stroke(&a, &r, 2.0);
+    a.note.submit(transform(&a, &s1, 5.0)).unwrap();
+    let img = image(&a, &r);
+    rename(&a, "Delta");
+    let block = text(&a, &r, "Hello delta");
+    splice(&a, &block, 5, ",");
+    let (receipt, report) = delta(&a, &b);
+    assert!(receipt.anchored);
+    assert_eq!(
+        (report.applied, report.rejected.len()),
+        (receipt.operations, 0)
+    );
+    assert!(report.applied >= 6, "{report:?}");
+    assert_eq!(a.note.sync_digest().unwrap(), b.note.sync_digest().unwrap());
+    assert_eq!(norm(&a), norm(&b));
+    assert_eq!(b.note.get_samples(s2).unwrap(), blob(2.0));
+    assert_eq!(b.note.get_image_bytes(img).unwrap(), png());
+    // A repeat offers nothing new.
+    let (_, again) = delta(&a, &b);
+    assert_eq!((again.applied, again.rejected.len()), (0, 0));
+}
+
+#[test]
+fn deltas_both_ways_after_independent_edits_converge() {
+    let (a, b, r) = pair();
+    stroke(&a, &r, 1.0);
+    converge(&a, &b);
+    stroke(&a, &r, 2.0);
+    rename(&a, "A side");
+    stroke(&b, &r, 3.0);
+    stroke(&b, &r, 4.0);
+    let (_, to_b) = delta(&a, &b);
+    let (_, to_a) = delta(&b, &a);
+    assert!(to_b.rejected.is_empty() && to_a.rejected.is_empty());
+    assert_eq!(a.note.sync_digest().unwrap(), b.note.sync_digest().unwrap());
+    assert_eq!(norm(&a), norm(&b));
+    assert_eq!(delta(&a, &b).1.applied, 0);
+}
+
+#[test]
+fn a_delta_without_heads_is_not_written_and_a_stranger_gets_everything() {
+    let (a, _b, r) = pair();
+    stroke(&a, &r, 1.0);
+    let tmp = tempfile::tempdir().unwrap();
+    let file = tmp.path().join("d");
+    let none = a.note.export_delta(vec![], path(&file)).unwrap();
+    assert!(!none.anchored && !file.exists());
+    let stranger = AuthorHead {
+        author_id: new_id(),
+        newest_id: new_id(),
+    };
+    let all = a.note.export_delta(vec![stranger], path(&file)).unwrap();
+    assert!(all.anchored && all.operations == 2 && file.exists());
+}
+
+#[test]
+fn a_delta_missing_an_earlier_operation_reports_it_and_the_copy_fallback_converges() {
+    let (a, b, r) = pair();
+    let s1 = stroke(&a, &r, 1.0);
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    // B never got s1; A's move of it depends on it. B claims it has A's work up to just after s1.
+    a.note.submit(transform(&a, &s1, 5.0)).unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let file = tmp.path().join("d");
+    let ms = s1.parse::<ulid::Ulid>().unwrap().timestamp_ms();
+    let claim = AuthorHead {
+        author_id: a.lib.author_id(),
+        newest_id: ulid::Ulid::from_parts(ms + 1, 0).to_string(),
+    };
+    let receipt = a.note.export_delta(vec![claim], path(&file)).unwrap();
+    assert_eq!(receipt.operations, 1);
+    let merged = b.note.merge_delta(path(&file)).unwrap();
+    let report = merged.report;
+    assert!(!merged.complete);
+    assert_eq!((report.applied, report.rejected.len()), (0, 1));
+    assert_eq!(report.rejected[0].reason, "missing dependency");
+    assert_ne!(a.note.sync_digest().unwrap(), b.note.sync_digest().unwrap());
+    converge(&a, &b);
+}
+
+#[test]
+fn a_delta_that_skips_an_independent_operation_is_reported_incomplete() {
+    let (a, b, r) = pair();
+    stroke(&a, &r, 1.0);
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    stroke(&a, &r, 2.0);
+    // B claims to have A's work up to just before A's newest operation but holds none of it: the
+    // delta carries only the newest, which applies cleanly yet leaves B short of A's count.
+    let tmp = tempfile::tempdir().unwrap();
+    let file = tmp.path().join("d");
+    let head = a.note.sync_heads().unwrap().remove(0);
+    let ms = head.newest_id.parse::<ulid::Ulid>().unwrap().timestamp_ms();
+    let claim = AuthorHead {
+        author_id: head.author_id,
+        newest_id: ulid::Ulid::from_parts(ms - 1, 0).to_string(),
+    };
+    let receipt = a.note.export_delta(vec![claim], path(&file)).unwrap();
+    assert_eq!(receipt.operations, 1);
+    let merged = b.note.merge_delta(path(&file)).unwrap();
+    assert_eq!((merged.report.applied, merged.report.rejected.len()), (1, 0));
+    assert!(!merged.complete);
+    converge(&a, &b);
+}
+
+#[test]
+fn hostile_deltas_are_refused_and_change_nothing() {
+    let (a, b, r) = pair();
+    let (_, other_b, _) = pair();
+    stroke(&a, &r, 1.0);
+    converge(&a, &b);
+    stroke(&a, &r, 2.0);
+    let tmp = tempfile::tempdir().unwrap();
+    let file = tmp.path().join("d");
+    let receipt = a
+        .note
+        .export_delta(b.note.sync_heads().unwrap(), path(&file))
+        .unwrap();
+    assert!(receipt.anchored);
+    let good = std::fs::read(&file).unwrap();
+    let before = b.note.sync_digest().unwrap();
+    let try_bytes = |bytes: &[u8], target: &Device| {
+        let p = tmp.path().join("h");
+        std::fs::write(&p, bytes).unwrap();
+        target.note.merge_delta(path(&p))
+    };
+    assert!(try_bytes(b"", &b).is_err());
+    assert!(try_bytes(b"SYDL1\n", &b).is_err());
+    assert!(try_bytes(b"not a delta at all", &b).is_err());
+    for cut in [10, good.len() / 2, good.len() - 1] {
+        assert!(try_bytes(&good[..cut], &b).is_err(), "cut at {cut}");
+    }
+    let mut huge = good.clone();
+    huge[6..10].copy_from_slice(&u32::MAX.to_be_bytes());
+    assert!(try_bytes(&huge, &b).is_err());
+    // A delta of another note.
+    assert!(try_bytes(&good, &other_b).is_err());
+    assert_eq!(b.note.sync_digest().unwrap(), before);
+    // A flipped byte near the end is never applied as a valid operation.
+    let mut flipped = good.clone();
+    let at = good.len() - 40;
+    flipped[at] ^= 0xff;
+    if let Ok(report) = try_bytes(&flipped, &b) {
+        assert_eq!(report.report.applied, 0, "{report:?}");
+    }
+    assert_eq!(b.note.sync_digest().unwrap(), before);
+    // The good one still applies.
+    let merged = b.note.merge_delta(path(&file)).unwrap();
+    assert!(merged.complete);
+    let report = merged.report;
+    assert_eq!((report.applied, report.rejected.len()), (1, 0));
+}
+
+#[test]
+fn heads_read_from_closed_notes_and_name_each_author_once() {
+    let (a, b, r) = pair();
+    stroke(&a, &r, 1.0);
+    stroke(&a, &r, 2.0);
+    stroke(&b, &r, 3.0);
+    converge(&a, &b);
+    let open = a.note.sync_heads().unwrap();
+    assert_eq!(open.len(), 2);
+    assert!(open.iter().any(|h| h.author_id == a.lib.author_id()));
+    a.note.close_note().unwrap();
+    assert_eq!(a.lib.note_sync_heads(r.note_id.clone()).unwrap(), open);
+    assert!(a.lib.note_sync_heads(new_id()).is_err());
+}
+
+/// The 10 MB fixture of the brief: what one announce costs, whole copy against delta.
+#[test]
+fn a_one_stroke_change_to_a_ten_megabyte_note_sends_a_few_hundred_bytes() {
+    let (a, b, r) = pair();
+    let big = |seed: f32| {
+        let n = 20_000usize;
+        encode_samples(SampleChannels {
+            x: (0..n).map(|i| seed + i as f32 * 0.01).collect(),
+            y: (0..n).map(|i| (i as f32 * 0.02).sin() * 50.0).collect(),
+            pressure: (0..n).map(|i| ((i * 7) % 100) as f32 / 100.0).collect(),
+            elapsed_ms: (0..n as u32).map(|i| i * 4).collect(),
+            tilt: None,
+            orientation: None,
+        })
+        .unwrap()
+    };
+    for i in 0..6 {
+        a.note
+            .submit(marks(
+                vec![MarkMutation::AddStroke {
+                    mark_id: new_id(),
+                    sheet_id: r.first_sheet_id.clone(),
+                    samples: big(i as f32),
+                    brush: brush(),
+                }],
+                vec![r.operation_id.clone()],
+            ))
+            .unwrap();
+    }
+    converge(&a, &b);
+    stroke(&a, &r, 99.0);
+    let tmp = tempfile::tempdir().unwrap();
+    let copy = tmp.path().join("copy.syncr");
+    a.note.export_copy(path(&copy)).unwrap();
+    let copy_bytes = std::fs::metadata(&copy).unwrap().len();
+    let (receipt, report) = delta(&a, &b);
+    eprintln!(
+        "announce cost: copy {copy_bytes} bytes, delta {} bytes ({} operation)",
+        receipt.bytes, receipt.operations
+    );
+    assert!(copy_bytes > 8_000_000, "fixture is {copy_bytes}");
+    assert!(receipt.anchored && report.applied == 1);
+    assert!(receipt.bytes < 2_000);
+    assert_eq!(a.note.sync_digest().unwrap(), b.note.sync_digest().unwrap());
+}
+
+/// S.4: a big merge and a delta arrive while the pen keeps committing strokes on another thread.
+/// Nothing may panic or poison a lock, and the note ends up holding every operation exactly once.
+#[test]
+fn big_merges_and_deltas_mid_stroke_neither_panic_nor_lose_operations() {
+    let (a, b, r) = pair();
+    let big = |seed: f32| {
+        let n = 20_000usize;
+        encode_samples(SampleChannels {
+            x: (0..n).map(|i| seed + i as f32 * 0.01).collect(),
+            y: (0..n).map(|i| (i as f32 * 0.02).sin() * 50.0).collect(),
+            pressure: vec![0.5; n],
+            elapsed_ms: (0..n as u32).map(|i| i * 4).collect(),
+            tilt: None,
+            orientation: None,
+        })
+        .unwrap()
+    };
+    for i in 0..6 {
+        a.note
+            .submit(marks(
+                vec![MarkMutation::AddStroke {
+                    mark_id: new_id(),
+                    sheet_id: r.first_sheet_id.clone(),
+                    samples: big(i as f32),
+                    brush: brush(),
+                }],
+                vec![r.operation_id.clone()],
+            ))
+            .unwrap();
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let copy = tmp.path().join("big.syncr");
+    a.note.export_copy(path(&copy)).unwrap();
+    let pen = {
+        let note = b.note.clone();
+        let sheet = r.first_sheet_id.clone();
+        let creation = r.operation_id.clone();
+        std::thread::spawn(move || {
+            for i in 0..150 {
+                note.submit(marks(
+                    vec![MarkMutation::AddStroke {
+                        mark_id: new_id(),
+                        sheet_id: sheet.clone(),
+                        samples: blob(i as f32),
+                        brush: brush(),
+                    }],
+                    vec![creation.clone()],
+                ))
+                .unwrap();
+            }
+        })
+    };
+    let report = b.note.merge_copy(path(&copy)).unwrap();
+    assert_eq!((report.applied, report.rejected.len()), (6, 0));
+    // A delta of A's next stroke arrives meanwhile, and B reads its heads and digest as the link does.
+    stroke(&a, &r, 7.0);
+    let file = tmp.path().join("d");
+    let heads = b.note.sync_heads().unwrap();
+    let sent = a.note.export_delta(heads, path(&file)).unwrap();
+    assert!(sent.anchored);
+    let merged = b.note.merge_delta(path(&file)).unwrap();
+    assert_eq!(merged.report.rejected.len(), 0);
+    let _ = (b.note.sync_digest().unwrap(), b.lib.note_sync_heads(r.note_id.clone()).unwrap());
+    pen.join().expect("the pen thread must not panic");
+    assert_eq!(b.note.snapshot().unwrap().strokes.len(), 6 + 1 + 150);
+    merge(&b, &a);
+    assert_eq!(a.note.sync_digest().unwrap(), b.note.sync_digest().unwrap());
+}

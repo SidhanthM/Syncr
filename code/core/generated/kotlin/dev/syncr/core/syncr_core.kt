@@ -721,6 +721,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_syncr_core_checksum_method_note_export_copy(
     ): Int
+    external fun uniffi_syncr_core_checksum_method_note_export_delta(
+    ): Int
     external fun uniffi_syncr_core_checksum_method_note_get_image_bytes(
     ): Int
     external fun uniffi_syncr_core_checksum_method_note_get_samples(
@@ -729,6 +731,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_syncr_core_checksum_method_note_merge_copy(
     ): Int
+    external fun uniffi_syncr_core_checksum_method_note_merge_delta(
+    ): Int
     external fun uniffi_syncr_core_checksum_method_note_snapshot(
     ): Int
     external fun uniffi_syncr_core_checksum_method_note_submit(
@@ -736,6 +740,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_syncr_core_checksum_method_note_submit_agent(
     ): Int
     external fun uniffi_syncr_core_checksum_method_note_sync_digest(
+    ): Int
+    external fun uniffi_syncr_core_checksum_method_note_sync_heads(
     ): Int
     external fun uniffi_syncr_core_checksum_method_syncrlibrary_author_id(
     ): Int
@@ -758,6 +764,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_syncr_core_checksum_method_syncrlibrary_lookup_creation(
     ): Int
     external fun uniffi_syncr_core_checksum_method_syncrlibrary_note_sync_digest(
+    ): Int
+    external fun uniffi_syncr_core_checksum_method_syncrlibrary_note_sync_heads(
     ): Int
     external fun uniffi_syncr_core_checksum_method_syncrlibrary_open_note(
     ): Int
@@ -849,6 +857,8 @@ internal object UniffiLib {
     ): Unit
     external fun uniffi_syncr_core_fn_method_note_export_copy(`ptr`: Long,`destinationPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_method_note_export_delta(`ptr`: Long,`heads`: RustBuffer.ByValue,`destinationPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_method_note_get_image_bytes(`ptr`: Long,`imageId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_method_note_get_samples(`ptr`: Long,`markId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -857,6 +867,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_method_note_merge_copy(`ptr`: Long,`copyPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_method_note_merge_delta(`ptr`: Long,`deltaPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_method_note_snapshot(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_method_note_submit(`ptr`: Long,`command`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -864,6 +876,8 @@ internal object UniffiLib {
     external fun uniffi_syncr_core_fn_method_note_submit_agent(`ptr`: Long,`command`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_method_note_sync_digest(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_method_note_sync_heads(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_clone_syncrlibrary(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
@@ -890,6 +904,8 @@ internal object UniffiLib {
     external fun uniffi_syncr_core_fn_method_syncrlibrary_lookup_creation(`ptr`: Long,`operationId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_method_syncrlibrary_note_sync_digest(`ptr`: Long,`noteId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_method_syncrlibrary_note_sync_heads(`ptr`: Long,`noteId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_method_syncrlibrary_open_note(`ptr`: Long,`noteId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
@@ -1159,6 +1175,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_syncr_core_checksum_method_note_export_copy() and 0xFFFF) != 16489) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_syncr_core_checksum_method_note_export_delta() and 0xFFFF) != 55243) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_syncr_core_checksum_method_note_get_image_bytes() and 0xFFFF) != 11641) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1171,6 +1190,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_syncr_core_checksum_method_note_merge_copy() and 0xFFFF) != 35185) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_syncr_core_checksum_method_note_merge_delta() and 0xFFFF) != 23605) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_syncr_core_checksum_method_note_snapshot() and 0xFFFF) != 39615) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1181,6 +1203,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_syncr_core_checksum_method_note_sync_digest() and 0xFFFF) != 51555) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_method_note_sync_heads() and 0xFFFF) != 63686) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_syncr_core_checksum_method_syncrlibrary_author_id() and 0xFFFF) != 11347) {
@@ -1214,6 +1239,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_syncr_core_checksum_method_syncrlibrary_note_sync_digest() and 0xFFFF) != 61175) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_method_syncrlibrary_note_sync_heads() and 0xFFFF) != 36256) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_syncr_core_checksum_method_syncrlibrary_open_note() and 0xFFFF) != 18546) {
@@ -1792,6 +1820,14 @@ public interface NoteInterface {
     fun `exportCopy`(`destinationPath`: kotlin.String): ExportReceipt
     
     /**
+     * Writes to `destination_path` the operations whose author made something newer than
+     * (or the same millisecond as) that author's entry in `heads`, and every operation of an
+     * author not listed. `anchored` is false, and nothing is written, when `heads` is empty
+     * or the delta would not be smaller than the note: send a copy instead.
+     */
+    fun `exportDelta`(`heads`: List<AuthorHead>, `destinationPath`: kotlin.String): DeltaReceipt
+    
+    /**
      * Original immutable PNG/JPEG container, also available for tombstoned marks.
      */
     fun `getImageBytes`(`imageId`: kotlin.String): kotlin.ByteArray
@@ -1806,6 +1842,13 @@ public interface NoteInterface {
      */
     fun `mergeCopy`(`copyPath`: kotlin.String): MergeReport
     
+    /**
+     * Merges a delta file like `merge_copy` merges a copy. Rejected operations are reported.
+     * `complete` is false when the note still holds fewer operations from some author than
+     * the sender does (the delta skipped something): ask for a whole copy then.
+     */
+    fun `mergeDelta`(`deltaPath`: kotlin.String): DeltaMerge
+    
     fun `snapshot`(): NoteSnapshot
     
     fun `submit`(`command`: Command): Receipt
@@ -1819,6 +1862,11 @@ public interface NoteInterface {
      * Operation count and SHA-256 over the sorted operation IDs; cached until the next commit.
      */
     fun `syncDigest`(): SyncDigest
+    
+    /**
+     * The newest operation ID per author: what a peer sends to ask for a delta.
+     */
+    fun `syncHeads`(): List<AuthorHead>
     
     companion object
 }
@@ -2000,6 +2048,28 @@ open class Note: Disposable, AutoCloseable, NoteInterface
 
     
     /**
+     * Writes to `destination_path` the operations whose author made something newer than
+     * (or the same millisecond as) that author's entry in `heads`, and every operation of an
+     * author not listed. `anchored` is false, and nothing is written, when `heads` is empty
+     * or the delta would not be smaller than the note: send a copy instead.
+     */
+    @Throws(CoreException::class)override fun `exportDelta`(`heads`: List<AuthorHead>, `destinationPath`: kotlin.String): DeltaReceipt {
+            return FfiConverterTypeDeltaReceipt.lift(
+    callWithHandle {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.uniffi_syncr_core_fn_method_note_export_delta(
+        it,
+        
+        FfiConverterSequenceTypeAuthorHead.lower(`heads`),
+        FfiConverterString.lower(`destinationPath`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
      * Original immutable PNG/JPEG container, also available for tombstoned marks.
      */
     @Throws(CoreException::class)override fun `getImageBytes`(`imageId`: kotlin.String): kotlin.ByteArray {
@@ -2066,6 +2136,26 @@ open class Note: Disposable, AutoCloseable, NoteInterface
     
 
     
+    /**
+     * Merges a delta file like `merge_copy` merges a copy. Rejected operations are reported.
+     * `complete` is false when the note still holds fewer operations from some author than
+     * the sender does (the delta skipped something): ask for a whole copy then.
+     */
+    @Throws(CoreException::class)override fun `mergeDelta`(`deltaPath`: kotlin.String): DeltaMerge {
+            return FfiConverterTypeDeltaMerge.lift(
+    callWithHandle {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.uniffi_syncr_core_fn_method_note_merge_delta(
+        it,
+        
+        FfiConverterString.lower(`deltaPath`),_status)
+}
+    }
+    )
+    }
+    
+
+    
     @Throws(CoreException::class)override fun `snapshot`(): NoteSnapshot {
             return FfiConverterTypeNoteSnapshot.lift(
     callWithHandle {
@@ -2121,6 +2211,23 @@ open class Note: Disposable, AutoCloseable, NoteInterface
     callWithHandle {
     uniffiRustCallWithError(CoreException) { _status ->
     UniffiLib.uniffi_syncr_core_fn_method_note_sync_digest(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * The newest operation ID per author: what a peer sends to ask for a delta.
+     */
+    @Throws(CoreException::class)override fun `syncHeads`(): List<AuthorHead> {
+            return FfiConverterSequenceTypeAuthorHead.lift(
+    callWithHandle {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.uniffi_syncr_core_fn_method_note_sync_heads(
         it,
         _status)
 }
@@ -3413,6 +3520,11 @@ public interface SyncrLibraryInterface {
      */
     fun `noteSyncDigest`(`noteId`: kotlin.String): SyncDigest
     
+    /**
+     * `Note::sync_heads` for a note that may be closed (read-only when closed).
+     */
+    fun `noteSyncHeads`(`noteId`: kotlin.String): List<AuthorHead>
+    
     fun `openNote`(`noteId`: kotlin.String): Note
     
     /**
@@ -3741,6 +3853,24 @@ open class SyncrLibrary: Disposable, AutoCloseable, SyncrLibraryInterface
     
 
     
+    /**
+     * `Note::sync_heads` for a note that may be closed (read-only when closed).
+     */
+    @Throws(CoreException::class)override fun `noteSyncHeads`(`noteId`: kotlin.String): List<AuthorHead> {
+            return FfiConverterSequenceTypeAuthorHead.lift(
+    callWithHandle {
+    uniffiRustCallWithError(CoreException) { _status ->
+    UniffiLib.uniffi_syncr_core_fn_method_syncrlibrary_note_sync_heads(
+        it,
+        
+        FfiConverterString.lower(`noteId`),_status)
+}
+    }
+    )
+    }
+    
+
+    
     @Throws(CoreException::class)override fun `openNote`(`noteId`: kotlin.String): Note {
             return FfiConverterTypeNote.lift(
     callWithHandle {
@@ -3947,6 +4077,47 @@ public object FfiConverterTypeAffine: FfiConverterRustBuffer<Affine> {
             FfiConverterDouble.write(value.`d`, buf)
             FfiConverterDouble.write(value.`tx`, buf)
             FfiConverterDouble.write(value.`ty`, buf)
+    }
+}
+
+
+
+/**
+ * The newest operation a log holds from one author.
+ */
+data class AuthorHead (
+    var `authorId`: kotlin.String
+    , 
+    var `newestId`: kotlin.String
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAuthorHead: FfiConverterRustBuffer<AuthorHead> {
+    override fun read(buf: ByteBuffer): AuthorHead {
+        return AuthorHead(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: AuthorHead) = (
+            FfiConverterString.allocationSize(value.`authorId`) +
+            FfiConverterString.allocationSize(value.`newestId`)
+    )
+
+    override fun write(value: AuthorHead, buf: ByteBuffer) {
+            FfiConverterString.write(value.`authorId`, buf)
+            FfiConverterString.write(value.`newestId`, buf)
     }
 }
 
@@ -4507,6 +4678,95 @@ public object FfiConverterTypeDeletedNoteSummary: FfiConverterRustBuffer<Deleted
             FfiConverterOptionalString.write(value.`notebook`, buf)
             FfiConverterLong.write(value.`deletedAtMs`, buf)
             FfiConverterLong.write(value.`createdAtMs`, buf)
+    }
+}
+
+
+
+data class DeltaMerge (
+    var `report`: MergeReport
+    , 
+    var `complete`: kotlin.Boolean
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeDeltaMerge: FfiConverterRustBuffer<DeltaMerge> {
+    override fun read(buf: ByteBuffer): DeltaMerge {
+        return DeltaMerge(
+            FfiConverterTypeMergeReport.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: DeltaMerge) = (
+            FfiConverterTypeMergeReport.allocationSize(value.`report`) +
+            FfiConverterBoolean.allocationSize(value.`complete`)
+    )
+
+    override fun write(value: DeltaMerge, buf: ByteBuffer) {
+            FfiConverterTypeMergeReport.write(value.`report`, buf)
+            FfiConverterBoolean.write(value.`complete`, buf)
+    }
+}
+
+
+
+/**
+ * What `export_delta` wrote. Without `anchored` nothing was written.
+ */
+data class DeltaReceipt (
+    var `anchored`: kotlin.Boolean
+    , 
+    var `operations`: kotlin.UInt
+    , 
+    var `bytes`: kotlin.ULong
+    , 
+    var `exportedLocalSequence`: kotlin.ULong
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeDeltaReceipt: FfiConverterRustBuffer<DeltaReceipt> {
+    override fun read(buf: ByteBuffer): DeltaReceipt {
+        return DeltaReceipt(
+            FfiConverterBoolean.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: DeltaReceipt) = (
+            FfiConverterBoolean.allocationSize(value.`anchored`) +
+            FfiConverterUInt.allocationSize(value.`operations`) +
+            FfiConverterULong.allocationSize(value.`bytes`) +
+            FfiConverterULong.allocationSize(value.`exportedLocalSequence`)
+    )
+
+    override fun write(value: DeltaReceipt, buf: ByteBuffer) {
+            FfiConverterBoolean.write(value.`anchored`, buf)
+            FfiConverterUInt.write(value.`operations`, buf)
+            FfiConverterULong.write(value.`bytes`, buf)
+            FfiConverterULong.write(value.`exportedLocalSequence`, buf)
     }
 }
 
@@ -9886,6 +10146,34 @@ public object FfiConverterSequenceByteArray: FfiConverterRustBuffer<List<kotlin.
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterByteArray.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeAuthorHead: FfiConverterRustBuffer<List<AuthorHead>> {
+    override fun read(buf: ByteBuffer): List<AuthorHead> {
+        val len = buf.getInt()
+        return List<AuthorHead>(len) {
+            FfiConverterTypeAuthorHead.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<AuthorHead>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeAuthorHead.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<AuthorHead>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeAuthorHead.write(it, buf)
         }
     }
 }

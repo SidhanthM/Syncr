@@ -665,6 +665,14 @@ public protocol NoteProtocol: AnyObject, Sendable {
     func exportCopy(destinationPath: String) throws  -> ExportReceipt
     
     /**
+     * Writes to `destination_path` the operations whose author made something newer than
+     * (or the same millisecond as) that author's entry in `heads`, and every operation of an
+     * author not listed. `anchored` is false, and nothing is written, when `heads` is empty
+     * or the delta would not be smaller than the note: send a copy instead.
+     */
+    func exportDelta(heads: [AuthorHead], destinationPath: String) throws  -> DeltaReceipt
+    
+    /**
      * Original immutable PNG/JPEG container, also available for tombstoned marks.
      */
     func getImageBytes(imageId: String) throws  -> Data
@@ -679,6 +687,13 @@ public protocol NoteProtocol: AnyObject, Sendable {
      */
     func mergeCopy(copyPath: String) throws  -> MergeReport
     
+    /**
+     * Merges a delta file like `merge_copy` merges a copy. Rejected operations are reported.
+     * `complete` is false when the note still holds fewer operations from some author than
+     * the sender does (the delta skipped something): ask for a whole copy then.
+     */
+    func mergeDelta(deltaPath: String) throws  -> DeltaMerge
+    
     func snapshot() throws  -> NoteSnapshot
     
     func submit(command: Command) throws  -> Receipt
@@ -692,6 +707,11 @@ public protocol NoteProtocol: AnyObject, Sendable {
      * Operation count and SHA-256 over the sorted operation IDs; cached until the next commit.
      */
     func syncDigest() throws  -> SyncDigest
+    
+    /**
+     * The newest operation ID per author: what a peer sends to ask for a delta.
+     */
+    func syncHeads() throws  -> [AuthorHead]
     
 }
 open class Note: NoteProtocol, @unchecked Sendable {
@@ -798,6 +818,23 @@ open func exportCopy(destinationPath: String)throws  -> ExportReceipt  {
 }
     
     /**
+     * Writes to `destination_path` the operations whose author made something newer than
+     * (or the same millisecond as) that author's entry in `heads`, and every operation of an
+     * author not listed. `anchored` is false, and nothing is written, when `heads` is empty
+     * or the delta would not be smaller than the note: send a copy instead.
+     */
+open func exportDelta(heads: [AuthorHead], destinationPath: String)throws  -> DeltaReceipt  {
+    return try  FfiConverterTypeDeltaReceipt_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_syncr_core_fn_method_note_export_delta(
+            self.uniffiCloneHandle(),
+        FfiConverterSequenceTypeAuthorHead.lower(heads),
+        FfiConverterString.lower(destinationPath),uniffiCallStatus
+    )
+})
+}
+    
+    /**
      * Original immutable PNG/JPEG container, also available for tombstoned marks.
      */
 open func getImageBytes(imageId: String)throws  -> Data  {
@@ -844,6 +881,21 @@ open func mergeCopy(copyPath: String)throws  -> MergeReport  {
 })
 }
     
+    /**
+     * Merges a delta file like `merge_copy` merges a copy. Rejected operations are reported.
+     * `complete` is false when the note still holds fewer operations from some author than
+     * the sender does (the delta skipped something): ask for a whole copy then.
+     */
+open func mergeDelta(deltaPath: String)throws  -> DeltaMerge  {
+    return try  FfiConverterTypeDeltaMerge_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_syncr_core_fn_method_note_merge_delta(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(deltaPath),uniffiCallStatus
+    )
+})
+}
+    
 open func snapshot()throws  -> NoteSnapshot  {
     return try  FfiConverterTypeNoteSnapshot_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
         uniffiCallStatus in
@@ -883,6 +935,18 @@ open func syncDigest()throws  -> SyncDigest  {
     return try  FfiConverterTypeSyncDigest_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
         uniffiCallStatus in
     uniffi_syncr_core_fn_method_note_sync_digest(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * The newest operation ID per author: what a peer sends to ask for a delta.
+     */
+open func syncHeads()throws  -> [AuthorHead]  {
+    return try  FfiConverterSequenceTypeAuthorHead.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_syncr_core_fn_method_note_sync_heads(
             self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
@@ -1617,6 +1681,11 @@ public protocol SyncrLibraryProtocol: AnyObject, Sendable {
      */
     func noteSyncDigest(noteId: String) throws  -> SyncDigest
     
+    /**
+     * `Note::sync_heads` for a note that may be closed (read-only when closed).
+     */
+    func noteSyncHeads(noteId: String) throws  -> [AuthorHead]
+    
     func openNote(noteId: String) throws  -> Note
     
     /**
@@ -1840,6 +1909,19 @@ open func noteSyncDigest(noteId: String)throws  -> SyncDigest  {
 })
 }
     
+    /**
+     * `Note::sync_heads` for a note that may be closed (read-only when closed).
+     */
+open func noteSyncHeads(noteId: String)throws  -> [AuthorHead]  {
+    return try  FfiConverterSequenceTypeAuthorHead.lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
+        uniffiCallStatus in
+    uniffi_syncr_core_fn_method_syncrlibrary_note_sync_heads(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(noteId),uniffiCallStatus
+    )
+})
+}
+    
 open func openNote(noteId: String)throws  -> Note  {
     return try  FfiConverterTypeNote_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
         uniffiCallStatus in
@@ -2039,6 +2121,63 @@ public func FfiConverterTypeAffine_lift(_ buf: RustBuffer) throws -> Affine {
 #endif
 public func FfiConverterTypeAffine_lower(_ value: Affine) -> RustBuffer {
     return FfiConverterTypeAffine.lower(value)
+}
+
+
+/**
+ * The newest operation a log holds from one author.
+ */
+public struct AuthorHead: Equatable, Hashable {
+    public var authorId: String
+    public var newestId: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(authorId: String, newestId: String) {
+        self.authorId = authorId
+        self.newestId = newestId
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension AuthorHead: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAuthorHead: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AuthorHead {
+        return
+            try AuthorHead(
+                authorId: FfiConverterString.read(from: &buf), 
+                newestId: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AuthorHead, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.authorId, into: &buf)
+        FfiConverterString.write(value.newestId, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAuthorHead_lift(_ buf: RustBuffer) throws -> AuthorHead {
+    return try FfiConverterTypeAuthorHead.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAuthorHead_lower(_ value: AuthorHead) -> RustBuffer {
+    return FfiConverterTypeAuthorHead.lower(value)
 }
 
 
@@ -2779,6 +2918,125 @@ public func FfiConverterTypeDeletedNoteSummary_lift(_ buf: RustBuffer) throws ->
 #endif
 public func FfiConverterTypeDeletedNoteSummary_lower(_ value: DeletedNoteSummary) -> RustBuffer {
     return FfiConverterTypeDeletedNoteSummary.lower(value)
+}
+
+
+public struct DeltaMerge: Equatable, Hashable {
+    public var report: MergeReport
+    public var complete: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(report: MergeReport, complete: Bool) {
+        self.report = report
+        self.complete = complete
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension DeltaMerge: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDeltaMerge: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DeltaMerge {
+        return
+            try DeltaMerge(
+                report: FfiConverterTypeMergeReport.read(from: &buf), 
+                complete: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: DeltaMerge, into buf: inout [UInt8]) {
+        FfiConverterTypeMergeReport.write(value.report, into: &buf)
+        FfiConverterBool.write(value.complete, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDeltaMerge_lift(_ buf: RustBuffer) throws -> DeltaMerge {
+    return try FfiConverterTypeDeltaMerge.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDeltaMerge_lower(_ value: DeltaMerge) -> RustBuffer {
+    return FfiConverterTypeDeltaMerge.lower(value)
+}
+
+
+/**
+ * What `export_delta` wrote. Without `anchored` nothing was written.
+ */
+public struct DeltaReceipt: Equatable, Hashable {
+    public var anchored: Bool
+    public var operations: UInt32
+    public var bytes: UInt64
+    public var exportedLocalSequence: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(anchored: Bool, operations: UInt32, bytes: UInt64, exportedLocalSequence: UInt64) {
+        self.anchored = anchored
+        self.operations = operations
+        self.bytes = bytes
+        self.exportedLocalSequence = exportedLocalSequence
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension DeltaReceipt: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeDeltaReceipt: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DeltaReceipt {
+        return
+            try DeltaReceipt(
+                anchored: FfiConverterBool.read(from: &buf), 
+                operations: FfiConverterUInt32.read(from: &buf), 
+                bytes: FfiConverterUInt64.read(from: &buf), 
+                exportedLocalSequence: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: DeltaReceipt, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.anchored, into: &buf)
+        FfiConverterUInt32.write(value.operations, into: &buf)
+        FfiConverterUInt64.write(value.bytes, into: &buf)
+        FfiConverterUInt64.write(value.exportedLocalSequence, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDeltaReceipt_lift(_ buf: RustBuffer) throws -> DeltaReceipt {
+    return try FfiConverterTypeDeltaReceipt.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeDeltaReceipt_lower(_ value: DeltaReceipt) -> RustBuffer {
+    return FfiConverterTypeDeltaReceipt.lower(value)
 }
 
 
@@ -7717,6 +7975,31 @@ fileprivate struct FfiConverterSequenceData: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeAuthorHead: FfiConverterRustBuffer {
+    typealias SwiftType = [AuthorHead]
+
+    public static func write(_ value: [AuthorHead], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeAuthorHead.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [AuthorHead] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [AuthorHead]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeAuthorHead.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeChangeEvent: FfiConverterRustBuffer {
     typealias SwiftType = [ChangeEvent]
 
@@ -8465,6 +8748,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_syncr_core_checksum_method_note_export_copy() != 16489) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_syncr_core_checksum_method_note_export_delta() != 55243) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_syncr_core_checksum_method_note_get_image_bytes() != 11641) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -8477,6 +8763,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_syncr_core_checksum_method_note_merge_copy() != 35185) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_syncr_core_checksum_method_note_merge_delta() != 23605) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_syncr_core_checksum_method_note_snapshot() != 39615) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -8487,6 +8776,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_syncr_core_checksum_method_note_sync_digest() != 51555) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_syncr_core_checksum_method_note_sync_heads() != 63686) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_syncr_core_checksum_method_syncrlibrary_author_id() != 11347) {
@@ -8520,6 +8812,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_syncr_core_checksum_method_syncrlibrary_note_sync_digest() != 61175) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_syncr_core_checksum_method_syncrlibrary_note_sync_heads() != 36256) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_syncr_core_checksum_method_syncrlibrary_open_note() != 18546) {
