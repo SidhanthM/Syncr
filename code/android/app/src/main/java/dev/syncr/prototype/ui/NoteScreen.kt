@@ -1,5 +1,6 @@
 package dev.syncr.prototype.ui
 
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 import androidx.compose.runtime.getValue
@@ -107,9 +108,10 @@ fun NoteScreen(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: Tool
             AnimatedVisibility(tools.barOpen && !titleOnScreen, enter = Motion.fadeInOnly(Syncr.reducedMotion), exit = Motion.fadeOutOnly(Syncr.reducedMotion)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(Space.s)) {
-                    Text("${snapshot.title} · $notebook", style = Syncr.type.label, color = c.muted, maxLines = 1,
+                    val shown = rememberDisplayTitle(snapshot.title)
+                    Text("$shown · ${notebook.uppercase()}", style = Syncr.type.meta.copy(fontWeight = FontWeight.SemiBold), color = c.muted, maxLines = 1,
                         overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false)
-                            .semantics { contentDescription = "${snapshot.title}, in $notebook" })
+                            .semantics { contentDescription = "$shown, in $notebook" })
                     LinkDot()
                 }
             }

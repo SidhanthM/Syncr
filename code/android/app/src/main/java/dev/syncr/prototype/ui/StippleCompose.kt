@@ -25,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -161,4 +162,27 @@ internal fun StippleBand(modifier: Modifier = Modifier, lines: Int = 3) {
             drawImage(t, dstOffset = IntOffset(x, 0), dstSize = IntSize(this.size.width.toInt(), this.size.height.toInt()),
                 filterQuality = FilterQuality.None, colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(c.muted, BlendMode.SrcIn), blendMode = BlendMode.SrcAtop)
         })
+}
+
+/**
+ * A faint stippled paper for a card with nothing on it yet: the house Bayer pattern in the line colour, a little denser
+ * towards the bottom edge, so an empty card reads as paper and not as a blank white box. Built once per size.
+ */
+@Composable
+fun Modifier.stippledPaper(color: androidx.compose.ui.graphics.Color = Syncr.colors.lineStrong): Modifier {
+    val cell = with(LocalDensity.current) { Motion.STIPPLE_CELL_DP.dp.toPx() }
+    return drawWithCache {
+        val columns = Stipple.columns(size.width, cell)
+        val rows = Stipple.rows(size.height, cell)
+        val dots = androidx.compose.ui.graphics.Path()
+        val dot = cell * 0.4f
+        for (y in 0 until rows) {
+            val density = 0.04 + 0.16 * (y.toDouble() / rows)
+            for (x in 0 until columns) if (Stipple.threshold(x, y) < density) {
+                val cx = (x + 0.5f) * cell; val cy = (y + 0.5f) * cell
+                dots.addRect(androidx.compose.ui.geometry.Rect(cx - dot / 2, cy - dot / 2, cx + dot / 2, cy + dot / 2))
+            }
+        }
+        onDrawBehind { drawPath(dots, color.copy(alpha = color.alpha * 0.55f)) }
+    }
 }

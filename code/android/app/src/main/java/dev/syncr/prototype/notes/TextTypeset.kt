@@ -22,6 +22,9 @@ internal object MacMetrics {
     fun lineHeight(size: Float) = ascent(size) + (size * DESCENT).roundToInt()
     fun headingSize(level: Int): Float = (BODY * (listOf(1.5f, 1.3f, 1.15f).getOrNull(level - 1) ?: 1.05f)).roundToInt().toFloat()
     const val TITLE_SIZE = 76f
+    /** The phone draws the title band larger than the Mac does; everything below it keeps the shared geometry. */
+    const val PHONE_TITLE_SIZE = 76f
+    const val PHONE_META_SIZE = 30f
     const val TEXT_X = 100f
     const val TEXT_Y = 260f
     const val TITLE_Y = 70f
@@ -32,7 +35,7 @@ internal object MacMetrics {
 internal enum class Family { SANS, SERIF, MONO }
 
 /** Colour roles; the painter maps them to ARGB for light and dark paper. */
-internal enum class Tok { INK, SOFT, MUTED, HAIRLINE, SEPARATOR, CODE_FILL, CLEAR, PURPLE, GREEN, ORANGE, HIGHLIGHT, INLINE_CODE, PAGE, RED, BLUE }
+internal enum class Tok { INK, SOFT, MUTED, HAIRLINE, SEPARATOR, CODE_FILL, CLEAR, PURPLE, GREEN, ORANGE, HIGHLIGHT, INLINE_CODE, PAGE, RED, BLUE, ACCENT }
 
 internal data class Attr(
     val size: Float = MacMetrics.BODY,

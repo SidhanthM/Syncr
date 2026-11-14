@@ -113,13 +113,14 @@ internal fun emptyCopy(filter: LibraryFilter, libraryEmpty: Boolean): Triple<Ima
 private fun NewNoteCard(enabled: Boolean, onNew: () -> Unit) {
     val c = Syncr.colors
     val tint = if (enabled) c.muted else c.faint
+    // Quieter than a card: no fill, a soft dashed edge and muted marks, so the notes are what the eye finds first.
     Column(Modifier.fillMaxWidth().aspectRatio(CARD_ASPECT).clip(Radius.card)
-        .dashedOutline(c.lineStrong)
+        .dashedOutline(c.lineStrong.copy(alpha = c.lineStrong.alpha * 0.5f))
         .combinedClickable(enabled = enabled, role = Role.Button, onClick = onNew)
         .semantics(mergeDescendants = true) { contentDescription = "New note" },
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        SyncrIcon(SyncrIcons.Plus, tint, size = 28.dp)
-        Text("New note", style = Syncr.type.label, color = tint, modifier = Modifier.padding(top = Space.s))
+        SyncrIcon(SyncrIcons.Plus, tint, size = 24.dp)
+        Text("New note", style = Syncr.type.caption, color = tint, modifier = Modifier.padding(top = Space.s))
     }
 }
 
@@ -131,6 +132,7 @@ fun NoteCard(note: NoteSummary, thumbnail: Thumbnail?, showNotebook: Boolean, no
     val c = Syncr.colors
     var menu by remember { mutableStateOf(false) }
     val date = relativeDate(note.modifiedAtMs, now)
+    val shown = rememberDisplayTitle(note.title)
     val notebook = note.notebook ?: "Inbox"
     val image = rememberThumbnail(thumbnail, c.dark)
     val archiveLabel = if (note.archived) "Unarchive" else "Archive"
@@ -139,7 +141,7 @@ fun NoteCard(note: NoteSummary, thumbnail: Thumbnail?, showNotebook: Boolean, no
             .combinedClickable(enabled = enabled, role = Role.Button, onLongClickLabel = "Note options",
                 onLongClick = { menu = true }, onClick = onOpen)
             .semantics(mergeDescendants = true) {
-                contentDescription = "${note.title}. Edited ${date.lowercase()}, in $notebook${if (note.archived) ", archived" else ""}"
+                contentDescription = "$shown. Edited ${date.lowercase()}, in $notebook${if (note.archived) ", archived" else ""}"
                 if (enabled) customActions = listOf(
                     CustomAccessibilityAction("Move to notebook") { onMove(); true },
                     CustomAccessibilityAction("Rename") { onRename(); true },
@@ -149,11 +151,12 @@ fun NoteCard(note: NoteSummary, thumbnail: Thumbnail?, showNotebook: Boolean, no
             }) {
             Box(Modifier.fillMaxWidth().aspectRatio(CARD_ASPECT).cardSurface(color = c.paper).clip(Radius.card)) {
                 if (image != null) Image(image, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter)
+                else if (thumbnail == null || thumbnail.strokes.isEmpty()) Box(Modifier.fillMaxSize().stippledPaper())
             }
-            Text(note.title, style = Syncr.type.title, color = c.ink, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = Space.s, start = Space.xs, end = Space.xs))
-            Text(if (showNotebook) "$date · $notebook" else date, style = Syncr.type.caption, color = c.muted,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = Space.xs))
+            Text(shown, style = Syncr.type.noteTitle, color = c.ink, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = Space.m, start = Space.xs, end = Space.xs))
+            Text((if (showNotebook) "$date · $notebook" else date).uppercase(), style = Syncr.type.meta, color = c.muted,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = Space.xs, end = Space.xs, top = 2.dp, bottom = Space.xs))
         }
         SyncrMenu(menu, { menu = false }) {
             MenuItem("Move to notebook…", { menu = false; onMove() }, SyncrIcons.Folder, enabled)

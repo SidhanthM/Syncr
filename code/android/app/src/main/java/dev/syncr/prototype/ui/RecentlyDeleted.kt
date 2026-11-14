@@ -49,14 +49,15 @@ fun RecentlyDeletedList(deleted: List<DeletedNoteSummary>, now: Long, enabled: B
 @Composable
 private fun DeletedRow(note: DeletedNoteSummary, now: Long, enabled: Boolean, onRestore: () -> Unit, onPurge: () -> Unit) {
     val c = Syncr.colors
+    val shown = rememberDisplayTitle(note.title)
     Row(Modifier.fillMaxWidth().padding(vertical = Space.s), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f).semantics(mergeDescendants = true) { }) {
-            Text(note.title, style = Syncr.type.title, color = c.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(shown, style = Syncr.type.noteTitle, color = c.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text("${deletedCaption(note.deletedAtMs, now)} · ${note.notebook ?: "Inbox"}", style = Syncr.type.caption,
-                color = c.muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                color = c.muted, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
         }
-        RowAction(SyncrIcons.Restore, "Restore", enabled, "Restore ${note.title}", onRestore)
-        IconAction(SyncrIcons.Trash, "Delete ${note.title} forever", onPurge, enabled = enabled, tint = c.destructive)
+        RowAction(SyncrIcons.Restore, "Restore", enabled, "Restore $shown", onRestore)
+        IconAction(SyncrIcons.Trash, "Delete $shown forever", onPurge, enabled = enabled, tint = c.destructive)
     }
 }
 

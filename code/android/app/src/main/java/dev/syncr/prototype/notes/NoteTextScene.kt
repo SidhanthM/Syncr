@@ -39,6 +39,9 @@ internal class NoteTextScene(val prims: List<Prim>, val pictures: Map<String, Pi
     companion object { val EMPTY = NoteTextScene(emptyList(), emptyMap(), 0f) }
 }
 
+/** What the title band shows: the title as read (the default stamp humanised) and the quiet line under it. */
+internal data class TitleDisplay(val text: String, val meta: String)
+
 /**
  * Builds [NoteTextScene] from a snapshot with the Mac's default geometry (page at x 0, text column x 100, y 260, width
  * block.width - 200; margin cards at block.width + 40; see `NoteDetailView.showCompanion`). Pure and read-only: a snapshot
@@ -48,8 +51,33 @@ internal class NoteTextSceneBuilder(private val shaper: Shaper, private val pict
     private val typeset = Typeset(shaper)
     private val rich = RichText(shaper)
 
+    /**
+     * The page's title band, drawn only; nothing below it moves (the text column starts at [MacMetrics.TEXT_Y] as on the Mac).
+     * A display-size title in ink with tight tracking (cut to one line with an ellipsis), a quiet letter-spaced meta line
+     * under it, and a short salmon rule as the only accent.
+     */
+    private val TITLE_BAND_TOP = 56f
+
+    private fun titleBand(title: String, meta: String, width: Float): List<Prim> {
+        val out = ArrayList<Prim>()
+        val x = MacMetrics.TEXT_X
+        if (title.isNotEmpty()) {
+            val size = MacMetrics.PHONE_TITLE_SIZE
+            val attr = Attr(size = size, weight = 600, kern = -0.03f)
+            val first = shaper.shape(title, listOf(Run(0, title.length, attr)), width).first()
+            val shown = if (first.end < title.length) title.substring(0, first.end).trimEnd() + "…" else title
+            out += Prim.Text(shown, x, TITLE_BAND_TOP + MacMetrics.ascent(size), attr)
+        }
+        if (meta.isNotEmpty()) {
+            val size = MacMetrics.PHONE_META_SIZE
+            out += Prim.Text(meta.uppercase(), x + 2f, 172f, Attr(size = size, weight = 500, tok = Tok.MUTED, kern = 0.1f))
+        }
+        if (title.isNotEmpty()) out += Prim.Fill(x + 2f, 190f, 72f, 6f, 3f, Tok.ACCENT)
+        return out
+    }
+
     /** [hide] is the ID of a text block being edited in the field above the page: its own words are left out, the rest is built as usual. */
-    fun build(note: NoteSnapshot, hide: String? = null): NoteTextScene {
+    fun build(note: NoteSnapshot, hide: String? = null, title: TitleDisplay? = null): NoteTextScene {
         val prims = ArrayList<Prim>()
         val hits = ArrayList<ContentHit>()
         val pictures = HashMap<String, PictureDisplayList>()
@@ -91,9 +119,7 @@ internal class NoteTextSceneBuilder(private val shaper: Shaper, private val pict
 
         val layout = typeset.document(text, MacMetrics.TEXT_X, MacMetrics.TEXT_Y, columnWidth, heights, gaps)
         if (document != null) {
-            val title = note.title
-            if (title.isNotEmpty()) prims += Prim.Text(title, MacMetrics.TEXT_X, MacMetrics.TITLE_Y + 9.5f + MacMetrics.ascent(MacMetrics.TITLE_SIZE),
-                Attr(size = MacMetrics.TITLE_SIZE, weight = 500, kern = -1.5f / MacMetrics.TITLE_SIZE))
+            prims += titleBand(title?.text ?: note.title, title?.meta.orEmpty(), columnWidth)
         }
         if (document?.id != hide) prims += layout.prims
         bottom = max(bottom, layout.bottom)

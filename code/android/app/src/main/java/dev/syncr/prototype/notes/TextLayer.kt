@@ -62,9 +62,9 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
     var cellUnits = 10f
 
     /** Called from [NoteCanvasView.update] on the main thread; does no layout. */
-    fun show(note: NoteSnapshot?, dark: Boolean, hide: String? = null) {
+    internal fun show(note: NoteSnapshot?, dark: Boolean, hide: String? = null, title: TitleDisplay? = null) {
         if (note == null) { clear(); return }
-        val key = fingerprint(note)
+        val key = fingerprint(note) * 31 + (title?.hashCode() ?: 0)
         if (note.noteId == queuedNote && key == queuedKey && dark == queuedDark && hide == queuedHide) return
         if (note.noteId != queuedNote) { done = null; onExtent(0f) }
         queuedNote = note.noteId; queuedKey = key; queuedDark = dark; queuedHide = hide
@@ -72,7 +72,7 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
         executor.execute {
             val before = done
             val cell = cellUnits
-            val result = try { render(note, key, dark, hide, before, cell) } catch (_: Throwable) { Done(key, dark, emptyList(), 0f) }
+            val result = try { render(note, key, dark, hide, before, cell, title) } catch (_: Throwable) { Done(key, dark, emptyList(), 0f) }
             main.post {
                 if (mine == generation) {
                     done = result; onExtent(result.bottom)
@@ -170,10 +170,10 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
         return out
     }
 
-    private fun render(note: NoteSnapshot, key: Long, dark: Boolean, hide: String?, before: Done?, cell: Float): Done {
+    private fun render(note: NoteSnapshot, key: Long, dark: Boolean, hide: String?, before: Done?, cell: Float, title: TitleDisplay?): Done {
         val shaper = AndroidShaper()
         val cache = HashMap<String, PictureDisplayList?>()
-        val scene = NoteTextSceneBuilder(shaper) { svg -> cache.getOrPut(svg) { try { pictureDisplayList(svg) } catch (_: Exception) { null } } }.build(note, hide)
+        val scene = NoteTextSceneBuilder(shaper) { svg -> cache.getOrPut(svg) { try { pictureDisplayList(svg) } catch (_: Exception) { null } } }.build(note, hide, title)
         val painter = TextPainter(dark, scene.pictures)
         val bands = ArrayList<Band>()
         var top = 0f
@@ -267,6 +267,7 @@ internal class TextPainter(private val dark: Boolean, private val pictures: Map<
         Tok.RED -> if (dark) 0xffff6b60 else 0xffc43c32
         Tok.BLUE -> if (dark) 0xff6aa3ff else 0xff2f6fd0
         Tok.PAGE -> PaperPalette.paper(dark).toLong() and 0xffffffffL
+        Tok.ACCENT -> 0xffd39999
     }.toInt()
 
     private fun alpha(c: Int, a: Int): Long = (c.toLong() and 0x00ffffffL) or (a.toLong() shl 24)

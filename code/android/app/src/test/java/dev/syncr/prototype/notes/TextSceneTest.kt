@@ -110,6 +110,24 @@ class TextSceneTest {
         assertEquals(100f, title.x, 0.01f); assertEquals(76f, title.attr.size, 0f)
     }
 
+    @Test fun titleBandReadsAsATitleWithAQuietLineAndOneSalmonRule() {
+        val s = NoteTextSceneBuilder(shaper) { null }.build(note(listOf(block("hello"))), title = TitleDisplay("Today, 23:49", "Inbox · Edited Today, 23:49"))
+        val title = texts(s).first { it.text == "Today, 23:49" }
+        assertEquals(76f, title.attr.size, 0f); assertTrue(title.attr.kern < 0f)
+        val meta = texts(s).first { it.text == "INBOX · EDITED TODAY, 23:49" }
+        assertEquals(Tok.MUTED, meta.attr.tok); assertTrue(meta.attr.kern > 0f); assertTrue(meta.baseline > title.baseline)
+        val rule = s.prims.filterIsInstance<Prim.Fill>().single { it.tok == Tok.ACCENT }
+        assertTrue("a body line of air under the rule", MacMetrics.TEXT_Y - rule.bottom >= 64f)
+        // The body keeps the Mac's geometry whatever the title looks like.
+        assertEquals(260f + MacMetrics.ascent(48f), texts(s).first { it.text == "hello" }.baseline, 0.01f)
+    }
+
+    @Test fun aTitleTooLongForTheColumnEndsInAnEllipsis() {
+        val long = "word ".repeat(80).trim()
+        val shown = texts(NoteTextSceneBuilder(shaper) { null }.build(note(listOf(block("x"))), title = TitleDisplay(long, ""))).first { it.attr.size == 76f }
+        assertTrue(shown.text.endsWith("…") && shown.text.length < long.length)
+    }
+
     @Test fun noteWithoutTextOrCompanionDrawsNothing() = assertTrue(scene(note(emptyList())).prims.isEmpty())
 
     @Test fun deletedTextIsNotDrawn() {

@@ -68,6 +68,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     private var editingBlock: String? = null
     private var editorBottom = 0f
     private var textSnapshot: dev.syncr.core.NoteSnapshot? = null
+    private var titleDisplay: TitleDisplay? = null
 
     /**
      * Starts typing in block [draft] (the note's document when it has no ID). Like Obsidian's reading view, the page is
@@ -95,7 +96,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         startedOnNewLine = placed?.third == true
         textInput.begin(placed?.first ?: value, rect, sheetTap, dev.syncr.prototype.editor.EditorExtras(extras?.first.orEmpty(), extras?.second.orEmpty()), dark, placed?.second)
         lastTextTap = null; caretWish = null
-        text.show(textSnapshot, dark, editingBlock)
+        text.show(textSnapshot, dark, editingBlock, titleDisplay)
     }
 
     /** Zooms so the text column fills the width with a 16 dp gutter when body text would be under 15 sp (§5.3). */
@@ -125,7 +126,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         onContent(ContentTarget("", false))
     }
 
-    fun endTextEditing() { if (textInput.active) lastCaret = textInput.current().end; textInput.end(); editingBlock = null; editorBottom = 0f; textSnapshot?.let { text.show(it, dark, null) }
+    fun endTextEditing() { if (textInput.active) lastCaret = textInput.current().end; textInput.end(); editingBlock = null; editorBottom = 0f; textSnapshot?.let { text.show(it, dark, null, titleDisplay) }
         viewport.setLayout(CanvasLayout(maxOf(scene.lowestInk(), textBottom))) }
     fun setTextEditingEnabled(enabled: Boolean) = textInput.setEnabled(enabled)
 
@@ -298,15 +299,24 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         if (noteId != scene.noteId) startNote(noteId)
         dark = night
         textSnapshot = state.snapshot
+        titleDisplay = state.snapshot?.let { snap -> titleDisplayOf(snap.title, snap.notebook, state.notes.firstOrNull { it.id == snap.noteId }?.modifiedAtMs) }
         scene.load(state)
         selection.dropIfStale()
         viewport.setLayout(CanvasLayout(maxOf(scene.lowestInk(), textBottom, editorBottom)))
         text.penBusy = { activePointer != -1 || android.os.SystemClock.uptimeMillis() - lastPenUp < dev.syncr.prototype.ui.theme.Motion.PEN_QUIET_MS }
         text.reduced = runCatching { dev.syncr.prototype.ui.theme.Motion.reducedMotion(context) }.getOrDefault(false)
         text.cellUnits = dev.syncr.prototype.stipple.Stipple.cellUnits(viewport.mapping?.scale ?: 1f, density)
-        text.show(state.snapshot, night, editingBlock)
+        text.show(state.snapshot, night, editingBlock, titleDisplay)
         dry.show(scene.previews, night)
         invalidate()
+    }
+
+    /** The title band's words: the stamp title humanised, and "Notebook · Edited ..." under it. */
+    private fun titleDisplayOf(title: String, notebook: String?, editedMs: Long?): TitleDisplay {
+        val now = System.currentTimeMillis()
+        val h24 = android.text.format.DateFormat.is24HourFormat(context)
+        val edited = editedMs?.let { "Edited " + dev.syncr.prototype.ui.friendlyTime(it, now, h24) }
+        return TitleDisplay(dev.syncr.prototype.ui.displayTitle(title, now, h24), listOfNotNull(notebook ?: "Inbox", edited).joinToString(" · "))
     }
 
     /** Back to the phone column. Ignored while the pen is down. */

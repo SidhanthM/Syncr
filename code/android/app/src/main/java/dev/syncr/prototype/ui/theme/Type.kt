@@ -24,6 +24,10 @@ data class SyncrType(
     val label: TextStyle,
     /** Dates, hints and details. */
     val caption: TextStyle,
+    /** A note's title on a card, a row or the floating chip: display-leaning, tightly tracked. */
+    val noteTitle: TextStyle = TextStyle(fontSize = 16.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.3).sp),
+    /** The quiet line under a note's title (notebook, when), set in capitals by the caller. */
+    val meta: TextStyle = TextStyle(fontSize = 11.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.8.sp),
 )
 
 internal val SyncrTypeScale = SyncrType(
