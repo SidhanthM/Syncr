@@ -51,6 +51,23 @@ interface NoteSource {
      * note, or rebases the note onto it when the merge rejects operations. Blocking; the caller deletes [file] after.
      */
     fun applyCopy(id: String, file: File): CopyOutcome = CopyOutcome.Refused("not supported")
+
+    /** Delta sync: the newest operation ID per author (author to ID) this phone holds for [id], or null when it has no such note. Blocking. */
+    fun heads(id: String): Map<String, String>? = null
+
+    /**
+     * Delta sync: writes into [dest] only the operations of [id] that a peer holding [base] (author to newest ID) lacks. The
+     * exported sequence, or null when a delta cannot or should not be used (unknown note, no common ground, no smaller than
+     * a copy): the caller sends a whole copy then. Blocking.
+     */
+    fun exportDelta(id: String, base: Map<String, String>, dest: File): Long? = null
+
+    /**
+     * Delta sync: merges the verified delta [file] for note [id]. [CopyOutcome.Applied.how] is `delta` when it applied
+     * cleanly and left nothing missing, `delta-short` when it did not (rejected operations, or fewer operations from some
+     * author than the sender has): the caller then asks for a whole copy. Blocking; the caller deletes [file] after.
+     */
+    fun applyDelta(id: String, file: File): CopyOutcome = CopyOutcome.Refused("not supported")
 }
 
 /** A note's operation set: how many operations and the SHA-256 hex over their sorted IDs. */

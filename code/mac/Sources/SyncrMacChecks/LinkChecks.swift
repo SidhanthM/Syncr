@@ -222,6 +222,8 @@ private final class SessionRig: LinkSessionHost, @unchecked Sendable {
     var notesSeen: [[NoteAnnounce]] = []
     var trashSeen: [[String]?] = []
     var exportRequests: [String] = []
+    var exportBases: [[String: String]?] = []
+    var headsAnswer: [String: String] = [:]
     var exportAnswer: (String) -> ExportOutcome = { _ in .refused("none") }
     var haveSeen: [(String, String)] = []
     var haveDiffers = false
@@ -265,14 +267,14 @@ private final class SessionRig: LinkSessionHost, @unchecked Sendable {
     func feed(_ c: LinkControl) { session.receive(.control(c), at: now) }
     func feed(_ f: LinkFrame) { session.receive(f, at: now) }
     func tick(after seconds: Double) { now += UInt64(seconds * 1e9); session.tick(atNs: now) }
-    func hello(token: String? = nil, v: Int = 0, device: String? = "Galaxy S23 Ultra") {
-        feed(.hello(v: v, device: device, phoneId: phoneId, token: token))
+    func hello(token: String? = nil, v: Int = 0, device: String? = "Galaxy S23 Ultra", delta: Bool = false) {
+        feed(.hello(v: v, device: device, phoneId: phoneId, token: token, delta: delta))
     }
     func clearSent() { sent = Data() }
 
     /// Pairs and welcomes through the normal path. Returns the token.
-    @discardableResult func welcome(v: Int = 0) throws -> String {
-        hello(v: v)
+    @discardableResult func welcome(v: Int = 0, delta: Bool = false) throws -> String {
+        hello(v: v, delta: delta)
         let code = codes.last?.code ?? ""
         feed(.code(code))
         guard case .paired(let token)? = controls.first(where: { if case .paired = $0 { true } else { false } }) else {
@@ -286,7 +288,8 @@ private final class SessionRig: LinkSessionHost, @unchecked Sendable {
     func sessionCodeEnded(_ session: LinkSession) { codeEnds += 1 }
     func sessionWelcomed(_ session: LinkSession) { events.append("welcomed") }
     func sessionNotes(_ session: LinkSession, notes: [NoteAnnounce], trash: [String]?, reply: @escaping @Sendable ([String]) -> Void) { notesSeen.append(notes); trashSeen.append(trash); reply(wantAnswer(notes)) }
-    func sessionExport(_ session: LinkSession, id: String, reply: @escaping @Sendable (ExportOutcome) -> Void) { exportRequests.append(id); reply(exportAnswer(id)) }
+    func sessionExport(_ session: LinkSession, id: String, base: [String: String]?, reply: @escaping @Sendable (ExportOutcome) -> Void) { exportRequests.append(id); exportBases.append(base); reply(exportAnswer(id)) }
+    func sessionHeads(_ session: LinkSession, id: String, reply: @escaping @Sendable ([String: String]) -> Void) { reply(headsAnswer) }
     func sessionHave(_ session: LinkSession, id: String, digest: String, reply: @escaping @Sendable (Bool) -> Void) { haveSeen.append((id, digest)); reply(haveDiffers) }
     func sessionInstall(_ session: LinkSession, offer: FileOffer, file: URL, reply: @escaping @Sendable (InstallOutcome) -> Void) {
         installed.append((offer, (try? Data(contentsOf: file).count) ?? -1))
@@ -413,6 +416,119 @@ private func pairingChecks() throws {
     // Codes and tokens are random.
     try check(Set((0..<40).map { _ in PairedPhoneStore.newToken() }).count == 40 && Set((0..<200).map { _ in PairedPhoneStore.newCode() }).count > 100, "random codes and tokens")
     try check(PairedPhoneStore.sameToken("ab", "ab") && !PairedPhoneStore.sameToken("ab", "ac") && !PairedPhoneStore.sameToken("ab", "abc"), "token comparison")
+}
+
+// MARK: - Delta sync (tasks/contracts/sync-delta.md)
+
+private func bytesOf(_ url: URL) -> Int { ((try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? Int) ?? -1 }
+
+@MainActor private func deltaChecks() throws {
+    let heads = ["AUTHOR1": "01M7PEC69Z6M1T1WDDDTS8FRSZ"]
+    // The wire: additions are written only when used, and read back.
+    let hello = try LinkControl.parse(json: Data("{\"t\":\"hello\",\"v\":1,\"device\":\"x\",\"phone_id\":\"0123456789abcdef0123456789abcdef\",\"token\":null,\"delta\":true}".utf8))
+    try check(hello == .hello(v: 1, device: "x", phoneId: "0123456789abcdef0123456789abcdef", token: nil, delta: true), "hello reads delta")
+    try check(dictionary(.hello(v: 1, device: "x", phoneId: "p", token: nil))["delta"] == nil, "hello without delta writes no field")
+    try check(dictionary(.welcome(mac: "m", macId: "i", epoch: 1, v: 1))["delta"] == nil, "welcome without delta writes no field")
+    try check(dictionary(.want(["a"]))["base"] == nil && dictionary(.file(FileOffer(xfer: 1, id: "a", seq: 1, size: 1, sha256: "", chunks: 1)))["delta"] == nil, "want and file without additions are the old messages")
+    for c: LinkControl in [.want(["A1"], base: ["A1": heads]), .file(FileOffer(xfer: 2, id: "A1", seq: 3, size: 756, sha256: String(repeating: "0", count: 64), chunks: 1, delta: true)),
+                           .welcome(mac: "m", macId: "i", epoch: 1, v: 1, delta: true)] {
+        try check(try frames(c.framed()) == [.control(c)], "\(c) round trips")
+    }
+    let hostile = try LinkControl.parse(json: Data("{\"t\":\"want\",\"ids\":[\"A1\"],\"base\":{\"A1\":{\"x\":5},\"bad id\":{\"x\":\"y\"},\"A2\":\"nope\"}}".utf8))
+    try check(hostile == .want(["A1"], base: nil), "a malformed base is dropped, the want stays")
+
+    // The session. A delta phone is asked with what the Mac holds; an old one the old way.
+    let dir = temp(); defer { try? FileManager.default.removeItem(at: dir) }
+    let rig = SessionRig(dir: dir.appendingPathComponent("a"))
+    rig.headsAnswer = heads
+    try rig.welcome(v: 1, delta: true); rig.clearSent()
+    try check(rig.controls.isEmpty && rig.session.peerDelta, "the phone's delta flag is kept")
+    rig.feed(.notes([NoteAnnounce(id: "A1", seq: 5, title: "", digest: String(repeating: "a", count: 64))]))
+    try check(rig.controls == [.want(["A1"], base: ["A1": heads])], "a delta phone is asked with what the Mac holds (\(rig.controls))")
+    let plain = SessionRig(dir: dir.appendingPathComponent("b"))
+    plain.headsAnswer = heads
+    try plain.welcome(v: 1, delta: false); plain.clearSent()
+    plain.feed(.notes([NoteAnnounce(id: "A1", seq: 5, title: "", digest: String(repeating: "a", count: 64))]))
+    try check(plain.controls == [.want(["A1"])], "a phone without delta is asked the old way")
+    let none = SessionRig(dir: dir.appendingPathComponent("c"))
+    try none.welcome(v: 1, delta: true); none.clearSent()
+    none.feed(.notes([NoteAnnounce(id: "A1", seq: 5, title: "", digest: String(repeating: "a", count: 64))]))
+    try check(none.controls == [.want(["A1"])], "nothing held: the whole note is wanted")
+
+    // The Mac answers a want with a delta when the host staged one.
+    let file = dir.appendingPathComponent("d.bin"); try Data(repeating: 7, count: 756).write(to: file)
+    let sha = SHA256.hash(data: Data(repeating: 7, count: 756)).map { String(format: "%02x", $0) }.joined()
+    rig.exportAnswer = { _ in .file(url: file, size: 756, sha256: sha, seq: 9, digest: String(repeating: "c", count: 64), ops: 4, delta: true) }
+    rig.clearSent()
+    rig.feed(.want(["A1"], base: ["A1": heads]))
+    try check(rig.exportBases.last! == heads, "the host is handed what the phone holds")
+    guard case .file(let o)? = rig.controls.first else { throw CheckFailure(description: "no file offer: \(rig.controls)") }
+    try check(o.delta && o.size == 756, "the offer says it is a delta")
+    let old = SessionRig(dir: dir.appendingPathComponent("e"))
+    try old.welcome(v: 1, delta: false); old.clearSent()
+    old.exportAnswer = { _ in .refused("none") }
+    old.feed(.want(["A1"], base: ["A1": heads]))
+    try check(old.exportBases.last! == nil, "a base from a phone that did not say delta is ignored")
+
+    // A delta from the phone: whole is answered with have; short asks for the whole note; refused does too.
+    func receive(_ r: SessionRig, xfer: UInt32, delta: Bool) throws {
+        let f = dir.appendingPathComponent("in-\(xfer).bin"); try Data(repeating: 1, count: 40).write(to: f)
+        let (o, pieces) = try offer(for: f, id: "A1", seq: 3, xfer: xfer)
+        send(r, FileOffer(xfer: o.xfer, id: o.id, seq: o.seq, size: o.size, sha256: o.sha256, chunks: o.chunks, delta: delta), pieces)
+    }
+    rig.installAnswer = { _, _ in .installed(seq: 3, digest: String(repeating: "d", count: 64), ops: 5) }
+    rig.clearSent(); try receive(rig, xfer: 1, delta: true)
+    try check(rig.controls == [.have(id: "A1", seq: 3, digest: String(repeating: "d", count: 64), ops: 5)], "a whole delta is answered with have")
+    rig.installAnswer = { _, _ in .deltaShort }
+    rig.clearSent(); try receive(rig, xfer: 2, delta: true)
+    try check(rig.controls == [.fileError(xfer: 2, id: "A1", reason: "delta short"), .want(["A1"])], "a delta that fell short: no have, the phone's slot is freed, the whole note is asked for with no base (\(rig.controls))")
+    rig.installAnswer = { _, _ in .refused("import: nope") }
+    rig.clearSent(); try receive(rig, xfer: 3, delta: true)
+    try check(rig.controls.contains(.want(["A1"])) && rig.controls.contains { if case .fileError = $0 { true } else { false } }, "a refused delta: file_error, then the whole note is asked for")
+    rig.installAnswer = { _, _ in .installed(seq: 4, digest: String(repeating: "e", count: 64), ops: 6) }
+    rig.clearSent(); try receive(rig, xfer: 4, delta: false)
+    rig.clearSent()
+    rig.feed(.notes([NoteAnnounce(id: "A1", seq: 9, title: "", digest: String(repeating: "b", count: 64))]))
+    try check(rig.controls == [.want(["A1"], base: ["A1": heads])], "a whole copy lifts the whole-note-only rule")
+
+    // The core underneath, on real notes: a phone and the Mac model diverge, and deltas bring them together.
+    let model = LibraryModel(folder: dir.appendingPathComponent("lib"))
+    let phone = try PhoneNote(dir: dir, title: "Shared")
+    let first = try phone.export()
+    _ = try model.importCopy(from: first.file)
+    try phone.addStroke(id: newId(), channels: SampleChannels(x: [1, 2], y: [1, 2], pressure: [0.5, 0.5], elapsedMs: [0, 4], tilt: nil, orientation: nil),
+                        brush: Brush(family: .pen, size: .medium, colour: .ink))
+    try phone.rename("Phone side")
+    // The phone asks the Mac for a delta; the Mac says what it holds.
+    var macHeads: [String: String] = [:]
+    model.syncHeads(phone.noteId) { macHeads = $0 }
+    try pump("heads") { !macHeads.isEmpty }
+    let phoneDelta = dir.appendingPathComponent("phone.delta")
+    let receipt = try phone.note.exportDelta(heads: macHeads.map { AuthorHead(authorId: $0.key, newestId: $0.value) }, destinationPath: phoneDelta.path)
+    try check(receipt.anchored && receipt.operations == 2, "the phone's delta holds its two new operations (\(receipt))")
+    var merged: Result<SyncResult, Error>?
+    model.syncIncomingDelta(file: phoneDelta, noteId: phone.noteId, phone: "Test Phone") { merged = $0 }
+    try pump("delta merged") { merged != nil }
+    guard case .success(let r)? = merged else { throw CheckFailure(description: "delta merge failed: \(String(describing: merged))") }
+    try check(r.applied == 2 && r.rejected == 0 && !r.short, "the Mac took both operations (\(r))")
+    try check(r.digest == (try phone.note.syncDigest().digest), "the digests agree afterwards")
+    // The other way: the Mac's rename comes back to the phone as a delta, and as a copy it is far bigger.
+    try model.renameNote(id: phone.noteId, title: "Mac side")
+    var export: Result<SyncExport, Error>?
+    let phoneHeads = try phone.note.syncHeads().reduce(into: [String: String]()) { $0[$1.authorId] = $1.newestId }
+    model.syncExport(noteId: phone.noteId, base: phoneHeads) { export = $0 }
+    try pump("delta export") { export != nil }
+    guard case .success(let e)? = export else { throw CheckFailure(description: "delta export failed") }
+    try check(e.delta, "the Mac exports a delta when the phone says what it holds")
+    let deltaMerge = try phone.note.mergeDelta(deltaPath: e.file.path)
+    try check(deltaMerge.complete && deltaMerge.report.applied == 1 && deltaMerge.report.rejected.isEmpty, "the phone merges the Mac's delta")
+    try check(try phone.note.syncDigest().digest == e.digest, "both sides hold the same operations")
+    var whole: Result<SyncExport, Error>?
+    model.syncExport(noteId: phone.noteId, base: nil) { whole = $0 }
+    try pump("copy export") { whole != nil }
+    guard case .success(let w)? = whole else { throw CheckFailure(description: "copy export failed") }
+    try check(!w.delta && w.size > e.size, "without a base the whole note goes (\(w.size) bytes against \(e.size))")
+    print("delta check: whole copy \(w.size) bytes, delta \(e.size) bytes")
 }
 
 // MARK: - A phone's note, as the phone would export it
@@ -917,7 +1033,7 @@ private func isTarget(_ c: LinkControl, note: String, writable: Bool) -> Bool {
     var token = "", epoch: UInt32 = 0
     try pump("paired and welcome") {
         if case .paired(let t)? = phone.take({ if case .paired = $0 { true } else { false } }) { token = t }
-        if case .welcome(_, _, let e, _)? = phone.take({ if case .welcome = $0 { true } else { false } }) { epoch = e }
+        if case .welcome(_, _, let e, _, _)? = phone.take({ if case .welcome = $0 { true } else { false } }) { epoch = e }
         return !token.isEmpty && epoch != 0
     }
     try check(shownCode == nil, "the code is hidden once paired")
@@ -1200,6 +1316,7 @@ private func padChecks() throws {
     try clockChecks()
     try pairingChecks()
     try syncChecks()
+    try deltaChecks()
     try mirrorChecks()
     try targetChecks()
     try padChecks()

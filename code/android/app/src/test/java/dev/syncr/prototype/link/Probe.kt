@@ -83,6 +83,30 @@ class Probe(private val o: Options, private val print: (String) -> Unit) {
 
         @Synchronized override fun trash(): List<String> = access.listDeletedNotes().map { it.id }
 
+        // ---- delta sync, straight on the core like the app's repository does it ----
+
+        @Synchronized override fun heads(id: String): Map<String, String>? =
+            runCatching { access.noteSyncHeads(id) }.getOrNull()?.associate { it.authorId to it.newestId }
+
+        @Synchronized override fun exportDelta(id: String, base: Map<String, String>, dest: File): Long? {
+            dest.delete()
+            val note = access.openNote(id)
+            return try {
+                val receipt = note.exportDelta(base.map { dev.syncr.core.AuthorHead(it.key, it.value) }, dest.absolutePath)
+                if (receipt.anchored) receipt.exportedLocalSequence.toLong() else null
+            } finally { note.closeDurably() }
+        }
+
+        @Synchronized override fun applyDelta(id: String, file: File): CopyOutcome {
+            if (access.listNotes().none { it.id == id }) return CopyOutcome.Refused("no such note")
+            val note = access.openNote(id)
+            val merged = try { note.mergeDelta(file.absolutePath) } finally { note.closeDurably() }
+            val d = access.noteSyncDigest(id)
+            val seq = access.listNotes().first { it.id == id }.localSequence.toLong()
+            val whole = merged.complete && merged.report.rejected.isEmpty()
+            return CopyOutcome.Applied(seq, NoteDigest(d.digest, d.operationCount.toLong()), if (whole) "delta" else "delta-short", merged.report.rejected.size)
+        }
+
         @Synchronized override fun applyCopy(id: String, file: File): CopyOutcome {
             val path = file.absolutePath
             val how: String

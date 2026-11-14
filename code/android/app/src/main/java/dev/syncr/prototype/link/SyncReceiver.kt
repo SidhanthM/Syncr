@@ -32,6 +32,10 @@ class SyncReceiver(
     }
 
     private var active = false
+    /** The Mac understands deltas: a `want` for a note the phone holds says what it has. */
+    private var delta = false
+    /** Notes whose next request must be for a whole copy, because a delta fell short. */
+    private val fullOnly = HashSet<String>()
     private var generation = 0
     private var inbound: Inbound? = null
     private var applying = false
@@ -43,9 +47,10 @@ class SyncReceiver(
     /** Transfers applied and files refused, for tests and the probe. */
     val applied = ArrayList<Pair<String, CopyOutcome>>()
 
-    fun onWelcome(v1: Boolean) {
+    fun onWelcome(v1: Boolean, delta: Boolean = false) {
         onClosed()
         active = v1
+        this.delta = v1 && delta
         generation++
     }
 
@@ -57,6 +62,7 @@ class SyncReceiver(
         applying = false
         requested.clear()
         held.clear()
+        fullOnly.clear()
     }
 
     // ---- notes from the Mac ----
@@ -97,7 +103,16 @@ class SyncReceiver(
         list += now
         held.remove(note.id)
         requested[note.id] = key
-        scheduler.sendControl(Control.Want(listOf(note.id)))
+        if (!delta || note.id in fullOnly) return scheduler.sendControl(Control.Want(listOf(note.id)))
+        // Say what the phone already holds so the Mac can send just the rest. No answer (no such note) asks for it whole.
+        val mine = generation
+        loop.background {
+            val heads = try { source.heads(note.id) } catch (e: Exception) { log("heads read failed: ${e.javaClass.simpleName}"); null }
+            loop.post {
+                if (mine != generation) return@post
+                scheduler.sendControl(Control.Want(listOf(note.id), heads?.takeIf { it.isNotEmpty() }?.let { mapOf(note.id to it) }))
+            }
+        }
     }
 
     /** Retries requests the loop guard held back, once their minute has passed. */
@@ -153,7 +168,7 @@ class SyncReceiver(
         val id = t.offer.id
         loop.background {
             val outcome = try {
-                source.applyCopy(id, t.file)
+                if (t.offer.delta) source.applyDelta(id, t.file) else source.applyCopy(id, t.file)
             } catch (e: Exception) {
                 CopyOutcome.Refused("${e.javaClass.simpleName}")
             } finally {
@@ -163,6 +178,18 @@ class SyncReceiver(
                 if (mine != generation) return@post
                 applying = false
                 requested.remove(id)
+                if (!t.offer.delta) fullOnly.remove(id)
+                // A delta that fell short (or could not be applied) is never trusted: ask for the whole note.
+                val short = t.offer.delta && (outcome is CopyOutcome.Refused || (outcome as CopyOutcome.Applied).how != "delta")
+                if (short) {
+                    log("delta-short id=$id outcome=${if (outcome is CopyOutcome.Applied) "${outcome.how} rejected=${outcome.rejected}" else "refused"}; asking for the whole note")
+                    fullOnly += id
+                    // Free the sender's transfer slot, or its queue waits behind this one for the whole-note request.
+                    scheduler.sendControl(Control.FileError(t.offer.xfer, id, SyncSender.DELTA_SHORT))
+                    applied += id to outcome
+                    onApplied(id, outcome)
+                    return@post request(NoteMeta(id, 0, ""), force = true)
+                }
                 when (outcome) {
                     is CopyOutcome.Applied -> {
                         log("copy-${outcome.how} id=$id seq=${outcome.seq} rejected=${outcome.rejected}")

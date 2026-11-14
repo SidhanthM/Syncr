@@ -63,7 +63,23 @@ class NotesFixture : NoteSource {
     val notes = ArrayList<NoteMeta>()
     val contents = HashMap<String, ByteArray>()
     var exportSeq = HashMap<String, Long>()
+    /** Delta sync: what [heads] answers, what [exportDelta] writes (a note absent here has no delta), and what [applyDelta] says. */
+    val headsOf = HashMap<String, Map<String, String>>()
+    val deltas = HashMap<String, ByteArray>()
+    val exportedDeltas = ArrayList<Pair<String, Map<String, String>>>()
+    var deltaOutcome: CopyOutcome = CopyOutcome.Applied(1, NoteDigest("0".repeat(64), 1), "delta")
+    val deltasApplied = ArrayList<Pair<String, Long>>()
+    val copiesApplied = ArrayList<String>()
     override fun list() = notes.toList()
+    override fun heads(id: String) = headsOf[id]
+    override fun exportDelta(id: String, base: Map<String, String>, dest: File): Long? {
+        exportedDeltas += id to base
+        val bytes = deltas[id] ?: return null
+        dest.writeBytes(bytes)
+        return notes.first { it.id == id }.seq
+    }
+    override fun applyDelta(id: String, file: File): CopyOutcome { deltasApplied += id to file.length(); return deltaOutcome }
+    override fun applyCopy(id: String, file: File): CopyOutcome { copiesApplied += id; return CopyOutcome.Applied(1, NoteDigest("1".repeat(64), 2), "merged") }
     override fun exportCopy(id: String, dest: File): Long? {
         val bytes = contents[id] ?: return null
         dest.writeBytes(bytes)
@@ -110,6 +126,9 @@ class SessionHarness(
     fun mac(c: Control) = session.onControl(c)
 
     fun welcome(epoch: Long = 7) = mac(Control.Welcome(0, "Test Mac", MAC_ID, epoch))
+
+    /** A Mac at link v1 that understands deltas. */
+    fun welcomeV1(epoch: Long = 7, delta: Boolean = true) = mac(Control.Welcome(1, "Test Mac", MAC_ID, epoch, delta))
 
     fun cleanup() { temp.deleteRecursively() }
 }

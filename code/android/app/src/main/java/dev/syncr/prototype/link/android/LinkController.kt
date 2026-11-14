@@ -274,6 +274,21 @@ class LinkController private constructor(private val app: Application) {
                 val repo = repo ?: return emptyMap()
                 return runBlocking { repo.syncDigests(ids) }.mapValues { NoteDigest(it.value.digest, it.value.operationCount.toLong()) }
             }
+            override fun heads(id: String): Map<String, String>? = repo?.let { runBlocking { it.syncHeads(id) } }
+            override fun exportDelta(id: String, base: Map<String, String>, dest: File): Long? {
+                val repo = repo ?: return null
+                dest.delete()
+                return runBlocking { repo.exportDelta(id, base, dest.absolutePath) }
+            }
+            override fun applyDelta(id: String, file: File): CopyOutcome {
+                val repo = repo ?: return CopyOutcome.Refused("notes are not open")
+                return try {
+                    val r = runBlocking { repo.applyDelta(id, file.absolutePath) }
+                    CopyOutcome.Applied(r.seq, NoteDigest(r.digest, r.operationCount), r.how, r.rejected)
+                } catch (e: Exception) {
+                    CopyOutcome.Refused((e.message ?: e.javaClass.simpleName).take(150))
+                }
+            }
             override fun trash(): List<String> = repo?.let { runBlocking { it.trashIds() } } ?: emptyList()
             override fun applyCopy(id: String, file: File): CopyOutcome {
                 val repo = repo ?: return CopyOutcome.Refused("notes are not open")

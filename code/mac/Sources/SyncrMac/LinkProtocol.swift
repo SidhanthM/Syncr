@@ -50,6 +50,8 @@ struct FileOffer: Equatable, Sendable {
     var size: UInt64
     var sha256: String
     var chunks: UInt32
+    /// The file holds only operations (tasks/contracts/sync-delta.md), not a whole note.
+    var delta: Bool = false
 }
 
 struct TargetInfo: Equatable, Sendable {
@@ -79,9 +81,10 @@ struct PointerPacket: Equatable, Sendable {
 
 /// One control message (`t` field). `unknown` keeps the name so it can be logged and ignored.
 enum LinkControl: Equatable, Sendable {
-    case hello(v: Int, device: String?, phoneId: String?, token: String?)
+    /// `delta`: this side can send and merge deltas. Written only when true.
+    case hello(v: Int, device: String?, phoneId: String?, token: String?, delta: Bool = false)
     /// `v` is the version this connection runs at: the phone's, when it is older than the Mac's (a v0 phone refuses any other).
-    case welcome(mac: String, macId: String, epoch: UInt32, v: Int = LinkLimits.version)
+    case welcome(mac: String, macId: String, epoch: UInt32, v: Int = LinkLimits.version, delta: Bool = false)
     case pair
     case code(String)
     case paired(token: String)
@@ -91,7 +94,8 @@ enum LinkControl: Equatable, Sendable {
     case pong(id: UInt64, at: UInt64, now: UInt64)
     /// `trash` (v1 phones): IDs in the sender's Recently deleted, never wanted from or pushed to it.
     case notes([NoteAnnounce], trash: [String]? = nil)
-    case want([String])
+    /// `base` (delta peers): per wanted note, the newest operation ID the asker holds from each author (author to ID).
+    case want([String], base: [String: [String: String]]? = nil)
     case file(FileOffer)
     case fileEnd(xfer: UInt32)
     /// `digest` and `ops` (v1 peers): the sender's operation set after installing.
@@ -117,9 +121,14 @@ enum LinkControl: Equatable, Sendable {
 
     var object: [String: Any] {
         switch self {
-        case .hello(let v, let device, let phoneId, let token):
-            return ["t": "hello", "v": v, "device": device ?? "", "phone_id": phoneId ?? "", "token": token.map { $0 as Any } ?? NSNull()]
-        case .welcome(let mac, let macId, let epoch, let v): return ["t": "welcome", "v": v, "mac": mac, "mac_id": macId, "epoch": epoch]
+        case .hello(let v, let device, let phoneId, let token, let delta):
+            var o: [String: Any] = ["t": "hello", "v": v, "device": device ?? "", "phone_id": phoneId ?? "", "token": token.map { $0 as Any } ?? NSNull()]
+            if delta { o["delta"] = true }
+            return o
+        case .welcome(let mac, let macId, let epoch, let v, let delta):
+            var o: [String: Any] = ["t": "welcome", "v": v, "mac": mac, "mac_id": macId, "epoch": epoch]
+            if delta { o["delta"] = true }
+            return o
         case .pair: return ["t": "pair"]
         case .code(let code): return ["t": "code", "code": code]
         case .paired(let token): return ["t": "paired", "token": token]
@@ -136,8 +145,14 @@ enum LinkControl: Equatable, Sendable {
             }]
             if let trash { o["trash"] = trash }
             return o
-        case .want(let ids): return ["t": "want", "ids": ids]
-        case .file(let o): return ["t": "file", "xfer": o.xfer, "id": o.id, "seq": o.seq, "size": o.size, "sha256": o.sha256, "chunks": o.chunks]
+        case .want(let ids, let base):
+            var o: [String: Any] = ["t": "want", "ids": ids]
+            if let base, !base.isEmpty { o["base"] = base }
+            return o
+        case .file(let f):
+            var o: [String: Any] = ["t": "file", "xfer": f.xfer, "id": f.id, "seq": f.seq, "size": f.size, "sha256": f.sha256, "chunks": f.chunks]
+            if f.delta { o["delta"] = true }
+            return o
         case .fileEnd(let xfer): return ["t": "file_end", "xfer": xfer]
         case .have(let id, let seq, let digest, let ops):
             var o: [String: Any] = ["t": "have", "id": id, "seq": seq]
@@ -222,8 +237,10 @@ enum LinkControl: Equatable, Sendable {
             return .pointer(PointerPacket(seq: seq, dx: dx, dy: dy, sx: sx, sy: sy, buttons: Int(buttons), click: Int(click), scrollEnd: obj["se"] as? Bool ?? false))
         case "hello":
             guard let v = obj["v"].flatMap(integer), let version = Int(exactly: v) else { throw bad("v is not an integer") }
-            return .hello(v: version, device: obj["device"] as? String, phoneId: obj["phone_id"] as? String, token: try optionalString("token"))
-        case "welcome": return .welcome(mac: try string("mac"), macId: try string("mac_id"), epoch: try u32("epoch"), v: obj["v"].flatMap(integer).flatMap { Int(exactly: $0) } ?? 0)
+            return .hello(v: version, device: obj["device"] as? String, phoneId: obj["phone_id"] as? String, token: try optionalString("token"),
+                          delta: obj["delta"] as? Bool == true)
+        case "welcome": return .welcome(mac: try string("mac"), macId: try string("mac_id"), epoch: try u32("epoch"), v: obj["v"].flatMap(integer).flatMap { Int(exactly: $0) } ?? 0,
+                                        delta: obj["delta"] as? Bool == true)
         case "pair": return .pair
         case "code": return .code(try string("code"))
         case "paired": return .paired(token: try string("token"))
@@ -243,10 +260,10 @@ enum LinkControl: Equatable, Sendable {
             return .notes(entries, trash: trash)
         case "want":
             guard let ids = obj["ids"] as? [Any] else { throw bad("ids is not an array") }
-            return .want(ids.compactMap { $0 as? String })
+            return .want(ids.compactMap { $0 as? String }, base: Self.base(obj["base"]))
         case "file":
             return .file(FileOffer(xfer: try u32("xfer"), id: try string("id"), seq: try uint("seq"), size: try uint("size"),
-                                   sha256: try string("sha256"), chunks: try u32("chunks")))
+                                   sha256: try string("sha256"), chunks: try u32("chunks"), delta: obj["delta"] as? Bool == true))
         case "file_end": return .fileEnd(xfer: try u32("xfer"))
         case "have": return .have(id: try string("id"), seq: try uint("seq"), digest: Self.digest(obj["digest"]), ops: integer(obj["ops"]))
         case "file_error": return .fileError(xfer: try u32("xfer"), id: try string("id"), reason: (obj["reason"] as? String) ?? "")
@@ -294,6 +311,23 @@ enum LinkControl: Equatable, Sendable {
     }
 
     /// A JSON number that is a non-negative integer (not a boolean, not fractional), else nil.
+    /// `base` of a `want`: note ID to author to newest operation ID. An addition is never worth closing the link for: a
+    /// malformed entry is dropped (the answer is then a whole copy) and entries past the limits are ignored.
+    private static func base(_ any: Any?) -> [String: [String: String]]? {
+        guard let raw = any as? [String: Any] else { return nil }
+        var out: [String: [String: String]] = [:]
+        for (note, heads) in raw.prefix(5_000) {
+            guard LinkIds.valid(note), let heads = heads as? [String: Any], heads.count <= 64 else { continue }
+            var entry: [String: String] = [:]
+            for (author, newest) in heads {
+                guard author.count <= 64, let newest = newest as? String, newest.count <= 64 else { entry = [:]; break }
+                entry[author] = newest
+            }
+            if !entry.isEmpty { out[note] = entry }
+        }
+        return out.isEmpty ? nil : out
+    }
+
     private static func integer(_ any: Any?) -> UInt64? {
         guard let n = any as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() else { return nil }
         let d = n.doubleValue

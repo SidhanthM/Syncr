@@ -16,6 +16,8 @@ struct SyncResult: Sendable, Equatable {
     var seq: UInt64
     var digest: String
     var ops: UInt64
+    /// A delta that left the note holding fewer operations from some author than the phone has: ask for the whole note.
+    var short: Bool = false
 }
 
 /// A copy of a note staged for sending to the phone.
@@ -26,6 +28,8 @@ struct SyncExport: Sendable {
     var seq: UInt64
     var digest: String
     var ops: UInt64
+    /// `file` holds only operations (a delta), not a whole note.
+    var delta: Bool = false
 }
 
 enum SyncError: Error, LocalizedError {
@@ -57,6 +61,16 @@ extension LibraryModel {
             var out: [String: SyncDigest] = [:]
             for id in ids { if let d = try? library.noteSyncDigest(noteId: id) { out[id] = d } }
             DispatchQueue.main.async { MainActor.assumeIsolated { completion(out) } }
+        }
+    }
+
+    /// The newest operation ID per author the Mac holds for a note, read on the worker queue. Empty when it has none.
+    func syncHeads(_ id: String, completion: @escaping @MainActor ([String: String]) -> Void) {
+        guard let library else { completion([:]); return }
+        worker.async {
+            let heads = (try? library.noteSyncHeads(noteId: id)) ?? []
+            let map = Dictionary(heads.map { ($0.authorId, $0.newestId) }, uniquingKeysWith: { max($0, $1) })
+            DispatchQueue.main.async { MainActor.assumeIsolated { completion(map) } }
         }
     }
 
@@ -115,6 +129,35 @@ extension LibraryModel {
         }
     }
 
+    /// A verified delta from the phone is staged at `file`: merge it into the note. The note must exist and be live; a delta
+    /// never installs. `short` in the result means ask the phone for the whole note.
+    func syncIncomingDelta(file: URL, noteId: String, phone: String, completion: @escaping @MainActor (Result<SyncResult, Error>) -> Void) {
+        guard let library else { completion(.failure(SyncError.unavailable)); return }
+        if deleted.contains(where: { $0.id == noteId }) { completion(.failure(SyncError.deletedNote)); return }
+        guard liveIds.contains(noteId) else { completion(.failure(SyncError.unavailable)); return }
+        let conflicts = conflictsFolder
+        worker.async { [weak self] in
+            let result = Result { () -> SyncResult in
+                let note = try library.openNote(noteId: noteId)
+                defer { try? note.closeNote() }
+                let merged = try note.mergeDelta(deltaPath: file.path)
+                Self.saveConflicts(merged.report.rejected, noteId: noteId, phone: phone, into: conflicts)
+                let d = try note.syncDigest()
+                return SyncResult(installed: false, applied: Int(merged.report.applied), duplicates: Int(merged.report.duplicates),
+                                  rejected: merged.report.rejected.count, seq: try note.snapshot().localSequence, digest: d.digest,
+                                  ops: d.operationCount, short: !merged.complete)
+            }
+            DispatchQueue.main.async { MainActor.assumeIsolated {
+                guard let self else { return }
+                if case .success(let r) = result {
+                    _ = try? self.refresh()
+                    if r.applied > 0 { self.onCommit?(noteId) }
+                }
+                completion(result)
+            } }
+        }
+    }
+
     /// Merges a copy into a note the Mac has, synchronously (menu import). Returns the report.
     @discardableResult func mergeSynchronously(copy: URL, noteId: String) throws -> SyncResult {
         let library = try requireLibraryForSync()
@@ -153,24 +196,33 @@ extension LibraryModel {
     }
 
     /// A staged copy of a note for the phone: exported on the worker queue, hashed on the import queue.
-    func syncExport(noteId: String, completion: @escaping @MainActor (Result<SyncExport, Error>) -> Void) {
+    /// With `base` (the newest operation the phone holds per author) only the operations newer than it are exported, when the
+    /// core finds that smaller than the note; otherwise, and without `base`, the whole note.
+    func syncExport(noteId: String, base: [String: String]? = nil, completion: @escaping @MainActor (Result<SyncExport, Error>) -> Void) {
         guard let library else { completion(.failure(SyncError.unavailable)); return }
         let outgoing = outgoingFolder
         worker.async { [importQueue] in
-            let exported = Result { () -> (URL, UInt64, SyncDigest) in
+            let exported = Result { () -> (URL, UInt64, SyncDigest, Bool) in
                 try FileManager.default.createDirectory(at: outgoing, withIntermediateDirectories: true)
                 let file = outgoing.appendingPathComponent("\(noteId)-\(UUID().uuidString).syncr")
                 let note = try library.openNote(noteId: noteId)
                 defer { try? note.closeNote() }
+                if let base, !base.isEmpty {
+                    let heads = base.map { AuthorHead(authorId: $0.key, newestId: $0.value) }
+                    if let receipt = try? note.exportDelta(heads: heads, destinationPath: file.path), receipt.anchored {
+                        return (file, receipt.exportedLocalSequence, try note.syncDigest(), true)
+                    }
+                    try? FileManager.default.removeItem(at: file)
+                }
                 let receipt = try note.exportCopy(destinationPath: file.path)
-                return (file, receipt.exportedLocalSequence, try note.syncDigest())
+                return (file, receipt.exportedLocalSequence, try note.syncDigest(), false)
             }
             importQueue.async {
                 let result = Result { () -> SyncExport in
-                    let (file, seq, digest) = try exported.get()
+                    let (file, seq, digest, delta) = try exported.get()
                     do {
                         let (size, sha) = try Self.hashFile(file)
-                        return SyncExport(file: file, size: size, sha256: sha, seq: seq, digest: digest.digest, ops: digest.operationCount)
+                        return SyncExport(file: file, size: size, sha256: sha, seq: seq, digest: digest.digest, ops: digest.operationCount, delta: delta)
                     } catch { try? FileManager.default.removeItem(at: file); throw error }
                 }
                 DispatchQueue.main.async { MainActor.assumeIsolated { completion(result) } }

@@ -19,12 +19,21 @@ sealed class Control {
         return ByteArray(1 + body.size).also { it[0] = Wire.KIND_CONTROL.toByte(); System.arraycopy(body, 0, it, 1, body.size) }
     }
 
-    data class Hello(val device: String, val phoneId: String, val token: String?, val v: Int = VERSION) : Control() {
-        override fun json() = mapOf("t" to "hello", "v" to v, "device" to device, "phone_id" to phoneId, "token" to token)
+    /** [delta]: this side can send and merge deltas (sync-delta.md). Written only when true, so an older peer sees the old message. */
+    data class Hello(val device: String, val phoneId: String, val token: String?, val v: Int = VERSION, val delta: Boolean = false) : Control() {
+        override fun json(): Map<String, Any?> {
+            val m = linkedMapOf<String, Any?>("t" to "hello", "v" to v, "device" to device, "phone_id" to phoneId, "token" to token)
+            if (delta) m["delta"] = true
+            return m
+        }
     }
 
-    data class Welcome(val v: Int, val mac: String, val macId: String, val epoch: Long) : Control() {
-        override fun json() = mapOf("t" to "welcome", "v" to v, "mac" to mac, "mac_id" to macId, "epoch" to epoch)
+    data class Welcome(val v: Int, val mac: String, val macId: String, val epoch: Long, val delta: Boolean = false) : Control() {
+        override fun json(): Map<String, Any?> {
+            val m = linkedMapOf<String, Any?>("t" to "welcome", "v" to v, "mac" to mac, "mac_id" to macId, "epoch" to epoch)
+            if (delta) m["delta"] = true
+            return m
+        }
     }
 
     data object PairRequest : Control() {
@@ -69,12 +78,25 @@ sealed class Control {
         }
     }
 
-    data class Want(val ids: List<String>) : Control() {
-        override fun json() = mapOf("t" to "want", "ids" to ids)
+    /**
+     * [base] (delta peers): per wanted note, the newest operation ID the asker holds from each author (author to ID). The
+     * sender answers with just what is newer, as a delta file, or with a whole copy when it cannot.
+     */
+    data class Want(val ids: List<String>, val base: Map<String, Map<String, String>>? = null) : Control() {
+        override fun json(): Map<String, Any?> {
+            val m = linkedMapOf<String, Any?>("t" to "want", "ids" to ids)
+            if (!base.isNullOrEmpty()) m["base"] = base
+            return m
+        }
     }
 
-    data class File(val xfer: Long, val id: String, val seq: Long, val size: Long, val sha256: String, val chunks: Long) : Control() {
-        override fun json() = mapOf("t" to "file", "xfer" to xfer, "id" to id, "seq" to seq, "size" to size, "sha256" to sha256, "chunks" to chunks)
+    /** [delta]: the file holds only operations (sync-delta.md), not a whole note. */
+    data class File(val xfer: Long, val id: String, val seq: Long, val size: Long, val sha256: String, val chunks: Long, val delta: Boolean = false) : Control() {
+        override fun json(): Map<String, Any?> {
+            val m = linkedMapOf<String, Any?>("t" to "file", "xfer" to xfer, "id" to id, "seq" to seq, "size" to size, "sha256" to sha256, "chunks" to chunks)
+            if (delta) m["delta"] = true
+            return m
+        }
     }
 
     data class FileEnd(val xfer: Long) : Control() {
@@ -154,6 +176,7 @@ sealed class Control {
         const val OLDEST = 0
         private const val MAX_STRING = 1024
         private const val MAX_LIST = 5000
+        private const val MAX_AUTHORS = 64
 
         private fun rect(r: CanvasRect): Map<String, Any?> = linkedMapOf("x" to r.x, "y" to r.y, "w" to r.w, "h" to r.h)
 
@@ -163,8 +186,8 @@ sealed class Control {
             val root = Json.parse(message, 1) as? Map<*, *> ?: throw LinkProtocolException("control message is not an object")
             val m = Fields(root)
             return when (m.str("t")) {
-                "hello" -> Hello(m.str("device", 256), m.id("phone_id"), m.optStr("token", 128), m.int("v").toInt())
-                "welcome" -> Welcome(m.int("v").toInt(), m.str("mac", 256), m.id("mac_id"), m.u32("epoch"))
+                "hello" -> Hello(m.str("device", 256), m.id("phone_id"), m.optStr("token", 128), m.int("v").toInt(), m.flag("delta"))
+                "welcome" -> Welcome(m.int("v").toInt(), m.str("mac", 256), m.id("mac_id"), m.u32("epoch"), m.flag("delta"))
                 "pair" -> PairRequest
                 "code" -> Code(m.str("code", 16))
                 "paired" -> Paired(m.str("token", 128))
@@ -176,8 +199,8 @@ sealed class Control {
                     val e = Fields(entry as? Map<*, *> ?: throw LinkProtocolException("note entry is not an object"))
                     NoteMeta(e.id("id"), e.int("seq"), e.str("title", MAX_STRING), e.optDigest("digest"), e.optInt("ops"))
                 }, m.optList("trash")?.map { it as? String ?: throw LinkProtocolException("trash id is not a string") })
-                "want" -> Want(m.list("ids").map { it as? String ?: throw LinkProtocolException("want id is not a string") })
-                "file" -> File(m.u32("xfer"), m.id("id"), m.int("seq"), m.int("size"), m.str("sha256", 64), m.int("chunks"))
+                "want" -> Want(m.list("ids").map { it as? String ?: throw LinkProtocolException("want id is not a string") }, m.optBase())
+                "file" -> File(m.u32("xfer"), m.id("id"), m.int("seq"), m.int("size"), m.str("sha256", 64), m.int("chunks"), m.flag("delta"))
                 "file_end" -> FileEnd(m.u32("xfer"))
                 "have" -> Have(m.id("id"), m.int("seq"), m.optDigest("digest"), m.optInt("ops"))
                 "file_error" -> FileError(m.u32("xfer"), m.str("id", 64), m.str("reason", MAX_STRING))
@@ -219,6 +242,28 @@ sealed class Control {
             val v = map[key] as? String ?: throw LinkProtocolException("field $key is not a string")
             if (v.length > max) throw LinkProtocolException("field $key is too long")
             return v
+        }
+
+        /** An optional capability or marker: true only when the field is the boolean true. */
+        fun flag(key: String): Boolean = map[key] == true
+
+        /**
+         * `base` of a `want`: note ID to author to newest operation ID. An addition is never worth closing the link for: a
+         * malformed one is dropped (the answer is then a whole copy) and entries past the limits are ignored.
+         */
+        fun optBase(): Map<String, Map<String, String>>? {
+            val raw = map["base"] as? Map<*, *> ?: return null
+            val out = LinkedHashMap<String, Map<String, String>>()
+            for ((note, heads) in raw) {
+                if (out.size >= MAX_LIST || note !is String || note.length > 64 || heads !is Map<*, *> || heads.size > MAX_AUTHORS) continue
+                val entry = LinkedHashMap<String, String>()
+                for ((author, newest) in heads) {
+                    if (author !is String || newest !is String || author.length > 64 || newest.length > 64) { entry.clear(); break }
+                    entry[author] = newest
+                }
+                if (entry.isNotEmpty()) out[note] = entry
+            }
+            return out.takeIf { it.isNotEmpty() }
         }
 
         fun optStr(key: String, max: Int): String? = if (map[key] == null) null else str(key, max)

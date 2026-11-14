@@ -1,5 +1,6 @@
 package dev.syncr.prototype.notes
 
+import dev.syncr.core.AuthorHead
 import dev.syncr.core.MergeReport
 import dev.syncr.core.SyncDigest
 
@@ -21,6 +22,36 @@ internal class SyncOperations(private val session: CoreSession, private val edit
         open?.syncDigest() ?: session.library().noteSyncDigest(noteId)
     } catch (_: dev.syncr.core.CoreException.NotFound) {
         null
+    }
+
+    /** The newest operation ID per author of [noteId], through the open handle when it is on screen. Null when the note is gone. */
+    fun heads(noteId: String): List<AuthorHead>? = try {
+        val open = session.note?.takeIf { session.current.snapshot?.noteId == noteId }
+        open?.syncHeads() ?: session.library().noteSyncHeads(noteId)
+    } catch (_: dev.syncr.core.CoreException.NotFound) {
+        null
+    }
+
+    /**
+     * Merges a delta the Mac sent. Only appends operations, never rebases: when it applied cleanly and left the note with
+     * everything the Mac's side holds, [AppliedCopy.how] is `delta`; otherwise `delta-short` and the link asks for a whole copy
+     * (which merges again and, on a conflict, rebases). A note the phone lacks cannot take a delta.
+     */
+    fun applyDelta(noteId: String, path: String): AppliedCopy {
+        val library = session.library()
+        check(library.listNotes().any { it.id == noteId }) { "no such note" }
+        val open = session.note?.takeIf { session.current.snapshot?.noteId == noteId }
+        val merged = if (open != null) {
+            check(!session.current.unsaved) { "the note has unsaved changes" }
+            open.mergeDelta(path).also { editor.refresh() }
+        } else {
+            val side = session.openSide(noteId)
+            val result = try { side.mergeDelta(path) } finally { session.closeSide() }
+            session.reloadLibrary()
+            result
+        }
+        val whole = merged.complete && merged.report.rejected.isEmpty()
+        return applied(noteId, if (whole) "delta" else "delta-short", merged.report.rejected.size)
     }
 
     fun apply(noteId: String, path: String): AppliedCopy {

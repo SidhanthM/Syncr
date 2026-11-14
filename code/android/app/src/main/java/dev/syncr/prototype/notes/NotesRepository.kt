@@ -1,5 +1,6 @@
 package dev.syncr.prototype.notes
 
+import dev.syncr.core.AuthorHead
 import dev.syncr.core.CommandBody
 import dev.syncr.core.CreateNoteRequest
 import dev.syncr.core.newId
@@ -299,6 +300,41 @@ class NotesRepository(
         val out = HashMap<String, SyncDigestInfo>()
         session.background { for (id in ids) sync.digest(id)?.let { out[id] = it } }
         return out
+    }
+
+    /** Delta sync: the newest operation ID per author of [noteId] (author to ID); null when the note is gone. Silent, on the worker. */
+    suspend fun syncHeads(noteId: String): Map<String, String>? {
+        var heads: Map<String, String>? = null
+        session.background { heads = sync.heads(noteId)?.associate { it.authorId to it.newestId } }
+        return heads
+    }
+
+    /**
+     * Delta sync: writes the operations a peer holding [base] lacks into [path], through the open handle or a side handle
+     * like [exportCopy]. The exported sequence, or null when no delta should be sent (no common ground, not smaller than a copy).
+     */
+    suspend fun exportDelta(noteId: String, base: Map<String, String>, path: String): Long? {
+        var sequence: Long? = null
+        session.background {
+            val open = session.note?.takeIf { session.current.snapshot?.noteId == noteId }
+            val handle = open ?: session.openSide(noteId)
+            try {
+                val receipt = handle.exportDelta(base.map { AuthorHead(it.key, it.value) }, path)
+                if (receipt.anchored) sequence = receipt.exportedLocalSequence.toLong()
+            } finally {
+                if (open == null) session.closeSide()
+            }
+        }
+        return sequence
+    }
+
+    /** Delta sync: merges the Mac's delta for [noteId]. Waits a few seconds for the open note's own saves first, like [applyCopy]. */
+    suspend fun applyDelta(noteId: String, path: String): AppliedCopy {
+        var waited = 0
+        while (state.value.unsaved && waited < 50) { kotlinx.coroutines.delay(100); waited++ }
+        var result: Result<AppliedCopy> = Result.failure(IllegalStateException("not run"))
+        session.background { result = runCatching { sync.applyDelta(noteId, path) }.recoverCatching { throw IllegalStateException(diagnostic(it)) } }
+        return result.getOrThrow()
     }
 
     /** Link v1: IDs in Recently deleted, read from the core. */

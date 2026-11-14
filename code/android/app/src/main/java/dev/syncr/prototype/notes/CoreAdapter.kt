@@ -32,6 +32,8 @@ interface LibraryAccess {
     fun rebaseOntoCopy(noteId: String, path: String): MergeReport = throw UnsupportedOperationException("sync")
     /** Link v1 sync: the operation-set digest of a note that may be closed. */
     fun noteSyncDigest(noteId: String): SyncDigest = throw UnsupportedOperationException("sync")
+    /** Delta sync: the newest operation ID per author of a note that may be closed. */
+    fun noteSyncHeads(noteId: String): List<AuthorHead> = throw UnsupportedOperationException("sync")
     fun release()
 }
 interface NoteAccess {
@@ -43,6 +45,9 @@ interface NoteAccess {
     fun export(path: String): ExportReceipt
     fun syncDigest(): SyncDigest = throw UnsupportedOperationException("sync")
     fun mergeCopy(path: String): MergeReport = throw UnsupportedOperationException("sync")
+    fun syncHeads(): List<AuthorHead> = throw UnsupportedOperationException("sync")
+    fun exportDelta(heads: List<AuthorHead>, path: String): DeltaReceipt = throw UnsupportedOperationException("sync")
+    fun mergeDelta(path: String): DeltaMerge = throw UnsupportedOperationException("sync")
     /** Fallible durable close THEN reference release. Never release after a failed close. */
     fun closeDurably()
 }
@@ -68,6 +73,7 @@ class GeneratedCoreAdapter : CoreAdapter {
         override fun installCopy(path: String) = handle.installCopy(path)
         override fun rebaseOntoCopy(noteId: String, path: String) = handle.rebaseOntoCopy(noteId, path)
         override fun noteSyncDigest(noteId: String) = handle.noteSyncDigest(noteId)
+        override fun noteSyncHeads(noteId: String) = handle.noteSyncHeads(noteId)
         override fun release() = handle.close()
     }
     private class GeneratedNote(private val handle: Note) : NoteAccess {
@@ -79,6 +85,9 @@ class GeneratedCoreAdapter : CoreAdapter {
         override fun export(path: String) = handle.exportCopy(path)
         override fun syncDigest() = handle.syncDigest()
         override fun mergeCopy(path: String) = handle.mergeCopy(path)
+        override fun syncHeads() = handle.syncHeads()
+        override fun exportDelta(heads: List<AuthorHead>, path: String) = handle.exportDelta(heads, path)
+        override fun mergeDelta(path: String) = handle.mergeDelta(path)
         override fun closeDurably() { handle.closeNote(); handle.close() }
     }
 }

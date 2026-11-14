@@ -60,7 +60,7 @@ class LinkSession(
         // A stored token goes only to the Mac it was issued by; a Mac that is not known yet gets a chance to say so.
         val stored = store.pairing()?.takeIf { target.macId == null || it.macId == target.macId }
         sentToken = stored?.token
-        scheduler.sendControl(Control.Hello(device, store.phoneId(), stored?.token, version))
+        scheduler.sendControl(Control.Hello(device, store.phoneId(), stored?.token, version, delta = true))
         events.status(SessionStatus(Phase.CONNECTING, stored?.macName ?: target.name))
     }
 
@@ -89,7 +89,7 @@ class LinkSession(
                 val rtt = clock.nowMs() - c.at
                 if (rtt >= 0) latency.roundTrip.add(rtt * 1000)
             }
-            is Control.Want -> if (phase == Phase.CONNECTED) sync.onWant(c.ids)
+            is Control.Want -> if (phase == Phase.CONNECTED) sync.onWant(c.ids, c.base)
             is Control.Have -> if (phase == Phase.CONNECTED) { sync.onHave(c.id, c.seq); sync.receiver.onPeerHave(c.id, c.digest) }
             is Control.Notes -> if (phase == Phase.CONNECTED) sync.receiver.onNotes(c.notes)
             is Control.File -> if (phase == Phase.CONNECTED) sync.receiver.onFile(c)
@@ -130,7 +130,7 @@ class LinkSession(
         feed.enabled = true
         nextPing = clock.nowMs() + PING_MS
         events.status(SessionStatus(Phase.CONNECTED, c.mac))
-        sync.onWelcome(source.list(), openId, minOf(c.v, version))
+        sync.onWelcome(source.list(), openId, minOf(c.v, version), c.delta)
         viewing?.let { scheduler.sendControl(Control.Viewing(it)) }
         if (padOn) { scheduler.sendControl(Control.Pad(true)); sendPadWish() }
     }

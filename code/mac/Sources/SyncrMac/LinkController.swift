@@ -115,8 +115,11 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
         let s = session
         main { $0.install(offer, file: file, from: s, reply: reply) }
     }
-    func sessionExport(_ session: LinkSession, id: String, reply: @escaping @Sendable (ExportOutcome) -> Void) {
-        main { $0.export(id, reply: reply) }
+    func sessionExport(_ session: LinkSession, id: String, base: [String: String]?, reply: @escaping @Sendable (ExportOutcome) -> Void) {
+        main { $0.export(id, base: base, reply: reply) }
+    }
+    func sessionHeads(_ session: LinkSession, id: String, reply: @escaping @Sendable ([String: String]) -> Void) {
+        main { $0.model.syncHeads(id) { reply($0) } }
     }
     func sessionHave(_ session: LinkSession, id: String, digest: String, reply: @escaping @Sendable (Bool) -> Void) {
         main { $0.peerHave(id, digest: digest, reply: reply) }
@@ -466,9 +469,17 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
     /// runs off the main thread, and only the library refresh and the in-place reload run here.
     fileprivate func install(_ offer: FileOffer, file: URL, from session: LinkSession, reply: @escaping @Sendable (InstallOutcome) -> Void) {
         let phone = session.phoneId ?? ""
-        model.syncIncoming(file: file, noteId: offer.id, phone: session.phoneName) { [self] result in
+        let incoming = offer.delta ? model.syncIncomingDelta : model.syncIncoming
+        incoming(file, offer.id, session.phoneName) { [self] result in
             switch result {
             case .success(let r):
+                if offer.delta {
+                    log("link: delta-merged id=\(offer.id) applied=\(r.applied) duplicates=\(r.duplicates) rejected=\(r.rejected) short=\(r.short) seq=\(r.seq)")
+                    if r.rejected > 0 { log("link: sync-conflict note=\(offer.id) rejected=\(r.rejected) saved-in=.mac/sync-conflicts/\(offer.id)") }
+                    if r.applied > 0 { installed(offer.id) }
+                    reply(r.short ? .deltaShort : .installed(seq: r.seq, digest: r.digest, ops: r.ops))
+                    return
+                }
                 if session.peerVersion < 1 { seen[phone, default: [:]][offer.id] = offer.seq; saveSeen() }
                 if r.installed {
                     workspace.libraryChanged()
@@ -493,11 +504,11 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
     }
 
     /// The phone wants a note: stage a copy of it for the session to send.
-    fileprivate func export(_ id: String, reply: @escaping @Sendable (ExportOutcome) -> Void) {
+    fileprivate func export(_ id: String, base: [String: String]?, reply: @escaping @Sendable (ExportOutcome) -> Void) {
         guard model.liveIds.contains(id) else { reply(.refused("no such note")); return }
-        model.syncExport(noteId: id) { result in
+        model.syncExport(noteId: id, base: base) { result in
             switch result {
-            case .success(let e): reply(.file(url: e.file, size: e.size, sha256: e.sha256, seq: e.seq, digest: e.digest, ops: e.ops))
+            case .success(let e): reply(.file(url: e.file, size: e.size, sha256: e.sha256, seq: e.seq, digest: e.digest, ops: e.ops, delta: e.delta))
             case .failure(let error): reply(.refused(error.localizedDescription))
             }
         }

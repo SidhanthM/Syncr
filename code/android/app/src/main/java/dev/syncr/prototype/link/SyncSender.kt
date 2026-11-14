@@ -23,8 +23,10 @@ class SyncSender(
     private val onDelivered: (id: String, seq: Long) -> Unit = { _, _ -> },
     /** Told when the Mac asks for notes. */
     private val onWanted: (List<String>) -> Unit = {},
+    /** Told when a transfer starts: the note, the bytes of its file and whether it is a delta. */
+    private val onSent: (id: String, bytes: Long, delta: Boolean) -> Unit = { _, _, _ -> },
 ) {
-    private class Transfer(val xfer: Long, val id: String, val seq: Long, val file: File, val stream: FileStream) {
+    private class Transfer(val xfer: Long, val id: String, val seq: Long, val file: File, val stream: FileStream, val delta: Boolean = false) {
         var sentAt = 0L
     }
 
@@ -45,6 +47,10 @@ class SyncSender(
     private var generation = 0
     /** The Mac speaks link v1: announcements carry digests and the phone's trash. */
     private var v1 = false
+    /** The Mac understands deltas: its `want` may carry what it already has, and a `file` may be a delta. */
+    private var delta = false
+    /** What the Mac said it holds, per wanted note; used once, so a retry always sends a whole copy. */
+    private val bases = HashMap<String, Map<String, String>>()
 
     /** Transfers the Mac confirmed with `have`, for tests and the probe. */
     val delivered = ArrayList<Pair<String, Long>>()
@@ -52,12 +58,13 @@ class SyncSender(
     val busy get() = preparing || active != null
 
     /** After `welcome`: a clean slate for this connection, then the whole manifest. */
-    fun onWelcome(notes: List<NoteMeta>, open: String?, version: Int = 0) {
+    fun onWelcome(notes: List<NoteMeta>, open: String?, version: Int = 0, delta: Boolean = false) {
         reset()
         connected = true
         v1 = version >= 1
+        this.delta = v1 && delta
         generation++
-        receiver.onWelcome(v1)
+        receiver.onWelcome(v1, this.delta)
         known.clear()
         notes.forEach { known[it.id] = it }
         openId = open
@@ -80,6 +87,7 @@ class SyncSender(
         scheduler.file = null
         preparing = false
         wanted.clear()
+        bases.clear()
         due.clear()
         announced.clear()
         retried.clear()
@@ -177,10 +185,11 @@ class SyncSender(
         if (batch.isNotEmpty()) scheduler.sendControl(Control.Notes(batch))
     }
 
-    fun onWant(ids: List<String>) {
+    fun onWant(ids: List<String>, base: Map<String, Map<String, String>>? = null) {
         onWanted(ids)
         for (id in ids) {
             if (id in known && id !in wanted && active?.id != id) wanted += id
+            if (delta) base?.get(id)?.let { bases[id] = it }
         }
         startNext()
     }
@@ -201,6 +210,8 @@ class SyncSender(
         discard(t)
         active = null
         scheduler.file = null
+        // The receiver is not refusing: it holds the delta and is asking for the whole note, so only free the slot.
+        if (reason.startsWith(DELTA_SHORT)) return startNext()
         if (retried.add(id)) {
             log("transfer ${t.xfer} of $id refused ($reason); retrying once")
             wanted.addFirst(id)
@@ -217,14 +228,18 @@ class SyncSender(
         preparing = true
         val xfer = nextXfer++
         val mine = generation
+        val base = bases.remove(id)
         loop.background {
             var file: File? = null
             var result: Prepared? = null
             try {
                 tempDir.mkdirs()
                 file = File(tempDir, "xfer-$xfer.syncr")
-                val seq = source.exportCopy(id, file)
-                if (seq != null && file.isFile) result = Prepared(seq, file.length(), sha256(file))
+                // Only what the Mac lacks, when it said what it has and a delta is worth it; else the whole note.
+                var asDelta = false
+                var seq = base?.let { source.exportDelta(id, it, file) }
+                if (seq != null && file.isFile) asDelta = true else { file.delete(); seq = source.exportCopy(id, file) }
+                if (seq != null && file.isFile) result = Prepared(seq, file.length(), sha256(file), asDelta)
             } catch (e: Exception) {
                 log("export of $id failed: ${e.javaClass.simpleName}")
             }
@@ -233,7 +248,7 @@ class SyncSender(
         }
     }
 
-    private class Prepared(val seq: Long, val size: Long, val sha256: String)
+    private class Prepared(val seq: Long, val size: Long, val sha256: String, val delta: Boolean)
 
     private fun onPrepared(mine: Int, id: String, xfer: Long, file: File?, result: Prepared?) {
         if (mine != generation || !connected) {
@@ -248,9 +263,10 @@ class SyncSender(
         }
         val chunks = (result.size + Wire.FILE_CHUNK_DATA - 1) / Wire.FILE_CHUNK_DATA
         val stream = FileStream(file, xfer, chunks)
-        scheduler.sendControl(Control.File(xfer, id, result.seq, result.size, result.sha256, chunks))
+        scheduler.sendControl(Control.File(xfer, id, result.seq, result.size, result.sha256, chunks, result.delta))
         scheduler.file = stream
-        active = Transfer(xfer, id, result.seq, file, stream)
+        active = Transfer(xfer, id, result.seq, file, stream, result.delta)
+        onSent(id, result.size, result.delta)
     }
 
     private fun discard(t: Transfer, keepRecord: Boolean = false) {
@@ -274,6 +290,8 @@ class SyncSender(
 
     companion object {
         const val ANNOUNCE_MS = 400L
+        /** `file_error` reason: a delta fell short; the sender is released and the whole note is asked for separately. */
+        const val DELTA_SHORT = "delta short"
         const val ACK_TIMEOUT_MS = 30_000L
         private const val MAX_TITLE = 200
         private const val BATCH_BYTES = 48_000
