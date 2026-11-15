@@ -1,0 +1,504 @@
+{
+ "version": 1,
+ "note": "margin layout (latency-v1.md part L). Offsets are in one caller-chosen unit (the platforms pass UTF-16). Run by core cargo test, Android MarginLayoutTest and the Mac check.",
+ "vectors": [
+  {
+   "name": "desktop_lanes_alternate_and_avoid_overlap",
+   "input": {
+    "policy": "desktop",
+    "column_left": 100,
+    "column_right": 1500,
+    "card_width": 1000,
+    "gap": 140,
+    "lane_top": 240,
+    "spacing": 24,
+    "default_top": 260,
+    "lines": [],
+    "items": [
+     {
+      "id": "a",
+      "kind": "note",
+      "anchor": {
+       "kind": "canvas",
+       "y": 300
+      },
+      "height": 400
+     },
+     {
+      "id": "b",
+      "kind": "note",
+      "anchor": {
+       "kind": "canvas",
+       "y": 300
+      },
+      "height": 200
+     },
+     {
+      "id": "c",
+      "kind": "note",
+      "anchor": {
+       "kind": "canvas",
+       "y": 310
+      },
+      "height": 100
+     }
+    ]
+   },
+   "expected": {
+    "placements": [
+     {
+      "id": "a",
+      "lane": "left",
+      "x": -1040,
+      "y": 300,
+      "width": 1000,
+      "height": 400
+     },
+     {
+      "id": "b",
+      "lane": "right",
+      "x": 1640,
+      "y": 300,
+      "width": 1000,
+      "height": 200
+     },
+     {
+      "id": "c",
+      "lane": "right",
+      "x": 1640,
+      "y": 524,
+      "width": 1000,
+      "height": 100
+     }
+    ],
+    "bottom": 700
+   }
+  },
+  {
+   "name": "phone_keeps_only_the_right_lane",
+   "input": {
+    "policy": "phone",
+    "column_left": 100,
+    "column_right": 1500,
+    "card_width": 1000,
+    "gap": 140,
+    "lane_top": 240,
+    "spacing": 24,
+    "default_top": 260,
+    "lines": [],
+    "items": [
+     {
+      "id": "a",
+      "kind": "note",
+      "anchor": {
+       "kind": "canvas",
+       "y": 300
+      },
+      "height": 400
+     },
+     {
+      "id": "b",
+      "kind": "note",
+      "anchor": {
+       "kind": "canvas",
+       "y": 300
+      },
+      "height": 200
+     },
+     {
+      "id": "c",
+      "kind": "note",
+      "anchor": {
+       "kind": "canvas",
+       "y": 310
+      },
+      "height": 100
+     }
+    ]
+   },
+   "expected": {
+    "placements": [
+     {
+      "id": "a",
+      "lane": "right",
+      "x": 1640,
+      "y": 300,
+      "width": 1000,
+      "height": 400
+     },
+     {
+      "id": "b",
+      "lane": "right",
+      "x": 1640,
+      "y": 724,
+      "width": 1000,
+      "height": 200
+     },
+     {
+      "id": "c",
+      "lane": "right",
+      "x": 1640,
+      "y": 948,
+      "width": 1000,
+      "height": 100
+     }
+    ],
+    "bottom": 1048
+   }
+  },
+  {
+   "name": "text_anchors_attach_to_lines",
+   "input": {
+    "policy": "desktop",
+    "column_left": 100,
+    "column_right": 1500,
+    "card_width": 1000,
+    "gap": 140,
+    "lane_top": 240,
+    "spacing": 24,
+    "default_top": 260,
+    "lines": [
+     {
+      "start": 0,
+      "end": 10,
+      "top": 260
+     },
+     {
+      "start": 10,
+      "end": 20,
+      "top": 342
+     },
+     {
+      "start": 20,
+      "end": 20,
+      "top": 424
+     },
+     {
+      "start": 21,
+      "end": 30,
+      "top": 506
+     }
+    ],
+    "items": [
+     {
+      "id": "n1",
+      "kind": "note",
+      "anchor": {
+       "kind": "text",
+       "offset": 5
+      },
+      "height": 100
+     },
+     {
+      "id": "n2",
+      "kind": "note",
+      "anchor": {
+       "kind": "text",
+       "offset": 10
+      },
+      "height": 100
+     },
+     {
+      "id": "n3",
+      "kind": "note",
+      "anchor": {
+       "kind": "text",
+       "offset": 20
+      },
+      "height": 100
+     },
+     {
+      "id": "n4",
+      "kind": "note",
+      "anchor": {
+       "kind": "text",
+       "offset": 99
+      },
+      "height": 100
+     },
+     {
+      "id": "n5",
+      "kind": "note",
+      "anchor": {
+       "kind": "none"
+      },
+      "height": 100
+     }
+    ]
+   },
+   "expected": {
+    "placements": [
+     {
+      "id": "n1",
+      "lane": "left",
+      "x": -1040,
+      "y": 264,
+      "width": 1000,
+      "height": 100
+     },
+     {
+      "id": "n5",
+      "lane": "right",
+      "x": 1640,
+      "y": 264,
+      "width": 1000,
+      "height": 100
+     },
+     {
+      "id": "n2",
+      "lane": "left",
+      "x": -1040,
+      "y": 388,
+      "width": 1000,
+      "height": 100
+     },
+     {
+      "id": "n3",
+      "lane": "right",
+      "x": 1640,
+      "y": 424,
+      "width": 1000,
+      "height": 100
+     },
+     {
+      "id": "n4",
+      "lane": "left",
+      "x": -1040,
+      "y": 512,
+      "width": 1000,
+      "height": 100
+     }
+    ],
+    "bottom": 612
+   }
+  },
+  {
+   "name": "pictures_follow_notes_in_given_order",
+   "input": {
+    "policy": "desktop",
+    "column_left": 100,
+    "column_right": 1500,
+    "card_width": 1000,
+    "gap": 140,
+    "lane_top": 240,
+    "spacing": 24,
+    "default_top": 260,
+    "lines": [
+     {
+      "start": 0,
+      "end": 10,
+      "top": 260
+     }
+    ],
+    "items": [
+     {
+      "id": "p1",
+      "kind": "picture",
+      "anchor": {
+       "kind": "text",
+       "offset": 0
+      },
+      "height": 300
+     },
+     {
+      "id": "p2",
+      "kind": "picture",
+      "anchor": {
+       "kind": "canvas",
+       "y": 900
+      },
+      "height": 100
+     },
+     {
+      "id": "m",
+      "kind": "note",
+      "anchor": {
+       "kind": "canvas",
+       "y": 1000
+      },
+      "height": 50
+     }
+    ]
+   },
+   "expected": {
+    "placements": [
+     {
+      "id": "m",
+      "lane": "left",
+      "x": -1040,
+      "y": 1000,
+      "width": 1000,
+      "height": 50
+     },
+     {
+      "id": "p1",
+      "lane": "right",
+      "x": 1640,
+      "y": 264,
+      "width": 1000,
+      "height": 300
+     },
+     {
+      "id": "p2",
+      "lane": "right",
+      "x": 1640,
+      "y": 900,
+      "width": 1000,
+      "height": 100
+     }
+    ],
+    "bottom": 1050
+   }
+  },
+  {
+   "name": "fractions_and_negative_left",
+   "input": {
+    "policy": "desktop",
+    "column_left": 100.5,
+    "column_right": 1500.5,
+    "card_width": 1000.25,
+    "gap": 140,
+    "lane_top": 240,
+    "spacing": 24,
+    "default_top": 260,
+    "lines": [],
+    "items": [
+     {
+      "id": "f",
+      "kind": "note",
+      "anchor": {
+       "kind": "canvas",
+       "y": 300.5
+      },
+      "height": 10.25
+     }
+    ]
+   },
+   "expected": {
+    "placements": [
+     {
+      "id": "f",
+      "lane": "left",
+      "x": -1039.75,
+      "y": 300.5,
+      "width": 1000.25,
+      "height": 10.25
+     }
+    ],
+    "bottom": 310.75
+   }
+  },
+  {
+   "name": "no_items",
+   "input": {
+    "policy": "desktop",
+    "column_left": 100,
+    "column_right": 1500,
+    "card_width": 1000,
+    "gap": 140,
+    "lane_top": 240,
+    "spacing": 24,
+    "default_top": 260,
+    "lines": [],
+    "items": []
+   },
+   "expected": {
+    "placements": [],
+    "bottom": 0
+   }
+  },
+  {
+   "name": "narrow_page_on_phone",
+   "input": {
+    "policy": "phone",
+    "column_left": 100,
+    "column_right": 1100,
+    "card_width": 1000,
+    "gap": 140,
+    "lane_top": 240,
+    "spacing": 24,
+    "default_top": 260,
+    "lines": [],
+    "items": [
+     {
+      "id": "x",
+      "kind": "note",
+      "anchor": {
+       "kind": "canvas",
+       "y": 300
+      },
+      "height": 80
+     }
+    ]
+   },
+   "expected": {
+    "placements": [
+     {
+      "id": "x",
+      "lane": "right",
+      "x": 1240,
+      "y": 300,
+      "width": 1000,
+      "height": 80
+     }
+    ],
+    "bottom": 380
+   }
+  },
+  {
+   "name": "equal_tops_sort_by_id",
+   "input": {
+    "policy": "desktop",
+    "column_left": 100,
+    "column_right": 1500,
+    "card_width": 1000,
+    "gap": 140,
+    "lane_top": 240,
+    "spacing": 24,
+    "default_top": 260,
+    "lines": [],
+    "items": [
+     {
+      "id": "b",
+      "kind": "note",
+      "anchor": {
+       "kind": "canvas",
+       "y": 400
+      },
+      "height": 100
+     },
+     {
+      "id": "a",
+      "kind": "note",
+      "anchor": {
+       "kind": "canvas",
+       "y": 400
+      },
+      "height": 100
+     }
+    ]
+   },
+   "expected": {
+    "placements": [
+     {
+      "id": "a",
+      "lane": "left",
+      "x": -1040,
+      "y": 400,
+      "width": 1000,
+      "height": 100
+     },
+     {
+      "id": "b",
+      "lane": "right",
+      "x": 1640,
+      "y": 400,
+      "width": 1000,
+      "height": 100
+     }
+    ],
+    "bottom": 500
+   }
+  }
+ ]
+}

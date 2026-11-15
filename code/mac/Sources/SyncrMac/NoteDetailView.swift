@@ -477,25 +477,23 @@ import SyncrCore
         let lines = DocumentLayout.lines(note: page, width: documentEditor.textWidth)
         func y(_ offset: Int) -> CGFloat { lines.first(where: { NSLocationInRange(offset, $0.range) || $0.range.location == offset })?.rect.minY ?? 260 }
         let byID = Dictionary(uniqueKeysWithValues: items.map { ($0.id,$0) })
-        func passageTop(_ item:CompanionItemView) -> CGFloat {
-            guard case .marginNote(let id,_,_,_,_,_) = item.body, let anchor = byID[id], case .anchor(let target) = anchor.body else { return 260 }
-            switch target { case .text(_,let start,_,_): return y(utf16(start)); case .canvas(_,_,let cy,_,_): return cy }
-        }
-        let margins = items.filter { if case .marginNote = $0.body { return !$0.tombstone && !CompanionStore.isAsk($0) }; return false }.sorted { let a = passageTop($0), b = passageTop($1); return a == b ? $0.id < $1.id : a < b }
+        // The core orders and places the margin cards in one pass (CompanionMarginLayout); here they are only measured and built.
+        let margins = items.filter { if case .marginNote = $0.body { return !$0.tombstone && !CompanionStore.isAsk($0) }; return false }
         // The passage a note answers carries a thin muted underline: the only link between text and margin.
         let whole = NSRange(location: 0, length: documentEditor.textView.string.utf16.count)
         var passages: [NSRange] = []
         defer { documentEditor.textView.passages = passages }
         var marginLayout = CompanionMarginLayout(columnLeft: documentEditor.columnLeft,
             columnRight: documentEditor.columnRight, width: MarginCard.width)
+        var marginViews: [String: (view: NSView, height: CGFloat, fresh: Bool)] = [:]
         for item in margins {
             guard case .marginNote(let a,let kind,let body,let reader,let state,let urls) = item.body, state != .dismissed else { continue }
             let anchor = byID[a].flatMap { $0.tombstone ? nil : $0 }
-            var top: CGFloat = 260, detached = false, range = NSRange(location:0,length:0)
+            var marginAnchor = MarginAnchor.none, detached = false, range = NSRange(location:0,length:0)
             if let anchor, case .anchor(let target) = anchor.body {
                 switch target {
-                case .text(_,let start,let end,let lost): top = y(utf16(start)); detached = lost; range = NSRange(location:utf16(start),length:max(0,utf16(end)-utf16(start)))
-                case .canvas(_,_,let cy,_,_): top = cy
+                case .text(_,let start,let end,let lost): marginAnchor = .text(offset: UInt32(utf16(start))); detached = lost; range = NSRange(location:utf16(start),length:max(0,utf16(end)-utf16(start)))
+                case .canvas(_,_,let cy,_,_): marginAnchor = .canvas(y: Float(cy))
                 }
             } else { detached = true }
             if range.length > 0, NSMaxRange(range) <= whole.length { passages.append(range) }
@@ -513,9 +511,8 @@ import SyncrCore
                 if on && NSMaxRange(range) <= view.string.utf16.count { layout.addTemporaryAttribute(.backgroundColor, value: colour.withAlphaComponent(0.15), forCharacterRange: range) }
             }
             companionOverlay.addSubview(card); cardIDs[item.id] = card
-            let spot = marginLayout.place(top: top, height: card.fittedHeight)
-            companionCards.append((card, spot.x, spot.y, MarginCard.width, card.fittedHeight))
-            arrive(card, item.id, fresh: fresh.contains(item.id))
+            marginLayout.addNote(item.id, anchor: marginAnchor, height: card.fittedHeight)
+            marginViews[item.id] = (card, card.fittedHeight, fresh.contains(item.id))
         }
         if drawings { for item in items where !item.tombstone {
             let embed = "![[syncr-drawing:\(item.id)]]"
@@ -537,13 +534,17 @@ import SyncrCore
                 companionOverlay.addSubview(card); companionCards.append((card,documentEditor.columnLeft + 70,y(text[..<range.lowerBound].utf16.count),PictureCard.width*inlineRatio,height*inlineRatio))
             } else {
                 // Its embed line is gone: the picture waits in the margin beside the passage it explains.
-                var top: CGFloat = 260
-                if let end = anchorEnd[anchorID] { top = max(top, y(utf16(end > 0 ? end - 1 : 0))) }
-                let ratio = MarginCard.width / PictureCard.width
-                let spot = marginLayout.place(top: top, height: height * ratio)
-                companionOverlay.addSubview(card); companionCards.append((card,spot.x,spot.y,MarginCard.width,height*ratio))
+                let at = anchorEnd[anchorID].map { MarginAnchor.text(offset: UInt32(utf16($0 > 0 ? $0 - 1 : 0))) } ?? .none
+                marginLayout.addPicture(item.id, anchor: at, height: height * MarginCard.width / PictureCard.width)
+                companionOverlay.addSubview(card); marginViews[item.id] = (card, height * MarginCard.width / PictureCard.width, false)
             }
         }}
+        let placed = marginLayout.place(lines: lines.map { .init(range: $0.range, top: $0.rect.minY) })
+        for p in placed.placements {
+            guard let (view, height, isFresh) = marginViews[p.id] else { continue }
+            companionCards.append((view, CGFloat(p.x), CGFloat(p.y), MarginCard.width, height))
+            if view is MarginCard { arrive(view, p.id, fresh: isFresh) }
+        }
         for (card, at) in answerSpots {
             companionOverlay.addSubview(card); companionCards.append((card, documentEditor.columnLeft, paragraphBottom(at, lines: lines, text: text) + 16, documentEditor.textWidth, card.fittedHeight))
         }

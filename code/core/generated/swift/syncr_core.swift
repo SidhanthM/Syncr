@@ -3338,6 +3338,398 @@ public func FfiConverterTypeImageMarkView_lower(_ value: ImageMarkView) -> RustB
 }
 
 
+public struct MarginInput: Equatable, Hashable {
+    public var policy: MarginPolicy
+    /**
+     * The text column's edges.
+     */
+    public var columnLeft: Float
+    public var columnRight: Float
+    /**
+     * Every card is this wide.
+     */
+    public var cardWidth: Float
+    /**
+     * Between the column and a lane.
+     */
+    public var gap: Float
+    /**
+     * A lane starts empty below this y (cards sit at least `spacing` under it).
+     */
+    public var laneTop: Float
+    /**
+     * The least space between two cards in a lane.
+     */
+    public var spacing: Float
+    /**
+     * The top of an annotation with no anchor, or no line to attach to.
+     */
+    public var defaultTop: Float
+    public var lines: [MarginLine]
+    public var items: [MarginItem]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(policy: MarginPolicy, 
+        /**
+         * The text column's edges.
+         */columnLeft: Float, columnRight: Float, 
+        /**
+         * Every card is this wide.
+         */cardWidth: Float, 
+        /**
+         * Between the column and a lane.
+         */gap: Float, 
+        /**
+         * A lane starts empty below this y (cards sit at least `spacing` under it).
+         */laneTop: Float, 
+        /**
+         * The least space between two cards in a lane.
+         */spacing: Float, 
+        /**
+         * The top of an annotation with no anchor, or no line to attach to.
+         */defaultTop: Float, lines: [MarginLine], items: [MarginItem]) {
+        self.policy = policy
+        self.columnLeft = columnLeft
+        self.columnRight = columnRight
+        self.cardWidth = cardWidth
+        self.gap = gap
+        self.laneTop = laneTop
+        self.spacing = spacing
+        self.defaultTop = defaultTop
+        self.lines = lines
+        self.items = items
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension MarginInput: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMarginInput: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MarginInput {
+        return
+            try MarginInput(
+                policy: FfiConverterTypeMarginPolicy.read(from: &buf), 
+                columnLeft: FfiConverterFloat.read(from: &buf), 
+                columnRight: FfiConverterFloat.read(from: &buf), 
+                cardWidth: FfiConverterFloat.read(from: &buf), 
+                gap: FfiConverterFloat.read(from: &buf), 
+                laneTop: FfiConverterFloat.read(from: &buf), 
+                spacing: FfiConverterFloat.read(from: &buf), 
+                defaultTop: FfiConverterFloat.read(from: &buf), 
+                lines: FfiConverterSequenceTypeMarginLine.read(from: &buf), 
+                items: FfiConverterSequenceTypeMarginItem.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MarginInput, into buf: inout [UInt8]) {
+        FfiConverterTypeMarginPolicy.write(value.policy, into: &buf)
+        FfiConverterFloat.write(value.columnLeft, into: &buf)
+        FfiConverterFloat.write(value.columnRight, into: &buf)
+        FfiConverterFloat.write(value.cardWidth, into: &buf)
+        FfiConverterFloat.write(value.gap, into: &buf)
+        FfiConverterFloat.write(value.laneTop, into: &buf)
+        FfiConverterFloat.write(value.spacing, into: &buf)
+        FfiConverterFloat.write(value.defaultTop, into: &buf)
+        FfiConverterSequenceTypeMarginLine.write(value.lines, into: &buf)
+        FfiConverterSequenceTypeMarginItem.write(value.items, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMarginInput_lift(_ buf: RustBuffer) throws -> MarginInput {
+    return try FfiConverterTypeMarginInput.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMarginInput_lower(_ value: MarginInput) -> RustBuffer {
+    return FfiConverterTypeMarginInput.lower(value)
+}
+
+
+public struct MarginItem: Equatable, Hashable {
+    public var id: String
+    public var kind: MarginItemKind
+    public var anchor: MarginAnchor
+    /**
+     * The card's measured height.
+     */
+    public var height: Float
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, kind: MarginItemKind, anchor: MarginAnchor, 
+        /**
+         * The card's measured height.
+         */height: Float) {
+        self.id = id
+        self.kind = kind
+        self.anchor = anchor
+        self.height = height
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension MarginItem: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMarginItem: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MarginItem {
+        return
+            try MarginItem(
+                id: FfiConverterString.read(from: &buf), 
+                kind: FfiConverterTypeMarginItemKind.read(from: &buf), 
+                anchor: FfiConverterTypeMarginAnchor.read(from: &buf), 
+                height: FfiConverterFloat.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MarginItem, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterTypeMarginItemKind.write(value.kind, into: &buf)
+        FfiConverterTypeMarginAnchor.write(value.anchor, into: &buf)
+        FfiConverterFloat.write(value.height, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMarginItem_lift(_ buf: RustBuffer) throws -> MarginItem {
+    return try FfiConverterTypeMarginItem.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMarginItem_lower(_ value: MarginItem) -> RustBuffer {
+    return FfiConverterTypeMarginItem.lower(value)
+}
+
+
+public struct MarginLayout: Equatable, Hashable {
+    /**
+     * In placement order: notes by passage then id, then pictures in the order given.
+     */
+    public var placements: [MarginPlacement]
+    /**
+     * The lowest edge of any placed card; 0 when nothing is placed.
+     */
+    public var bottom: Float
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * In placement order: notes by passage then id, then pictures in the order given.
+         */placements: [MarginPlacement], 
+        /**
+         * The lowest edge of any placed card; 0 when nothing is placed.
+         */bottom: Float) {
+        self.placements = placements
+        self.bottom = bottom
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension MarginLayout: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMarginLayout: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MarginLayout {
+        return
+            try MarginLayout(
+                placements: FfiConverterSequenceTypeMarginPlacement.read(from: &buf), 
+                bottom: FfiConverterFloat.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MarginLayout, into buf: inout [UInt8]) {
+        FfiConverterSequenceTypeMarginPlacement.write(value.placements, into: &buf)
+        FfiConverterFloat.write(value.bottom, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMarginLayout_lift(_ buf: RustBuffer) throws -> MarginLayout {
+    return try FfiConverterTypeMarginLayout.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMarginLayout_lower(_ value: MarginLayout) -> RustBuffer {
+    return FfiConverterTypeMarginLayout.lower(value)
+}
+
+
+/**
+ * One visual line of the anchored text, measured natively: the half-open offset range it
+ * covers and its top. Lines are given in reading order.
+ */
+public struct MarginLine: Equatable, Hashable {
+    public var start: UInt32
+    public var end: UInt32
+    public var top: Float
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(start: UInt32, end: UInt32, top: Float) {
+        self.start = start
+        self.end = end
+        self.top = top
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension MarginLine: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMarginLine: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MarginLine {
+        return
+            try MarginLine(
+                start: FfiConverterUInt32.read(from: &buf), 
+                end: FfiConverterUInt32.read(from: &buf), 
+                top: FfiConverterFloat.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MarginLine, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.start, into: &buf)
+        FfiConverterUInt32.write(value.end, into: &buf)
+        FfiConverterFloat.write(value.top, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMarginLine_lift(_ buf: RustBuffer) throws -> MarginLine {
+    return try FfiConverterTypeMarginLine.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMarginLine_lower(_ value: MarginLine) -> RustBuffer {
+    return FfiConverterTypeMarginLine.lower(value)
+}
+
+
+/**
+ * Where one annotation goes. `x`, `y`, `width` and `height` are the card's frame and its hit
+ * rectangle (a point is a hit when `x <= px <= x + width` and `y <= py <= y + height`).
+ */
+public struct MarginPlacement: Equatable, Hashable {
+    public var id: String
+    public var lane: MarginLane
+    public var x: Float
+    public var y: Float
+    public var width: Float
+    public var height: Float
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, lane: MarginLane, x: Float, y: Float, width: Float, height: Float) {
+        self.id = id
+        self.lane = lane
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension MarginPlacement: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMarginPlacement: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MarginPlacement {
+        return
+            try MarginPlacement(
+                id: FfiConverterString.read(from: &buf), 
+                lane: FfiConverterTypeMarginLane.read(from: &buf), 
+                x: FfiConverterFloat.read(from: &buf), 
+                y: FfiConverterFloat.read(from: &buf), 
+                width: FfiConverterFloat.read(from: &buf), 
+                height: FfiConverterFloat.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MarginPlacement, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterTypeMarginLane.write(value.lane, into: &buf)
+        FfiConverterFloat.write(value.x, into: &buf)
+        FfiConverterFloat.write(value.y, into: &buf)
+        FfiConverterFloat.write(value.width, into: &buf)
+        FfiConverterFloat.write(value.height, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMarginPlacement_lift(_ buf: RustBuffer) throws -> MarginPlacement {
+    return try FfiConverterTypeMarginPlacement.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMarginPlacement_lower(_ value: MarginPlacement) -> RustBuffer {
+    return FfiConverterTypeMarginPlacement.lower(value)
+}
+
+
 public struct MergeReport: Equatable, Hashable {
     public var applied: UInt32
     public var duplicates: UInt32
@@ -6631,6 +7023,167 @@ public func FfiConverterTypeInkColour_lower(_ value: InkColour) -> RustBuffer {
 
 
 
+/**
+ * What an annotation hangs from. Text offsets are in the same unit as [`MarginLine`]
+ * offsets; the core never interprets the unit (the platforms pass UTF-16 offsets).
+ */
+
+public enum MarginAnchor: Equatable, Hashable {
+    
+    /**
+     * No usable anchor (detached): it takes the default top.
+     */
+    case none
+    case text(offset: UInt32
+    )
+    /**
+     * A fixed canvas y, for anchors drawn on the canvas.
+     */
+    case canvas(y: Float
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MarginAnchor: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMarginAnchor: FfiConverterRustBuffer {
+    typealias SwiftType = MarginAnchor
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MarginAnchor {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .none
+        
+        case 2: return .text(offset: try FfiConverterUInt32.read(from: &buf)
+        )
+        
+        case 3: return .canvas(y: try FfiConverterFloat.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: MarginAnchor, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .none:
+            writeInt(&buf, Int32(1))
+        
+        
+        case let .text(offset):
+            writeInt(&buf, Int32(2))
+            FfiConverterUInt32.write(offset, into: &buf)
+            
+        
+        case let .canvas(y):
+            writeInt(&buf, Int32(3))
+            FfiConverterFloat.write(y, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMarginAnchor_lift(_ buf: RustBuffer) throws -> MarginAnchor {
+    return try FfiConverterTypeMarginAnchor.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMarginAnchor_lower(_ value: MarginAnchor) -> RustBuffer {
+    return FfiConverterTypeMarginAnchor.lower(value)
+}
+
+
+
+
+public enum MarginItemKind: Equatable, Hashable {
+    
+    /**
+     * A margin note, sorted by its passage and then its id.
+     */
+    case note
+    /**
+     * A picture whose embed line is gone: placed after every note, in the order given.
+     */
+    case picture
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MarginItemKind: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMarginItemKind: FfiConverterRustBuffer {
+    typealias SwiftType = MarginItemKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MarginItemKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .note
+        
+        case 2: return .picture
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: MarginItemKind, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .note:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .picture:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMarginItemKind_lift(_ buf: RustBuffer) throws -> MarginItemKind {
+    return try FfiConverterTypeMarginItemKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMarginItemKind_lower(_ value: MarginItemKind) -> RustBuffer {
+    return FfiConverterTypeMarginItemKind.lower(value)
+}
+
+
+
 
 public enum MarginKind: Equatable, Hashable {
     
@@ -6700,6 +7253,143 @@ public func FfiConverterTypeMarginKind_lift(_ buf: RustBuffer) throws -> MarginK
 #endif
 public func FfiConverterTypeMarginKind_lower(_ value: MarginKind) -> RustBuffer {
     return FfiConverterTypeMarginKind.lower(value)
+}
+
+
+
+
+public enum MarginLane: Equatable, Hashable {
+    
+    case left
+    case right
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MarginLane: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMarginLane: FfiConverterRustBuffer {
+    typealias SwiftType = MarginLane
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MarginLane {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .left
+        
+        case 2: return .right
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: MarginLane, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .left:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .right:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMarginLane_lift(_ buf: RustBuffer) throws -> MarginLane {
+    return try FfiConverterTypeMarginLane.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMarginLane_lower(_ value: MarginLane) -> RustBuffer {
+    return FfiConverterTypeMarginLane.lower(value)
+}
+
+
+
+/**
+ * How wide a view the layout is for. `Desktop` keeps a lane on each side of the column.
+ * `Phone` keeps the right lane only: by policy, since the phone's window cannot show the
+ * left one, not because of a missing code path.
+ */
+
+public enum MarginPolicy: Equatable, Hashable {
+    
+    case desktop
+    case phone
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MarginPolicy: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMarginPolicy: FfiConverterRustBuffer {
+    typealias SwiftType = MarginPolicy
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MarginPolicy {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .desktop
+        
+        case 2: return .phone
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: MarginPolicy, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .desktop:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .phone:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMarginPolicy_lift(_ buf: RustBuffer) throws -> MarginPolicy {
+    return try FfiConverterTypeMarginPolicy.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMarginPolicy_lower(_ value: MarginPolicy) -> RustBuffer {
+    return FfiConverterTypeMarginPolicy.lower(value)
 }
 
 
@@ -8200,6 +8890,81 @@ fileprivate struct FfiConverterSequenceTypeImageMarkView: FfiConverterRustBuffer
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeMarginItem: FfiConverterRustBuffer {
+    typealias SwiftType = [MarginItem]
+
+    public static func write(_ value: [MarginItem], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeMarginItem.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [MarginItem] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [MarginItem]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeMarginItem.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeMarginLine: FfiConverterRustBuffer {
+    typealias SwiftType = [MarginLine]
+
+    public static func write(_ value: [MarginLine], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeMarginLine.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [MarginLine] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [MarginLine]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeMarginLine.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeMarginPlacement: FfiConverterRustBuffer {
+    typealias SwiftType = [MarginPlacement]
+
+    public static func write(_ value: [MarginPlacement], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeMarginPlacement.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [MarginPlacement] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [MarginPlacement]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeMarginPlacement.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeNoteSummary: FfiConverterRustBuffer {
     typealias SwiftType = [NoteSummary]
 
@@ -8551,6 +9316,19 @@ public func encodeStrokeCommit(commit: StrokeCommit)throws  -> [Data]  {
     )
 })
 }
+/**
+ * Places every item in one pass. Each card goes in the lane whose last card ends higher
+ * (ties go left) so it stays closest to its passage, at its passage's top or `spacing` under
+ * the lane's last card, whichever is lower. Same input, same output on every platform.
+ */
+public func layoutMargins(input: MarginInput) -> MarginLayout  {
+    return try!  FfiConverterTypeMarginLayout_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_syncr_core_fn_func_layout_margins(
+        FfiConverterTypeMarginInput_lower(input),uniffiCallStatus
+    )
+})
+}
 public func openLibrary(rootPath: String)throws  -> SyncrLibrary  {
     return try  FfiConverterTypeSyncrLibrary_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
         uniffiCallStatus in
@@ -8686,6 +9464,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_syncr_core_checksum_func_encode_stroke_commit() != 44624) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_syncr_core_checksum_func_layout_margins() != 51277) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_syncr_core_checksum_func_open_library() != 18191) {

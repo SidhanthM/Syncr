@@ -577,6 +577,11 @@ RustBuffer uniffi_syncr_core_fn_func_new_id(RustCallStatus *_Nonnull out_status
 RustBuffer uniffi_syncr_core_fn_func_encode_stroke_commit(RustBuffer commit, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_LAYOUT_MARGINS
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_LAYOUT_MARGINS
+RustBuffer uniffi_syncr_core_fn_func_layout_margins(RustBuffer input, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_OPEN_LIBRARY
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_OPEN_LIBRARY
 uint64_t uniffi_syncr_core_fn_func_open_library(RustBuffer root_path, RustCallStatus *_Nonnull out_status
@@ -914,6 +919,12 @@ uint16_t uniffi_syncr_core_checksum_func_new_id(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_ENCODE_STROKE_COMMIT
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_ENCODE_STROKE_COMMIT
 uint16_t uniffi_syncr_core_checksum_func_encode_stroke_commit(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_LAYOUT_MARGINS
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_LAYOUT_MARGINS
+uint16_t uniffi_syncr_core_checksum_func_layout_margins(void
     
 );
 #endif

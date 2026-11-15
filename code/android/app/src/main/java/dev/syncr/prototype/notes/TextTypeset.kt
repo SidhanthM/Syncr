@@ -29,7 +29,10 @@ internal object MacMetrics {
     const val TEXT_Y = 260f
     const val TITLE_Y = 70f
     const val DEFAULT_PAGE_WIDTH = 1600f
-    const val MARGIN_GAP = 40f
+    /** Between the text column's edge and a margin lane (the Mac's `CompanionMarginLayout.gap`). */
+    const val MARGIN_GAP = 140f
+    const val MARGIN_LANE_TOP = 240f
+    const val MARGIN_SPACING = 24f
 }
 
 internal enum class Family { SANS, SERIF, MONO }

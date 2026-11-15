@@ -681,6 +681,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_syncr_core_checksum_func_encode_stroke_commit(
     ): Int
+    external fun uniffi_syncr_core_checksum_func_layout_margins(
+    ): Int
     external fun uniffi_syncr_core_checksum_func_open_library(
     ): Int
     external fun uniffi_syncr_core_checksum_func_default_stroke_style(
@@ -963,6 +965,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_func_encode_stroke_commit(`commit`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_func_layout_margins(`input`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_func_open_library(`rootPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
     external fun uniffi_syncr_core_fn_func_default_stroke_style(`brush`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1113,6 +1117,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_syncr_core_checksum_func_encode_stroke_commit() and 0xFFFF) != 44624) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_func_layout_margins() and 0xFFFF) != 51277) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_syncr_core_checksum_func_open_library() and 0xFFFF) != 18191) {
@@ -4997,6 +5004,306 @@ public object FfiConverterTypeImageMarkView: FfiConverterRustBuffer<ImageMarkVie
 
 
 
+data class MarginInput (
+    var `policy`: MarginPolicy
+    , 
+    /**
+     * The text column's edges.
+     */
+    var `columnLeft`: kotlin.Float
+    , 
+    var `columnRight`: kotlin.Float
+    , 
+    /**
+     * Every card is this wide.
+     */
+    var `cardWidth`: kotlin.Float
+    , 
+    /**
+     * Between the column and a lane.
+     */
+    var `gap`: kotlin.Float
+    , 
+    /**
+     * A lane starts empty below this y (cards sit at least `spacing` under it).
+     */
+    var `laneTop`: kotlin.Float
+    , 
+    /**
+     * The least space between two cards in a lane.
+     */
+    var `spacing`: kotlin.Float
+    , 
+    /**
+     * The top of an annotation with no anchor, or no line to attach to.
+     */
+    var `defaultTop`: kotlin.Float
+    , 
+    var `lines`: List<MarginLine>
+    , 
+    var `items`: List<MarginItem>
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMarginInput: FfiConverterRustBuffer<MarginInput> {
+    override fun read(buf: ByteBuffer): MarginInput {
+        return MarginInput(
+            FfiConverterTypeMarginPolicy.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterSequenceTypeMarginLine.read(buf),
+            FfiConverterSequenceTypeMarginItem.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: MarginInput) = (
+            FfiConverterTypeMarginPolicy.allocationSize(value.`policy`) +
+            FfiConverterFloat.allocationSize(value.`columnLeft`) +
+            FfiConverterFloat.allocationSize(value.`columnRight`) +
+            FfiConverterFloat.allocationSize(value.`cardWidth`) +
+            FfiConverterFloat.allocationSize(value.`gap`) +
+            FfiConverterFloat.allocationSize(value.`laneTop`) +
+            FfiConverterFloat.allocationSize(value.`spacing`) +
+            FfiConverterFloat.allocationSize(value.`defaultTop`) +
+            FfiConverterSequenceTypeMarginLine.allocationSize(value.`lines`) +
+            FfiConverterSequenceTypeMarginItem.allocationSize(value.`items`)
+    )
+
+    override fun write(value: MarginInput, buf: ByteBuffer) {
+            FfiConverterTypeMarginPolicy.write(value.`policy`, buf)
+            FfiConverterFloat.write(value.`columnLeft`, buf)
+            FfiConverterFloat.write(value.`columnRight`, buf)
+            FfiConverterFloat.write(value.`cardWidth`, buf)
+            FfiConverterFloat.write(value.`gap`, buf)
+            FfiConverterFloat.write(value.`laneTop`, buf)
+            FfiConverterFloat.write(value.`spacing`, buf)
+            FfiConverterFloat.write(value.`defaultTop`, buf)
+            FfiConverterSequenceTypeMarginLine.write(value.`lines`, buf)
+            FfiConverterSequenceTypeMarginItem.write(value.`items`, buf)
+    }
+}
+
+
+
+data class MarginItem (
+    var `id`: kotlin.String
+    , 
+    var `kind`: MarginItemKind
+    , 
+    var `anchor`: MarginAnchor
+    , 
+    /**
+     * The card's measured height.
+     */
+    var `height`: kotlin.Float
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMarginItem: FfiConverterRustBuffer<MarginItem> {
+    override fun read(buf: ByteBuffer): MarginItem {
+        return MarginItem(
+            FfiConverterString.read(buf),
+            FfiConverterTypeMarginItemKind.read(buf),
+            FfiConverterTypeMarginAnchor.read(buf),
+            FfiConverterFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: MarginItem) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterTypeMarginItemKind.allocationSize(value.`kind`) +
+            FfiConverterTypeMarginAnchor.allocationSize(value.`anchor`) +
+            FfiConverterFloat.allocationSize(value.`height`)
+    )
+
+    override fun write(value: MarginItem, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterTypeMarginItemKind.write(value.`kind`, buf)
+            FfiConverterTypeMarginAnchor.write(value.`anchor`, buf)
+            FfiConverterFloat.write(value.`height`, buf)
+    }
+}
+
+
+
+data class MarginLayout (
+    /**
+     * In placement order: notes by passage then id, then pictures in the order given.
+     */
+    var `placements`: List<MarginPlacement>
+    , 
+    /**
+     * The lowest edge of any placed card; 0 when nothing is placed.
+     */
+    var `bottom`: kotlin.Float
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMarginLayout: FfiConverterRustBuffer<MarginLayout> {
+    override fun read(buf: ByteBuffer): MarginLayout {
+        return MarginLayout(
+            FfiConverterSequenceTypeMarginPlacement.read(buf),
+            FfiConverterFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: MarginLayout) = (
+            FfiConverterSequenceTypeMarginPlacement.allocationSize(value.`placements`) +
+            FfiConverterFloat.allocationSize(value.`bottom`)
+    )
+
+    override fun write(value: MarginLayout, buf: ByteBuffer) {
+            FfiConverterSequenceTypeMarginPlacement.write(value.`placements`, buf)
+            FfiConverterFloat.write(value.`bottom`, buf)
+    }
+}
+
+
+
+/**
+ * One visual line of the anchored text, measured natively: the half-open offset range it
+ * covers and its top. Lines are given in reading order.
+ */
+data class MarginLine (
+    var `start`: kotlin.UInt
+    , 
+    var `end`: kotlin.UInt
+    , 
+    var `top`: kotlin.Float
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMarginLine: FfiConverterRustBuffer<MarginLine> {
+    override fun read(buf: ByteBuffer): MarginLine {
+        return MarginLine(
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: MarginLine) = (
+            FfiConverterUInt.allocationSize(value.`start`) +
+            FfiConverterUInt.allocationSize(value.`end`) +
+            FfiConverterFloat.allocationSize(value.`top`)
+    )
+
+    override fun write(value: MarginLine, buf: ByteBuffer) {
+            FfiConverterUInt.write(value.`start`, buf)
+            FfiConverterUInt.write(value.`end`, buf)
+            FfiConverterFloat.write(value.`top`, buf)
+    }
+}
+
+
+
+/**
+ * Where one annotation goes. `x`, `y`, `width` and `height` are the card's frame and its hit
+ * rectangle (a point is a hit when `x <= px <= x + width` and `y <= py <= y + height`).
+ */
+data class MarginPlacement (
+    var `id`: kotlin.String
+    , 
+    var `lane`: MarginLane
+    , 
+    var `x`: kotlin.Float
+    , 
+    var `y`: kotlin.Float
+    , 
+    var `width`: kotlin.Float
+    , 
+    var `height`: kotlin.Float
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMarginPlacement: FfiConverterRustBuffer<MarginPlacement> {
+    override fun read(buf: ByteBuffer): MarginPlacement {
+        return MarginPlacement(
+            FfiConverterString.read(buf),
+            FfiConverterTypeMarginLane.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: MarginPlacement) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterTypeMarginLane.allocationSize(value.`lane`) +
+            FfiConverterFloat.allocationSize(value.`x`) +
+            FfiConverterFloat.allocationSize(value.`y`) +
+            FfiConverterFloat.allocationSize(value.`width`) +
+            FfiConverterFloat.allocationSize(value.`height`)
+    )
+
+    override fun write(value: MarginPlacement, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterTypeMarginLane.write(value.`lane`, buf)
+            FfiConverterFloat.write(value.`x`, buf)
+            FfiConverterFloat.write(value.`y`, buf)
+            FfiConverterFloat.write(value.`width`, buf)
+            FfiConverterFloat.write(value.`height`, buf)
+    }
+}
+
+
+
 data class MergeReport (
     var `applied`: kotlin.UInt
     , 
@@ -8483,6 +8790,153 @@ public object FfiConverterTypeInkColour: FfiConverterRustBuffer<InkColour> {
 
 
 
+/**
+ * What an annotation hangs from. Text offsets are in the same unit as [`MarginLine`]
+ * offsets; the core never interprets the unit (the platforms pass UTF-16 offsets).
+ */
+sealed class MarginAnchor {
+    
+    /**
+     * No usable anchor (detached): it takes the default top.
+     */
+    object None : MarginAnchor()
+    
+    
+    data class Text(
+        val `offset`: kotlin.UInt) : MarginAnchor()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
+     * A fixed canvas y, for anchors drawn on the canvas.
+     */
+    data class Canvas(
+        val `y`: kotlin.Float) : MarginAnchor()
+        
+    {
+        
+
+        companion object
+    }
+    
+
+    
+
+    
+    
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMarginAnchor : FfiConverterRustBuffer<MarginAnchor>{
+    override fun read(buf: ByteBuffer): MarginAnchor {
+        return when(buf.getInt()) {
+            1 -> MarginAnchor.None
+            2 -> MarginAnchor.Text(
+                FfiConverterUInt.read(buf),
+                )
+            3 -> MarginAnchor.Canvas(
+                FfiConverterFloat.read(buf),
+                )
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: MarginAnchor): ULong = when(value) {
+        is MarginAnchor.None -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is MarginAnchor.Text -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterUInt.allocationSize(value.`offset`)
+            )
+        }
+        is MarginAnchor.Canvas -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterFloat.allocationSize(value.`y`)
+            )
+        }
+    }
+
+    override fun write(value: MarginAnchor, buf: ByteBuffer) {
+        when(value) {
+            is MarginAnchor.None -> {
+                buf.putInt(1)
+                Unit
+            }
+            is MarginAnchor.Text -> {
+                buf.putInt(2)
+                FfiConverterUInt.write(value.`offset`, buf)
+                Unit
+            }
+            is MarginAnchor.Canvas -> {
+                buf.putInt(3)
+                FfiConverterFloat.write(value.`y`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
+
+enum class MarginItemKind {
+    
+    /**
+     * A margin note, sorted by its passage and then its id.
+     */
+    NOTE,
+    /**
+     * A picture whose embed line is gone: placed after every note, in the order given.
+     */
+    PICTURE;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMarginItemKind: FfiConverterRustBuffer<MarginItemKind> {
+    override fun read(buf: ByteBuffer) = try {
+        MarginItemKind.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: MarginItemKind) = 4UL
+
+    override fun write(value: MarginItemKind, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
 
 enum class MarginKind {
     
@@ -8510,6 +8964,79 @@ public object FfiConverterTypeMarginKind: FfiConverterRustBuffer<MarginKind> {
     override fun allocationSize(value: MarginKind) = 4UL
 
     override fun write(value: MarginKind, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+
+enum class MarginLane {
+    
+    LEFT,
+    RIGHT;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMarginLane: FfiConverterRustBuffer<MarginLane> {
+    override fun read(buf: ByteBuffer) = try {
+        MarginLane.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: MarginLane) = 4UL
+
+    override fun write(value: MarginLane, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+/**
+ * How wide a view the layout is for. `Desktop` keeps a lane on each side of the column.
+ * `Phone` keeps the right lane only: by policy, since the phone's window cannot show the
+ * left one, not because of a missing code path.
+ */
+
+enum class MarginPolicy {
+    
+    DESKTOP,
+    PHONE;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMarginPolicy: FfiConverterRustBuffer<MarginPolicy> {
+    override fun read(buf: ByteBuffer) = try {
+        MarginPolicy.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: MarginPolicy) = 4UL
+
+    override fun write(value: MarginPolicy, buf: ByteBuffer) {
         buf.putInt(value.ordinal + 1)
     }
 }
@@ -10408,6 +10935,90 @@ public object FfiConverterSequenceTypeImageMarkView: FfiConverterRustBuffer<List
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeMarginItem: FfiConverterRustBuffer<List<MarginItem>> {
+    override fun read(buf: ByteBuffer): List<MarginItem> {
+        val len = buf.getInt()
+        return List<MarginItem>(len) {
+            FfiConverterTypeMarginItem.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<MarginItem>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeMarginItem.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<MarginItem>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeMarginItem.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeMarginLine: FfiConverterRustBuffer<List<MarginLine>> {
+    override fun read(buf: ByteBuffer): List<MarginLine> {
+        val len = buf.getInt()
+        return List<MarginLine>(len) {
+            FfiConverterTypeMarginLine.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<MarginLine>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeMarginLine.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<MarginLine>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeMarginLine.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeMarginPlacement: FfiConverterRustBuffer<List<MarginPlacement>> {
+    override fun read(buf: ByteBuffer): List<MarginPlacement> {
+        val len = buf.getInt()
+        return List<MarginPlacement>(len) {
+            FfiConverterTypeMarginPlacement.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<MarginPlacement>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeMarginPlacement.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<MarginPlacement>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeMarginPlacement.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeNoteSummary: FfiConverterRustBuffer<List<NoteSummary>> {
     override fun read(buf: ByteBuffer): List<NoteSummary> {
         val len = buf.getInt()
@@ -10800,6 +11411,22 @@ public object FfiConverterSequenceTypePreviewEvent: FfiConverterRustBuffer<List<
     
         
         FfiConverterTypeStrokeCommit.lower(`commit`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Places every item in one pass. Each card goes in the lane whose last card ends higher
+         * (ties go left) so it stays closest to its passage, at its passage's top or `spacing` under
+         * the lane's last card, whichever is lower. Same input, same output on every platform.
+         */ fun `layoutMargins`(`input`: MarginInput): MarginLayout {
+            return FfiConverterTypeMarginLayout.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_func_layout_margins(
+    
+        
+        FfiConverterTypeMarginInput.lower(`input`),_status)
 }
     )
     }

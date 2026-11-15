@@ -21,6 +21,7 @@ mod image;
 #[cfg(test)]
 mod image_tests;
 mod image_types;
+mod layout;
 mod library;
 mod mesh;
 mod picture;
@@ -48,6 +49,7 @@ pub use commit::{StrokeCommit, StrokeReassembler, encode_stroke_commit};
 pub use companion_types::*;
 pub use error::{CoreError, CoreResult};
 pub use image_types::*;
+pub use layout::*;
 pub use library::{Note, SyncrLibrary, open_library};
 pub use mesh::{
     MAX_MESH_VERTICES, MESH_RENDERER_VERSION, StrokeMesh, StrokeStyle, default_stroke_style,

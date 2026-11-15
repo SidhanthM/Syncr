@@ -5,13 +5,20 @@ import dev.syncr.core.CompanionBody
 import dev.syncr.core.CompanionItemView
 import dev.syncr.core.CompanionSource
 import dev.syncr.core.InkColour
+import dev.syncr.core.MarginAnchor
+import dev.syncr.core.MarginInput
+import dev.syncr.core.MarginItem
+import dev.syncr.core.MarginItemKind
 import dev.syncr.core.MarginKind
+import dev.syncr.core.MarginLine
+import dev.syncr.core.MarginPolicy
 import dev.syncr.core.MarginState
 import dev.syncr.core.MessageWho
 import dev.syncr.core.NoteSnapshot
 import dev.syncr.core.PictureDisplayList
 import dev.syncr.core.PictureItem
 import dev.syncr.core.TextRole
+import dev.syncr.core.layoutMargins
 import kotlin.math.max
 import kotlin.math.min
 
@@ -44,7 +51,7 @@ internal data class TitleDisplay(val text: String, val meta: String)
 
 /**
  * Builds [NoteTextScene] from a snapshot with the Mac's default geometry (page at x 0, text column x 100, y 260, width
- * block.width - 200; margin cards at block.width + 40; see `NoteDetailView.showCompanion`). Pure and read-only: a snapshot
+ * block.width - 200; margin cards placed by the core's shared margin layout; see `NoteDetailView.showCompanion`). Pure and read-only: a snapshot
  * in, drawing instructions out. [pictureOf] decodes a picture's SVG into the core's display list (null if it cannot).
  */
 internal class NoteTextSceneBuilder(private val shaper: Shaper, private val pictureOf: (String) -> PictureDisplayList?) {
@@ -154,44 +161,53 @@ internal class NoteTextSceneBuilder(private val shaper: Shaper, private val pict
             bottom = max(bottom, y + heights.getValue(id))
         }
 
-        // Margin notes beside their passage, then pictures with no embed line.
-        fun passageTop(item: CompanionItemView): Float {
-            val anchor = (item.body as? CompanionBody.MarginNote)?.anchorId?.let(byId::get)?.body as? CompanionBody.Anchor ?: return MacMetrics.TEXT_Y
+        // Margin notes beside their passage, then pictures with no embed line: measured here, placed by the core in one
+        // call (the same rules and vectors as the Mac; the phone's policy keeps the right lane only).
+        fun noteAnchor(item: CompanionItemView): MarginAnchor {
+            val anchor = (item.body as? CompanionBody.MarginNote)?.anchorId?.let(byId::get)?.body as? CompanionBody.Anchor ?: return MarginAnchor.None
             return when (val t = anchor.target) {
-                is AnchorTarget.Text -> layout.yOf(utf16.at(t.start)) ?: MacMetrics.TEXT_Y
-                is AnchorTarget.Canvas -> t.y.toFloat()
+                is AnchorTarget.Text -> MarginAnchor.Text(utf16.at(t.start).toUInt())
+                is AnchorTarget.Canvas -> MarginAnchor.Canvas(t.y.toFloat())
             }
         }
-        val marginX = pageWidth + MacMetrics.MARGIN_GAP
-        var marginBottom = 240f
-        val margins = items.filter { it.body is CompanionBody.MarginNote }.sortedWith(compareBy({ passageTop(it) }, { it.id }))
         val tone = tone(note)
-        for (item in margins) {
-            val body = item.body as CompanionBody.MarginNote
+        val marginItems = ArrayList<MarginItem>()
+        val marginCards = HashMap<String, RichResult>()
+        val marginPictures = HashMap<String, PictureDisplayList>()
+        val pictureRatio = MARGIN_CARD_WIDTH / PICTURE_WIDTH
+        for (item in items) {
+            val body = item.body as? CompanionBody.MarginNote ?: continue
             if (body.state == MarginState.DISMISSED) continue
             // An ask's root note is only the thread's header ("Question", read by "You"); its words are the thread.
             if (body.kind == MarginKind.QUESTION && body.reader == ASK_READER) continue
-            val top = max(passageTop(item), marginBottom + 24f)
-            val card = rich.margin(body.text, body.sources, marginX, top, tone)
-            prims += card.prims
-            hits += ContentHit(ContentTarget(item.id, true), marginX, top, 1000f, card.height)
-            marginBottom = top + card.height
-            bottom = max(bottom, marginBottom)
+            val card = rich.margin(body.text, body.sources, 0f, 0f, tone)
+            marginCards[item.id] = card
+            marginItems += MarginItem(item.id, MarginItemKind.NOTE, noteAnchor(item), card.height)
         }
         for (item in items) {
             val body = item.body as? CompanionBody.Picture ?: continue
             val picture = decoded[item.id] ?: continue
             if (item.id in placed) continue
-            var top = marginBottom + 24f
-            (byId[body.anchorId]?.body as? CompanionBody.Anchor)?.let { a ->
-                (a.target as? AnchorTarget.Text)?.let { top = max(top, layout.yOf(utf16.at(if (it.end > 0u) it.end - 1u else 0u)) ?: top) }
-            }
-            val ratio = 1000f / PICTURE_WIDTH
-            prims += pictureCard(item.id, picture, marginX, top, 1000f, ratio)
-            pictures[item.id] = picture
-            marginBottom = top + PictureGeometry.fittedHeight(picture) * ratio
-            bottom = max(bottom, marginBottom)
+            val end = ((byId[body.anchorId]?.body as? CompanionBody.Anchor)?.target as? AnchorTarget.Text)?.end
+            val at = if (end != null) MarginAnchor.Text(utf16.at(if (end > 0u) end - 1u else 0u).toUInt()) else MarginAnchor.None
+            marginPictures[item.id] = picture
+            marginItems += MarginItem(item.id, MarginItemKind.PICTURE, at, PictureGeometry.fittedHeight(picture) * pictureRatio)
         }
+        val lanes = layoutMargins(MarginInput(MarginPolicy.PHONE, MacMetrics.TEXT_X, pageWidth - 100f, MARGIN_CARD_WIDTH,
+            MacMetrics.MARGIN_GAP, MacMetrics.MARGIN_LANE_TOP, MacMetrics.MARGIN_SPACING, MacMetrics.TEXT_Y,
+            layout.vlines.map { MarginLine(it.start.toUInt(), it.end.toUInt(), it.top) }, marginItems))
+        for (spot in lanes.placements) {
+            val card = marginCards[spot.id]
+            if (card != null) {
+                prims += card.moved(spot.x, spot.y)
+                hits += ContentHit(ContentTarget(spot.id, true), spot.x, spot.y, spot.width, spot.height)
+                continue
+            }
+            val picture = marginPictures[spot.id] ?: continue
+            prims += pictureCard(spot.id, picture, 0f, 0f, MARGIN_CARD_WIDTH, pictureRatio).map { it.shifted(spot.x, spot.y) }
+            pictures[spot.id] = picture
+        }
+        bottom = max(bottom, lanes.bottom)
 
         // Free text blocks: the editor sits at the block's origin, its text 45 units lower.
         for (block in note.textBlocks) {
@@ -257,6 +273,8 @@ internal class NoteTextSceneBuilder(private val shaper: Shaper, private val pict
 
     companion object {
         const val PICTURE_WIDTH = 1100f
+        /** Margin cards are this wide (`MarginCard.width` on the Mac). */
+        const val MARGIN_CARD_WIDTH = 1000f
         const val ASK_READER = "You" // CompanionStore.askReader on the Mac
     }
 }
