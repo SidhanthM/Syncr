@@ -451,6 +451,8 @@ import AppKit
     override func paste(_ sender: Any?) {
         if isEditable, let data = NoteImages.pasted(pasteboard), let onImage { onImage(data, selectedRange().location); return }
         if isEditable, let string = pasteboard.string(forType: .string), onPasteLink?(string) == true { return }
+        // NSTextView's own paste always reads the general pasteboard; honour the seam so a private one is read too.
+        if pasteboard !== NSPasteboard.general { if isEditable { _ = readSelection(from: pasteboard) }; return }
         super.paste(sender)
     }
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {

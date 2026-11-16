@@ -318,7 +318,7 @@ private func slash(_ before: String, row: Int = 0) throws -> SlashOutcome {
     set("see |")
     board.clearContents(); board.setString("https://a.b/c", forType: .string)
     view.paste(nil)
-    try check(view.string == "see " || view.string == "see https://a.b/c", "T15: with nothing selected the address is pasted as it is (or by the system paste)")
+    try check(view.string == "see https://a.b/c", "T15: with nothing selected the address is pasted as it is (from the same pasteboard)")
 }
 
 /// The panel under a pointer: hover, click, scroll past eight rows, and flipping above near the bottom.
