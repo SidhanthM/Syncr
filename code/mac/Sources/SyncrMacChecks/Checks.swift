@@ -174,6 +174,7 @@ func viewportAndOffscreenMeshPixels() throws {
             try notebookLogicChecks()
             try markdownMappingChecks()
             try notebookCoreN1Checks()
+            try notebookRunChecks()
             try notebookCoreN2N3Checks()
             try companionCoreChecks()
             try companionDrawingChecks()

@@ -248,6 +248,61 @@ class JoinTest(private val o: Options, private val print: (String) -> Unit) {
         return Triple(600f + 1800f * u, 1000f + 250f * sin(u * 2 * PI).toFloat(), 0.2f + 0.7f * sin(u * PI).toFloat())
     }
 
+
+    // ------------------------------------------------------------------ typed text, keystroke to visible (latency-v1 T.1)
+
+    private fun pct(v: List<Long>, p: Double): Long = if (v.isEmpty()) -1 else v.sorted()[minOf(v.size - 1, (v.size * p).toInt())]
+    private fun summary(v: List<Long>) = "p50=${pct(v, 0.5)} p95=${pct(v, 0.95)} max=${v.maxOrNull() ?: -1} ms n=${v.size}"
+
+    /** The Mac types [n] letters [gapMs] apart through its editor; per letter, ms until the phone's library holds it. */
+    private fun macToPhone(note: String, n: Int, gapMs: Int): List<Long> {
+        val base = lib.documentTextOf(note).length
+        lib.arrivals.clear(); lib.watch = note
+        val m = mark()
+        control("type-burst $n $gapMs")
+        awaitLog(m, "ack type-burst", n * gapMs + 10_000L)
+        val typed = macSince(m).mapNotNull { Regex("""link: typed i=(\d+) epoch=(\d+)""").find(it)?.destructured?.let { (i, e) -> i.toInt() to e.toLong() } }.toMap()
+        check(typed.size == n) { "the Mac typed ${typed.size} of $n letters" }
+        check(poll(10_000, 5) { lib.arrivals.any { it.second >= base + n } }) { "the last Mac letter never reached the phone (library text ${lib.arrivals.lastOrNull()}, wanted ${base + n})" }
+        lib.watch = null
+        return (1..n).map { i -> lib.arrivals.first { it.second >= base + i }.first - typed.getValue(i) }
+    }
+
+    /** How the phone's editor commits typed text: the delay before the next save, from the clock, the first unsaved keystroke and the last save. */
+    private fun interface TextCommit { fun delayMs(now: Long, dirtySince: Long, lastCommit: Long): Long }
+
+    /** The phone types [n] letters [gapMs] apart and commits them as its editor would; per letter, ms until the Mac's editor shows it. */
+    private fun phoneToMac(note: String, n: Int, gapMs: Int, commit: TextCommit): List<Long> {
+        val base = lib.documentTextOf(note).length
+        val m = mark()
+        val keys = LongArray(n)
+        val clock = java.util.concurrent.Executors.newSingleThreadScheduledExecutor()
+        val lock = Any()
+        var text = lib.documentTextOf(note)
+        var pending: java.util.concurrent.ScheduledFuture<*>? = null
+        var dirtySince = 0L; var lastCommit = 0L
+        fun commitNow() {
+            val t = synchronized(lock) { dirtySince = 0; lastCommit = System.currentTimeMillis(); text }
+            lib.typeText(note, t); current.client.notesChanged(lib.list(), note)
+        }
+        val start = System.nanoTime()
+        for (i in 1..n) {
+            val due = start + (i - 1) * gapMs * 1_000_000L
+            while (System.nanoTime() < due) Thread.sleep(0, 200_000)
+            val now = System.currentTimeMillis()
+            val (since, last) = synchronized(lock) { text += "p"; keys[i - 1] = now; if (dirtySince == 0L) dirtySince = now; dirtySince to lastCommit }
+            pending?.cancel(false)
+            pending = clock.schedule({ try { commitNow() } catch (e: Exception) { print("JOIN info commit failed: $e") } }, commit.delayMs(now, since, last), java.util.concurrent.TimeUnit.MILLISECONDS)
+        }
+        val settled = poll(15_000, 5) { macSince(m).any { l -> Regex("""link: editor-text len=(\d+)""").find(l)?.groupValues?.get(1)?.toInt()?.let { it >= base + n } == true } }
+        clock.shutdownNow()
+        check(settled) { "the last phone letter never showed in the Mac's editor (${macSince(m).filter { it.contains("editor-text") }.takeLast(2)}, wanted length ${base + n})" }
+        val seen = macSince(m).mapNotNull { Regex("""link: editor-text len=(\d+) epoch=(\d+)""").find(it)?.destructured?.let { (l, e) -> l.toInt() to e.toLong() } }
+        return (1..n).map { i -> seen.first { it.first >= base + i }.second - keys[i - 1] }
+    }
+
+    private lateinit var current: Session
+
     // ------------------------------------------------------------------ the script
 
     private fun step(name: String, body: () -> Unit) {
@@ -757,6 +812,40 @@ class JoinTest(private val o: Options, private val print: (String) -> Unit) {
                 check(!lib.hasNote(note2)) { "the deleted note came back to the phone" }
                 check(!macHas(m, "link: announce ids=.*$note2")) { "the Mac announced a note the phone deleted" }
                 check(cur.logs.none { it.contains("copy-") && it.contains(note2) }) { "the phone took a copy of its deleted note" }
+            }
+
+            step("t typed text reaches the other device fast: keystroke to visible, both ways, during a burst and after the last key") {
+                current = cur
+                val baseline = System.getenv("SYNCR_JOIN_TEXT_BASELINE") == "1"
+                val mode = if (baseline) "baseline" else "throttled"
+                macNote(note1)
+                // The first letters make the document block on the Mac and let it reach the phone, so both sides hold the same text.
+                control("insert \"seed \"")
+                check(poll { lib.documentTextOf(note1).contains("seed") }) { "the Mac's first words never reached the phone" }
+                Thread.sleep(1_500)
+                val commit = if (baseline) TextCommit { _, _, _ -> 600 } else TextCommit { now, since, last -> dev.syncr.prototype.ui.TypingThrottle.delayMs(now, since, last) }
+                val macDuring = ArrayList<Long>(); val macLast = ArrayList<Long>(); val macFirst = ArrayList<Long>()
+                val phoneDuring = ArrayList<Long>(); val phoneLast = ArrayList<Long>(); val phoneFirst = ArrayList<Long>()
+                repeat(8) {
+                    val a = macToPhone(note1, 15, 100)
+                    macDuring += a; macLast += a.last(); macFirst += a.first()
+                    Thread.sleep(1_500)
+                    val b = phoneToMac(note1, 15, 100, commit)
+                    phoneDuring += b; phoneLast += b.last(); phoneFirst += b.first()
+                    Thread.sleep(1_500)
+                }
+                print("JOIN info t mode=$mode Mac to phone, every keystroke: ${summary(macDuring)}")
+                print("JOIN info t mode=$mode Mac to phone, first key of a burst: ${summary(macFirst)}")
+                print("JOIN info t mode=$mode Mac to phone, last key of a burst: ${summary(macLast)}")
+                print("JOIN info t mode=$mode phone to Mac, every keystroke: ${summary(phoneDuring)}")
+                print("JOIN info t mode=$mode phone to Mac, first key of a burst: ${summary(phoneFirst)}")
+                print("JOIN info t mode=$mode phone to Mac, last key of a burst: ${summary(phoneLast)}")
+                awaitEqual(note1)
+                // The targets of latency-v1 T.6; reported always, enforced when SYNCR_JOIN_TEXT_ENFORCE=1.
+                if (System.getenv("SYNCR_JOIN_TEXT_ENFORCE") == "1") {
+                    check(pct(macDuring, 0.95) <= 300 && pct(phoneDuring, 0.95) <= 300) { "during typing, p95 over 300 ms: Mac to phone ${pct(macDuring, 0.95)}, phone to Mac ${pct(phoneDuring, 0.95)}" }
+                    check(pct(macLast, 0.95) <= 250 && pct(phoneLast, 0.95) <= 250) { "after the last key, p95 over 250 ms: Mac to phone ${pct(macLast, 0.95)}, phone to Mac ${pct(phoneLast, 0.95)}" }
+                }
             }
 
 

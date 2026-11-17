@@ -123,6 +123,8 @@ import SyncrCore
         let notebook = NotebookController(model: model, workspace: workspace)
         id = try workspace.newNote(); try model.open(id: id)
         let doc = notebook.document(note: id)
+        // Every save here stands for its own pause (the default groups saves a keystroke apart into one undo step).
+        TextSession.runGap = 0; defer { TextSession.runGap = 0.3 }
         try check(try snapshot(model, id).textBlocks.isEmpty, "opening empty note does not migrate/create text")
         try save(doc, "# Café 🦉\nhello")
         var s = try snapshot(model, id)
@@ -206,6 +208,57 @@ import SyncrCore
     copyModel.editNote(id: newId(), work: { _ in }) { if case .failure = $0 { refused = true } }
     try check(refused, "the core adapter refuses a note that is not in the library")
     print("Notebook N1 core checks: OK (pause splice, restart, mixed ink/text undo/redo, width, free move/delete, imported copy writable)")
+}
+
+/// Latency-v1 T.2: text is committed every ~150 ms while typing, but one undo takes back the whole run and one redo restores it.
+@MainActor func notebookRunChecks() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("syncr-notebook-run-" + UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let model = LibraryModel(folder: dir), workspace = Workspace(model: model)
+    let notebook = NotebookController(model: model, workspace: workspace)
+    let id = try workspace.newNote(); try model.open(id: id)
+    let doc = notebook.document(note: id)
+    var undone = false
+    notebook.onHistory = { undone = true }
+    func text() throws -> String { try snapshot(model, id).textBlocks[0].text }
+    func undo(_ redo: Bool, _ name: String) throws { undone = false; doc.history(redo: redo); try pump(name) { undone } }
+    func pause(_ s: Double) { RunLoop.current.run(until: Date(timeIntervalSinceNow: s)) }
+    func type(_ words: [String]) throws { for w in words { try save(doc, doc.text + w); pause(0.02) } }
+    try type(["hello"])
+    pause(0.4)
+    let seq = try snapshot(model, id).localSequence
+    try type([" one", " two", " three"])
+    try check(try snapshot(model, id).localSequence == seq + 3, "three commits of one run are three operations")
+    try undo(false, "run undo")
+    try check(try text() == "hello", "one undo takes back the whole typing run (\(try text()))")
+    try undo(true, "run redo")
+    try check(try text() == "hello one two three", "one redo brings the run back (\(try text()))")
+    pause(0.4)
+    try type([" four"])
+    try undo(false, "second run undo")
+    try check(try text() == "hello one two three", "a run after a pause is a step of its own (\(try text()))")
+    try undo(false, "first run again")
+    try check(try text() == "hello", "and the run before it is the next step (\(try text()))")
+    try undo(true, "redo one"); try undo(true, "redo two")
+    try check(try text() == "hello one two three four", "redo brings both back (\(try text()))")
+    // An ink mark after a run is a step of its own: undo takes the ink first, then the run.
+    let sheet = try snapshot(model, id).sheets[0]
+    var inkDone = false
+    let channels = SampleChannels(x: [200, 250], y: [200, 260], pressure: [0.5, 0.5], elapsedMs: [0, 8], tilt: nil, orientation: nil)
+    let commit = StrokeCommit(noteId: id, sheetId: sheet.id, strokeId: newId(), brush: Brush(family: .pen, size: .medium, colour: .blue), space: .canvas, samples: try encodeSamples(channels: channels))
+    model.appendLiveStroke(commit, view: Viewport()) { result in if case .success = result { inkDone = true } }
+    try pump("ink commit") { inkDone }
+    try undo(false, "undo ink")
+    try check(try snapshot(model, id).strokes.filter { !$0.tombstone }.isEmpty && (try text()) == "hello one two three four", "undo after ink takes the ink only")
+    try undo(false, "undo run after ink")
+    try check(try text() == "hello one two three", "then one step of the run before it (\(try text()))")
+
+    // The editor's commit timing: at once for the first key, then no more than every 150 ms and no key waits over 250 ms.
+    try check(TypingThrottle.delay(now: 10, dirtySince: 10, lastCommit: 0) == 0, "the first keystroke after a quiet spell commits at once")
+    try check(abs(TypingThrottle.delay(now: 10.05, dirtySince: 10.05, lastCommit: 10.0) - 0.10) < 1e-9, "a key 50 ms after a commit waits for the 150 ms gap")
+    try check(abs(TypingThrottle.delay(now: 10.2, dirtySince: 10.0, lastCommit: 10.19) - 0.05) < 1e-9, "no key waits more than 250 ms")
+    try check(TypingThrottle.delay(now: 10.5, dirtySince: 10.0, lastCommit: 10.4) == 0, "an overdue commit is not delayed again")
+    print("Notebook typing-run checks: OK (one undo per run, redo, run after a pause, ink between)")
 }
 
 @MainActor func notebookCoreN2N3Checks() throws {

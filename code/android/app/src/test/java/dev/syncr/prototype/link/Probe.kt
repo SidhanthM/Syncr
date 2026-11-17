@@ -97,10 +97,36 @@ class Probe(private val o: Options, private val print: (String) -> Unit) {
             } finally { note.closeDurably() }
         }
 
+        /** The latency scenario's eye on arrival: wall-clock time and the document text's length, after each merge into [watch]. */
+        @Volatile var watch: String? = null
+        val arrivals = CopyOnWriteArrayList<Pair<Long, Int>>()
+        private fun noteArrival(id: String) {
+            if (id != watch) return
+            arrivals += System.currentTimeMillis() to documentText(id).length
+        }
+
+        private fun documentText(id: String): String {
+            val note = access.openNote(id)
+            return try { note.snapshot().textBlocks.firstOrNull { !it.tombstone && it.role == dev.syncr.core.TextRole.DOCUMENT }?.text.orEmpty() } finally { note.closeDurably() }
+        }
+
+        @Synchronized fun documentTextOf(id: String): String = documentText(id)
+
+        /** What the phone's editor does on a commit: the document block's text becomes [text] (a splice of the stored text). */
+        @Synchronized fun typeText(id: String, text: String) {
+            val note = access.openNote(id)
+            try {
+                val snap = note.snapshot()
+                val draft = dev.syncr.prototype.notes.TextCommands.draft(snap)
+                dev.syncr.prototype.notes.TextCommands.save(snap, draft, text, ::newId)?.let { note.submit(it) }
+            } finally { note.closeDurably() }
+        }
+
         @Synchronized override fun applyDelta(id: String, file: File): CopyOutcome {
             if (access.listNotes().none { it.id == id }) return CopyOutcome.Refused("no such note")
             val note = access.openNote(id)
             val merged = try { note.mergeDelta(file.absolutePath) } finally { note.closeDurably() }
+            noteArrival(id)
             val d = access.noteSyncDigest(id)
             val seq = access.listNotes().first { it.id == id }.localSequence.toLong()
             val whole = merged.complete && merged.report.rejected.isEmpty()
@@ -119,6 +145,7 @@ class Probe(private val o: Options, private val print: (String) -> Unit) {
                 if (report.rejected.isEmpty()) how = "merged"
                 else { rejected = access.rebaseOntoCopy(id, path).rejected.size; how = "rebased" }
             }
+            noteArrival(id)
             val d = access.noteSyncDigest(id)
             val seq = access.listNotes().first { it.id == id }.localSequence.toLong()
             return CopyOutcome.Applied(seq, NoteDigest(d.digest, d.operationCount.toLong()), how, rejected)

@@ -38,6 +38,8 @@ import AppKit
     private var quiet = false
     private var styling = false
     private var pending: DispatchWorkItem?
+    /// When the oldest keystroke not yet committed arrived, and when the text was last committed (seconds, `uptime`); 0 for none.
+    private var dirtySince = 0.0, lastCommit = 0.0
     var onRename: ((String) -> Void)?
     var onLink: ((String, Bool) -> Void)?
     var onReveal: ((Int) -> Void)?
@@ -128,6 +130,9 @@ import AppKit
     }
     required init?(coder: NSCoder) { fatalError("not used") }
 
+    /// Debug control only: told (with the new UTF-16 length) whenever the shown text is replaced from outside the field.
+    nonisolated(unsafe) static var onTextReplaced: ((Int) -> Void)?
+
     func show(document: any TextDocument, title name: String, width: CGFloat) {
         let changedDocument = self.document !== document
         if changedDocument { flush() }
@@ -140,6 +145,7 @@ import AppKit
         if !textView.string.utf8.elementsEqual(document.text.utf8) {
             let old = textView.string, was = textView.selectedRange()
             quiet = true; textView.string = document.text; quiet = false
+            Self.onTextReplaced?(textView.string.utf16.count)
             if textView.window?.firstResponder === textView || !old.isEmpty { textView.setSelectedRange(Self.carry(old, document.text, was)) }
             style()
         } else if changedDocument || permissionChanged || textView.textStorage?.length == 0 { style() }
@@ -179,7 +185,8 @@ import AppKit
     }
     func refreshPreview() { style() }
     func represents(_ document: any TextDocument) -> Bool { self.document === document }
-    func flush() { pending?.cancel(); pending = nil; document?.replace(with: textView.string); document?.flush() }
+    func flush() { pending?.cancel(); pending = nil; if dirtySince != 0 { dirtySince = 0; lastCommit = Self.uptime() }; document?.replace(with: textView.string); document?.flush() }
+    private static func uptime() -> Double { Double(DispatchTime.now().uptimeNanoseconds) / 1e9 }
     func debugSetText(_ text: String) {
         guard document?.writable == true else { return }
         textView.string = text; textView.setSelectedRange(NSRange(location: text.utf16.count, length: 0)); changed()
@@ -223,9 +230,14 @@ import AppKit
     private func changed() {
         onActivity?()
         document?.replace(with: textView.string)
-        pending?.cancel()
-        let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.flush() } }
-        pending = work; DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+        // Throttled, not debounced: a commit already waiting keeps its time, so a long burst still commits every ~150 ms.
+        let now = Self.uptime()
+        if dirtySince == 0 { dirtySince = now }
+        if pending == nil {
+            let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.flush() } }
+            pending = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + TypingThrottle.delay(now: now, dirtySince: dirtySince, lastCommit: lastCommit), execute: work)
+        }
         style(); updateMenu(typing: true)
     }
     func textViewDidChangeSelection(_ notification: Notification) { if !styling && !quiet { style(); updateMenu(typing: false) } }

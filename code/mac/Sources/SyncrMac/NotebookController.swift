@@ -58,6 +58,7 @@ import SyncrCore
         session.save = { [weak self] value, done in
             guard let self else { done(.failure(ViewerError.unavailable)); return }
             let wantedBlock = self.blockIDs[key], free = block?.role == .free
+            let made = Flag()
             self.model.editNote(id: note, work: { handle in
                 var snapshot = try handle.snapshot()
                 var mark: TextBlockView?
@@ -74,22 +75,29 @@ import SyncrCore
                 }
                 guard let mark else { throw ViewerError.unavailable }
                 if free && value.isEmpty {
-                    _ = try handle.submit(command: Self.command(mark.head, .deleteText(markId: mark.id, base: Self.base(mark.head))))
+                    let command = Self.command(mark.head, .deleteText(markId: mark.id, base: Self.base(mark.head)))
+                    made.ids.append(command.operationId)
+                    _ = try handle.submit(command: command)
                 } else if let splice = TextSplice.between(mark.text, value) {
-                    _ = try handle.submit(command: Self.command(mark.head, .spliceText(markId: mark.id, base: Self.base(mark.head), offset: UInt32(splice.offset), delete: UInt32(splice.delete), insert: splice.insert)))
+                    let command = Self.command(mark.head, .spliceText(markId: mark.id, base: Self.base(mark.head), offset: UInt32(splice.offset), delete: UInt32(splice.delete), insert: splice.insert))
+                    made.ids.append(command.operationId)
+                    _ = try handle.submit(command: command)
                 }
             }, completion: { [weak self] result in
                 switch result {
                 case .success(let snapshot):
+                    for id in made.ids { self?.sessions[key]?.recordCommit(id) }
                     self?.model.publishText(snapshot); self?.refreshIndex()
                     done(.success(()))
                 case .failure(let error): done(.failure(error))
                 }
             })
         }
-        session.undo = { [weak self] redo in self?.history(note: note, redo: redo) }
+        session.undo = { [weak self] redo, group, done in self?.history(note: note, redo: redo, group: group, done: done) }
         return session
     }
+    /// Written on the worker queue, read after it finished.
+    private final class Flag: @unchecked Sendable { var value = false; var ids: [String] = [] }
     nonisolated static func base(_ head: EntityHead) -> Base { head.confirmedRevision.map { .confirmed(revision: $0) } ?? .operation(operationId: head.operationId) }
     nonisolated static func command(_ head: EntityHead, _ mutation: MarkMutation) -> Command {
         Command(operationId: newId(), dependencies: [head.operationId], body: .marks(mutations: [mutation]))
@@ -104,12 +112,21 @@ import SyncrCore
         var left = values.count, ok = true
         for session in values { session.flush { success in ok = ok && success; left -= 1; if left == 0 { done?(ok) } } }
     }
-    func history(note: String, redo: Bool) {
+    /// One step. With a `group` (the operations of a typing run) it takes back all of them, as long as each next target is one.
+    func history(note: String, redo: Bool, group: Set<String> = [], done: (@MainActor (Bool) -> Void)? = nil) {
+        let matched = Flag()
         model.editNote(id: note, work: { handle in
-            let snapshot = try handle.snapshot()
-            guard let target = redo ? snapshot.redoTarget : snapshot.undoTarget else { return }
-            _ = try handle.submit(command: Command(operationId: newId(), dependencies: redo ? snapshot.redoDependencies : snapshot.undoDependencies,
-                                                    body: redo ? .redo(targetOperationId: target) : .undo(targetOperationId: target)))
+            var snapshot = try handle.snapshot()
+            var first = true
+            while let target = redo ? snapshot.redoTarget : snapshot.undoTarget {
+                if first { matched.value = group.contains(target) }
+                else if !group.contains(target) { return }
+                _ = try handle.submit(command: Command(operationId: newId(), dependencies: redo ? snapshot.redoDependencies : snapshot.undoDependencies,
+                                                        body: redo ? .redo(targetOperationId: target) : .undo(targetOperationId: target)))
+                if !matched.value { return }
+                first = false
+                snapshot = try handle.snapshot()
+            }
         }, completion: { [weak self] result in
             guard let self else { return }
             switch result {
@@ -117,7 +134,8 @@ import SyncrCore
                 for block in snapshot.textBlocks where !block.tombstone { self.sessions[self.key(note, block)]?.adopt(block.text) }
                 if !snapshot.textBlocks.contains(where: { $0.role == .document && !$0.tombstone }) { self.sessions[note + ":document"]?.adopt("") }
                 self.model.reloadInPlace(id: note); self.refreshIndex(); self.onHistory?()
-            case .failure(let error): self.onError?(error)
+                done?(matched.value)
+            case .failure(let error): self.onError?(error); done?(false)
             }
         })
     }

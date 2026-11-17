@@ -44,7 +44,25 @@ import SyncrCore
         // Unattended runs are timed: keep App Nap from stretching timers while the window is behind others.
         napGuard = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleSystemSleepDisabled], reason: "debug control")
         companion.trace = { [weak self] in self?.say("ai-out " + $0) }
+        DocumentEditor.onTextReplaced = { [weak self] length in self?.say("editor-text len=\(length) epoch=\(Self.epochMs())") }
         say("control ready")
+    }
+
+    private static func epochMs() -> Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
+
+    /// `type-burst <count> <interval-ms>`: `count` letters typed at the end of the shown text through the field, one every
+    /// interval; each logs `link: typed i=<n> epoch=<ms>` as it goes in (the joined test's keystroke-to-visible timing).
+    private func typeBurst(count: Int, intervalMs: Int) {
+        let view = detail.documentEditor.textView
+        view.setSelectedRange(NSRange(location: view.string.utf16.count, length: 0))
+        let start = DispatchTime.now()
+        func letter(_ i: Int) {
+            guard i <= count else { say("ack type-burst"); return }
+            view.insertText("k", replacementRange: view.selectedRange())
+            say("typed i=\(i) epoch=\(Self.epochMs())")
+            DispatchQueue.main.asyncAfter(deadline: start + .milliseconds(i * intervalMs)) { MainActor.assumeIsolated { letter(i + 1) } }
+        }
+        letter(1)
     }
 
     private func say(_ line: String) { FileHandle.standardError.write(Data(("link: " + line + "\n").utf8)) }
@@ -94,6 +112,7 @@ import SyncrCore
             if words.count >= 2, let script = try? String(contentsOfFile: words[1], encoding: .utf8) {
                 companion.debugScript(script, chunk: words.count > 2 ? Int(words[2]) ?? 24 : 24, delayMs: words.count > 3 ? Int(words[3]) ?? 12 : 12, askNow: words[0] != "ai-record", all: words[0] == "ai-all", draw: words[0] == "ai-draw"); say("ack \(words[0])")
             }
+        case "type-burst": if words.count == 3, let n = Int(words[1]), let ms = Int(words[2]) { typeBurst(count: n, intervalMs: ms) }
         case "typing-latency":
             // `typing-latency <n>`: n inserted characters, each timed through TextKit insert and the redraw that follows (ms).
             let n = words.count > 1 ? Int(words[1]) ?? 60 : 60
