@@ -30,6 +30,8 @@ struct SyncExport: Sendable {
     var ops: UInt64
     /// `file` holds only operations (a delta), not a whole note.
     var delta: Bool = false
+    /// The newest operation per author the Mac held when it exported.
+    var heads: [String: String] = [:]
 }
 
 enum SyncError: Error, LocalizedError {
@@ -98,7 +100,7 @@ extension LibraryModel {
                 guard let self else { return }
                 if case .success(let r) = result {
                     _ = try? self.refresh()
-                    if r.installed || r.applied > 0 { self.onCommit?(noteId) }
+                    if r.installed || r.applied > 0 { (self.onPeerMerge ?? self.onCommit)?(noteId) }
                 }
                 completion(result)
             } }
@@ -151,7 +153,7 @@ extension LibraryModel {
                 guard let self else { return }
                 if case .success(let r) = result {
                     _ = try? self.refresh()
-                    if r.applied > 0 { self.onCommit?(noteId) }
+                    if r.applied > 0 { (self.onPeerMerge ?? self.onCommit)?(noteId) }
                 }
                 completion(result)
             } }
@@ -202,7 +204,7 @@ extension LibraryModel {
         guard let library else { completion(.failure(SyncError.unavailable)); return }
         let outgoing = outgoingFolder
         worker.async { [importQueue] in
-            let exported = Result { () -> (URL, UInt64, SyncDigest, Bool) in
+            let exported = Result { () -> (URL, UInt64, SyncDigest, Bool, [String: String]) in
                 try FileManager.default.createDirectory(at: outgoing, withIntermediateDirectories: true)
                 let file = outgoing.appendingPathComponent("\(noteId)-\(UUID().uuidString).syncr")
                 let note = try library.openNote(noteId: noteId)
@@ -210,24 +212,28 @@ extension LibraryModel {
                 if let base, !base.isEmpty {
                     let heads = base.map { AuthorHead(authorId: $0.key, newestId: $0.value) }
                     if let receipt = try? note.exportDelta(heads: heads, destinationPath: file.path), receipt.anchored {
-                        return (file, receipt.exportedLocalSequence, try note.syncDigest(), true)
+                        return (file, receipt.exportedLocalSequence, try note.syncDigest(), true, Self.headsMap(try note.syncHeads()))
                     }
                     try? FileManager.default.removeItem(at: file)
                 }
                 let receipt = try note.exportCopy(destinationPath: file.path)
-                return (file, receipt.exportedLocalSequence, try note.syncDigest(), false)
+                return (file, receipt.exportedLocalSequence, try note.syncDigest(), false, Self.headsMap(try note.syncHeads()))
             }
             importQueue.async {
                 let result = Result { () -> SyncExport in
-                    let (file, seq, digest, delta) = try exported.get()
+                    let (file, seq, digest, delta, heads) = try exported.get()
                     do {
                         let (size, sha) = try Self.hashFile(file)
-                        return SyncExport(file: file, size: size, sha256: sha, seq: seq, digest: digest.digest, ops: digest.operationCount, delta: delta)
+                        return SyncExport(file: file, size: size, sha256: sha, seq: seq, digest: digest.digest, ops: digest.operationCount, delta: delta, heads: heads)
                     } catch { try? FileManager.default.removeItem(at: file); throw error }
                 }
                 DispatchQueue.main.async { MainActor.assumeIsolated { completion(result) } }
             }
         }
+    }
+
+    nonisolated static func headsMap(_ heads: [AuthorHead]) -> [String: String] {
+        Dictionary(heads.map { ($0.authorId, $0.newestId) }, uniquingKeysWith: { max($0, $1) })
     }
 
     nonisolated static func hashFile(_ url: URL) throws -> (UInt64, String) {

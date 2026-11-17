@@ -7,8 +7,8 @@ import java.security.MessageDigest
  * Phone to Mac note sync (wifi-link-v0 §3.3). Link thread only, except [LinkLoop.background] blocks.
  *
  * - After `welcome`: every non-deleted note, as `notes` messages.
- * - A changed note is announced at most 400 ms after its first unannounced save while it is open (later saves in
- *   that window ride along, so continuous writing or erasing still reaches the Mac), and at once when it is closed.
+ * - A changed note is told to the Mac at once (latency-v1 T.3). A Mac that takes pushes and is known to hold everything
+ *   older gets just the new operations as a delta nobody asked for; any other Mac gets a `notes` announcement and asks.
  * - On `want`: `export_copy` into [tempDir] off the link thread, SHA-256, then `file`, chunks, `file_end`, one transfer at
  *   a time; the temp file is deleted once sent. `have` completes it; `file_error` retries once per connection.
  */
@@ -26,7 +26,9 @@ class SyncSender(
     /** Told when a transfer starts: the note, the bytes of its file and whether it is a delta. */
     private val onSent: (id: String, bytes: Long, delta: Boolean) -> Unit = { _, _, _ -> },
 ) {
-    private class Transfer(val xfer: Long, val id: String, val seq: Long, val file: File, val stream: FileStream, val delta: Boolean = false) {
+    private class Transfer(val xfer: Long, val id: String, val seq: Long, val file: File, val stream: FileStream, val delta: Boolean = false,
+        /** What the phone held when it exported this, and whether the Mac did not ask for it. */
+        val heads: Map<String, String> = emptyMap(), val digest: String? = null, val pushed: Boolean = false) {
         var sentAt = 0L
     }
 
@@ -35,8 +37,6 @@ class SyncSender(
 
     private val known = LinkedHashMap<String, NoteMeta>()
     private val announced = HashMap<String, Long>()
-    private class Due(val at: Long, val meta: NoteMeta)
-    private val due = HashMap<String, Due>()
     private val wanted = ArrayDeque<String>()
     private val retried = HashSet<String>()
     private var openId: String? = null
@@ -49,6 +49,16 @@ class SyncSender(
     private var v1 = false
     /** The Mac understands deltas: its `want` may carry what it already has, and a `file` may be a delta. */
     private var delta = false
+    /** The Mac takes a delta nobody asked for. */
+    private var push = false
+    /**
+     * What the Mac is known to hold, per note: the newest operation per author. Learned from a `want`'s base and from a `have`
+     * that reports the operation set the phone exported; dropped at any refusal. A wrong one only makes a push fall short.
+     */
+    private val peerHeads = HashMap<String, Map<String, String>>()
+    /** Notes whose next transfer is a push, and notes to push once the transfer in flight is confirmed. */
+    private val pushing = HashSet<String>()
+    private val pushLater = HashSet<String>()
     /** What the Mac said it holds, per wanted note; used once, so a retry always sends a whole copy. */
     private val bases = HashMap<String, Map<String, String>>()
 
@@ -58,11 +68,12 @@ class SyncSender(
     val busy get() = preparing || active != null
 
     /** After `welcome`: a clean slate for this connection, then the whole manifest. */
-    fun onWelcome(notes: List<NoteMeta>, open: String?, version: Int = 0, delta: Boolean = false) {
+    fun onWelcome(notes: List<NoteMeta>, open: String?, version: Int = 0, delta: Boolean = false, push: Boolean = false) {
         reset()
         connected = true
         v1 = version >= 1
         this.delta = v1 && delta
+        this.push = this.delta && push
         generation++
         receiver.onWelcome(v1, this.delta)
         known.clear()
@@ -88,49 +99,26 @@ class SyncSender(
         preparing = false
         wanted.clear()
         bases.clear()
-        due.clear()
+        peerHeads.clear(); pushing.clear(); pushLater.clear()
         announced.clear()
         retried.clear()
     }
 
-    /** The phone's notes changed. [open] is the note on screen, whose seq goes out within [ANNOUNCE_MS] of its first change. */
+    /** The phone's notes changed. [open] is the note on screen. Every changed note goes out at once. */
     fun update(notes: List<NoteMeta>, open: String?) {
-        val now = clock.nowMs()
-        val closed = openId?.takeIf { it != open }
         openId = open
         known.clear()
         notes.forEach { known[it.id] = it }
         if (!connected) return
         announced.keys.retainAll(known.keys)
-        val immediate = ArrayList<NoteMeta>()
-        // A note just closed goes out at once, with the values it had when it closed (the library list may lag).
-        val flushed = closed?.let { due.remove(it) }
-        for (n in notes) {
-            if (flushed != null && n.id == flushed.meta.id) continue
-            if (announced[n.id] == n.seq) {
-                due.remove(n.id)
-            } else if (n.id == open) {
-                // Keep the first deadline: a stream of saves must not push the Mac's copy back indefinitely.
-                due[n.id] = Due(due[n.id]?.at ?: (now + ANNOUNCE_MS), n)
-            } else {
-                due.remove(n.id)
-                immediate += n
-            }
-        }
-        flushed?.takeIf { it.meta.id in known }?.let { immediate += it.meta }
-        due.keys.retainAll(known.keys)
-        announce(immediate)
+        // A list that still carries an older sequence (the library lags a save behind) says nothing new.
+        announce(notes.filter { n -> announced[n.id]?.let { n.seq > it } ?: true })
     }
 
     /** Called often: sends notices whose quiet period is over and watches the transfer. */
     fun tick() {
         receiver.tick()
         val now = clock.nowMs()
-        if (due.isNotEmpty()) {
-            val ready = due.values.filter { it.at <= now }.map { it.meta }
-            ready.forEach { due.remove(it.id) }
-            announce(ready)
-        }
         active?.let { t ->
             if (t.sentAt == 0L && t.stream.finished) {
                 t.sentAt = now
@@ -145,8 +133,24 @@ class SyncSender(
 
     private fun announce(notes: List<NoteMeta>) {
         if (notes.isEmpty()) return
-        sendNotes(notes)
+        val rest = notes.filterNot(::pushNote)
         notes.forEach { announced[it.id] = it.seq }
+        sendNotes(rest)
+    }
+
+    /**
+     * Sends [n]'s new operations unasked when the Mac is known to hold everything older (latency-v1 T.3), as if it had asked.
+     * False when it cannot be pushed: the note is announced and the Mac asks.
+     */
+    private fun pushNote(n: NoteMeta): Boolean {
+        if (!push || !connected || n.id !in known) return false
+        val heads = peerHeads[n.id] ?: return false
+        if (active?.id == n.id) { pushLater += n.id; return true }
+        if (n.id !in wanted) wanted += n.id
+        bases.putIfAbsent(n.id, heads)
+        pushing += n.id
+        startNext()
+        return true
     }
 
     /**
@@ -189,18 +193,21 @@ class SyncSender(
         onWanted(ids)
         for (id in ids) {
             if (id in known && id !in wanted && active?.id != id) wanted += id
-            if (delta) base?.get(id)?.let { bases[id] = it }
+            if (delta) base?.get(id)?.let { bases[id] = it; peerHeads[id] = it }
         }
         startNext()
     }
 
-    fun onHave(id: String, seq: Long) {
+    fun onHave(id: String, seq: Long, digest: String? = null) {
         delivered += id to seq
         onDelivered(id, seq)
-        if (active?.id == id) {
-            active?.let { discard(it) }
+        active?.takeIf { it.id == id }?.let { t ->
+            // The Mac reports the operation set the phone exported: it holds exactly the heads the phone had then.
+            if (digest != null && digest == t.digest && t.heads.isNotEmpty()) peerHeads[id] = t.heads
+            discard(t)
             active = null
         }
+        if (pushLater.remove(id)) known[id]?.let { pushNote(it) }
         startNext()
     }
 
@@ -210,6 +217,9 @@ class SyncSender(
         discard(t)
         active = null
         scheduler.file = null
+        peerHeads.remove(id)
+        // A push the Mac never asked for was refused: it has not heard the note changed, so tell it the ordinary way.
+        if (t.pushed) known[id]?.let { sendNotes(listOf(it)) }
         // The receiver is not refusing: it holds the delta and is asking for the whole note, so only free the slot.
         if (reason.startsWith(DELTA_SHORT)) return startNext()
         if (retried.add(id)) {
@@ -229,6 +239,7 @@ class SyncSender(
         val xfer = nextXfer++
         val mine = generation
         val base = bases.remove(id)
+        val pushed = pushing.remove(id)
         loop.background {
             var file: File? = null
             var result: Prepared? = null
@@ -239,7 +250,12 @@ class SyncSender(
                 var asDelta = false
                 var seq = base?.let { source.exportDelta(id, it, file) }
                 if (seq != null && file.isFile) asDelta = true else { file.delete(); seq = source.exportCopy(id, file) }
-                if (seq != null && file.isFile) result = Prepared(seq, file.length(), sha256(file), asDelta)
+                if (seq != null && file.isFile) {
+                    // What the phone holds now, to learn the Mac's heads from its `have` (a wrong guess only makes a push fall short).
+                    val heads = if (push) try { source.heads(id).orEmpty() } catch (e: Exception) { emptyMap() } else emptyMap()
+                    val digest = if (push) try { source.digests(listOf(id))[id]?.digest } catch (e: Exception) { null } else null
+                    result = Prepared(seq, file.length(), sha256(file), asDelta, heads, digest, pushed)
+                }
             } catch (e: Exception) {
                 log("export of $id failed: ${e.javaClass.simpleName}")
             }
@@ -248,7 +264,8 @@ class SyncSender(
         }
     }
 
-    private class Prepared(val seq: Long, val size: Long, val sha256: String, val delta: Boolean)
+    private class Prepared(val seq: Long, val size: Long, val sha256: String, val delta: Boolean,
+        val heads: Map<String, String> = emptyMap(), val digest: String? = null, val pushed: Boolean = false)
 
     private fun onPrepared(mine: Int, id: String, xfer: Long, file: File?, result: Prepared?) {
         if (mine != generation || !connected) {
@@ -265,7 +282,7 @@ class SyncSender(
         val stream = FileStream(file, xfer, chunks)
         scheduler.sendControl(Control.File(xfer, id, result.seq, result.size, result.sha256, chunks, result.delta))
         scheduler.file = stream
-        active = Transfer(xfer, id, result.seq, file, stream, result.delta)
+        active = Transfer(xfer, id, result.seq, file, stream, result.delta, result.heads, result.digest, result.pushed)
         onSent(id, result.size, result.delta)
     }
 
@@ -289,7 +306,6 @@ class SyncSender(
     }
 
     companion object {
-        const val ANNOUNCE_MS = 400L
         /** `file_error` reason: a delta fell short; the sender is released and the whole note is asked for separately. */
         const val DELTA_SHORT = "delta short"
         const val ACK_TIMEOUT_MS = 30_000L

@@ -44,6 +44,8 @@ private final class LoadToken: @unchecked Sendable {
     private(set) var liveIds: Set<String> = []
     /// A note was committed on this Mac (typing, ink, companion, pad, rename, merge). Main thread.
     var onCommit: ((String) -> Void)?
+    /// Operations from the phone were merged into this note (the phone already holds them, so nothing is announced back).
+    var onPeerMerge: ((String) -> Void)?
     private(set) var drawing: Drawing?
     private(set) var loading = false
     /// Bumped whenever the shown note is (re)opened or cleared; a live commit written under an older

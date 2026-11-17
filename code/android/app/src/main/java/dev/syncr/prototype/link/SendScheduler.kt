@@ -9,6 +9,8 @@ interface FileSource {
     /** The next whole message, unframed, or null when the transfer has nothing more to send. */
     fun next(): ByteArray?
     val finished: Boolean
+    /** Small enough to go while the pen is writing (a few typed words), behind the live frames that queue ahead of it. */
+    val small: Boolean get() = false
     fun close()
 }
 
@@ -20,6 +22,7 @@ class FileStream(private val file: File, private val xfer: Long, val chunks: Lon
     private val buffer = ByteArray(Wire.FILE_CHUNK_DATA)
 
     override val finished get() = endSent
+    override val small get() = chunks <= 1
 
     override fun next(): ByteArray? {
         if (endSent) return null
@@ -48,7 +51,8 @@ class FileStream(private val file: File, private val xfer: Long, val chunks: Lon
  * Link thread: picks the next message to write, by wifi-link-v0 §2's priority. Control first, then preview and
  * stroke-commit frames (pumped from the pen's ring into the core's send queue, then popped), then file chunks. Called
  * once per write, so a preview that arrives while a chunk is being written waits for that one chunk and no more.
- * No chunk is started while the pen is writing or hovering ([FeedPump.penActive]): the link loop looks again shortly.
+ * No chunk of a large file is started while the pen is writing or hovering ([FeedPump.penActive]): the link loop looks again
+ * shortly. A small file (64 KB or less, a delta of typed words) goes at once, still behind every control and live frame.
  */
 class SendScheduler(private val out: PreviewOut, private val pump: FeedPump) {
     private data class Pending(val command: Control, val at: Long = System.nanoTime())
@@ -79,8 +83,8 @@ class SendScheduler(private val out: PreviewOut, private val pump: FeedPump) {
         }
         pump.pump()
         out.pop()?.let { return it }
-        if (pump.penActive()) return null
         val f = file ?: return null
+        if (pump.penActive() && !f.small) return null
         val message = f.next()
         if (f.finished) file = null
         return message

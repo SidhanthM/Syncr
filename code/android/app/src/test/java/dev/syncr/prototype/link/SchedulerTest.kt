@@ -43,6 +43,18 @@ class SchedulerTest {
         assertEquals(Wire.KIND_FILE, kind(scheduler.next()))
     }
 
+    @Test fun aSmallFileGoesWhileThePenIsWritingALargeOneWaits() {
+        feed.begin("n", "s", "id", brush, CoordinateSpace.CANVAS, 0, false, false, false)
+        feed.sample(1f, 2f, .5f, 0f, 0f, 10); feed.flush()
+        scheduler.file = fileOf(1)
+        assertEquals(Wire.KIND_PREVIEW, kind(scheduler.next())) // the live frames always go first
+        assertEquals(Wire.KIND_PREVIEW, kind(scheduler.next()))
+        assertEquals(Wire.KIND_FILE, kind(scheduler.next())) // a delta of a few words does not wait for the pen
+        assertEquals(Wire.KIND_CONTROL, kind(scheduler.next())) // file_end
+        scheduler.file = fileOf(2)
+        assertNull(scheduler.next()) // a larger copy still does
+    }
+
     @Test fun aPenHeldStillDoesNotHoldChunksBackForEver() {
         scheduler.file = fileOf(2)
         feed.begin("n", "s", "id", brush, CoordinateSpace.CANVAS, 0, false, false, false)

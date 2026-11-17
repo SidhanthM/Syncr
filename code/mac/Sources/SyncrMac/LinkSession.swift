@@ -20,7 +20,8 @@ enum InstallOutcome: Equatable, Sendable {
 /// What the Mac has ready to send when the phone wants a note (link v1).
 enum ExportOutcome: Sendable {
     /// A staged copy. The session deletes `file` when the transfer ends.
-    case file(url: URL, size: UInt64, sha256: String, seq: UInt64, digest: String, ops: UInt64, delta: Bool)
+    /// `heads` is what the Mac held per author when it exported: the phone holds exactly that once it reports the same digest.
+    case file(url: URL, size: UInt64, sha256: String, seq: UInt64, digest: String, ops: UInt64, delta: Bool, heads: [String: String] = [:])
     case refused(String)
 }
 
@@ -51,10 +52,13 @@ protocol LinkSessionHost: AnyObject {
     func sessionPointer(_ session: LinkSession, packet: PointerPacket)
     func sessionClock(_ session: LinkSession, clock: ClockSync)
     func sessionClosed(_ session: LinkSession)
+    /// A delta the Mac pushed unasked was refused: the note must be announced the ordinary way. Called on the session executor.
+    func sessionPushRefused(_ session: LinkSession, id: String)
     func sessionLog(_ line: String)
 }
 
 extension LinkSessionHost {
+    func sessionPushRefused(_ session: LinkSession, id: String) {}
     func sessionPointerMode(_ session: LinkSession, version: Int, on: Bool) {}
     func sessionPointer(_ session: LinkSession, packet: PointerPacket) {}
     func sessionHeads(_ session: LinkSession, id: String, reply: @escaping @Sendable ([String: String]) -> Void) { reply([:]) }
@@ -99,10 +103,17 @@ final class LinkSession: @unchecked Sendable {
     static let transferWindowNs: UInt64 = 60_000_000_000
     static let outgoingTimeoutNs: UInt64 = 60_000_000_000
 
+    /// A transfer small enough to go while the pen is writing (latency-v1 T.3); a larger one waits for the pen to rest.
+    static let smallTransfer: UInt64 = 64 * 1024
+
     private struct Outgoing {
         let offer: FileOffer
         let file: URL
         let handle: FileHandle
+        /// What the Mac held when it exported this (see `ExportOutcome.file`), and whether the phone did not ask for it.
+        var digest = ""
+        var heads: [String: String] = [:]
+        var pushed = false
         var nextIndex: UInt32 = 0
         var endedNs: UInt64?
     }
@@ -139,6 +150,14 @@ final class LinkSession: @unchecked Sendable {
     private(set) var peerVersion = 0
     /// The phone said it can send and merge deltas (link v1 only).
     private(set) var peerDelta = false
+    /// The phone also takes a delta nobody asked for (latency-v1 T.3).
+    private(set) var peerPush = false
+    /// What the phone is known to hold, per note: the newest operation per author. Learned from a `want`'s base and from a
+    /// `have` that reports the operation set the Mac exported. Dropped at any refusal; a wrong one only makes a push fall short.
+    private var peerHeads: [String: [String: String]] = [:]
+    /// Notes to push whose previous transfer is still in flight (sent when its `have` arrives).
+    private var pushLater: Set<String> = []
+    private var pushed: Set<String> = []
     /// What the phone said it holds, per note it wants; used once, so a retry always sends a whole copy.
     private var wantBase: [String: [String: String]] = [:]
     /// Notes whose next request must be for a whole copy, because a delta fell short.
@@ -194,7 +213,7 @@ final class LinkSession: @unchecked Sendable {
 
     private func handle(_ control: LinkControl, at ns: UInt64) {
         switch control {
-        case .hello(let v, let device, let id, let token, let delta): receiveHello(v: v, device: device, phoneId: id, token: token, delta: delta, at: ns)
+        case .hello(let v, let device, let id, let token, let delta, let push): receiveHello(v: v, device: device, phoneId: id, token: token, delta: delta, push: push, at: ns)
         case .code(let code): receiveCode(code, at: ns)
         case .bye: shutdown(bye: nil)
         default:
@@ -224,11 +243,12 @@ final class LinkSession: @unchecked Sendable {
 
     // MARK: Hello and pairing (3.1)
 
-    private func receiveHello(v: Int, device: String?, phoneId id: String?, token: String?, delta: Bool, at ns: UInt64) {
+    private func receiveHello(v: Int, device: String?, phoneId id: String?, token: String?, delta: Bool, push: Bool, at ns: UInt64) {
         guard phase == .awaitingHello else { return }
         guard (LinkLimits.oldestVersion...LinkLimits.version).contains(v) else { shutdown(bye: "version"); return }
         peerVersion = v
         peerDelta = delta && v >= 1
+        peerPush = peerDelta && push
         guard let id, LinkIds.validHex(id, count: 32) else { log("hello without a valid phone_id"); shutdown(bye: nil); return }
         phoneId = id.lowercased()
         phoneName = Self.cleanName(device)
@@ -272,7 +292,7 @@ final class LinkSession: @unchecked Sendable {
         phase = .ready
         io.liveReset(config.epoch)
         race = PreviewRace()
-        send(.welcome(mac: config.macName, macId: config.macId, epoch: config.epoch, v: min(peerVersion, LinkLimits.version), delta: peerVersion >= 1))
+        send(.welcome(mac: config.macName, macId: config.macId, epoch: config.epoch, v: min(peerVersion, LinkLimits.version), delta: peerVersion >= 1, push: peerVersion >= 1))
         if peerVersion >= 1, let port = config.udpPort, config.udpKey != 0 { send(.udp(port: port, key: String(format: "%016llx", config.udpKey))) }
         nextPingNs = ns
         host?.sessionWelcomed(self)
@@ -386,9 +406,22 @@ final class LinkSession: @unchecked Sendable {
 
     // MARK: Mac to phone transfers (link v1)
 
+    /// A note changed on the Mac and the phone is known to hold everything older: queue just the newer operations as if the
+    /// phone had asked (latency-v1 T.3). False when it cannot be pushed (no push peer, heads not known): announce instead.
+    /// Call on the executor.
+    func push(_ id: String) -> Bool {
+        guard phase == .ready, peerPush, LinkIds.valid(id), let heads = peerHeads[id] else { return false }
+        if outgoing?.offer.id == id { pushLater.insert(id); return true }
+        if wantBase[id] == nil { wantBase[id] = heads }
+        pushed.insert(id)
+        if !wantQueue.contains(id) && wantQueue.count < 2000 { wantQueue.append(id) }
+        pumpWanted()
+        return true
+    }
+
     private func receiveWant(_ ids: [String], base: [String: [String: String]]?) {
         guard peerVersion >= 1 else { return }
-        if peerDelta, let base { for id in ids { if let heads = base[id] { wantBase[id] = heads } } }
+        if peerDelta, let base { for id in ids { if let heads = base[id] { wantBase[id] = heads; peerHeads[id] = heads } } }
         for id in ids where LinkIds.valid(id) && !wantQueue.contains(id) && outgoing?.offer.id != id && wantQueue.count < 2000 { wantQueue.append(id) }
         pumpWanted()
     }
@@ -401,12 +434,12 @@ final class LinkSession: @unchecked Sendable {
             io.run { [self] in
                 exporting = false
                 guard phase == .ready else {
-                    if case .file(let url, _, _, _, _, _, _) = outcome { try? FileManager.default.removeItem(at: url) }
+                    if case .file(let url, _, _, _, _, _, _, _) = outcome { try? FileManager.default.removeItem(at: url) }
                     return
                 }
                 switch outcome {
                 case .refused(let why): log("export-refused id=\(id) reason=\(why)"); pumpWanted()
-                case .file(let url, let size, let sha, let seq, let digest, _, let delta):
+                case .file(let url, let size, let sha, let seq, let digest, _, let delta, let heads):
                     let key = "\(id)|\(digest)"
                     guard allowed(&outStamps, key, nowNs) else {
                         log("guard id=\(id) direction=out refused")
@@ -418,7 +451,7 @@ final class LinkSession: @unchecked Sendable {
                     }
                     let offer = FileOffer(xfer: nextXfer, id: id, seq: seq, size: size, sha256: sha, chunks: chunks, delta: delta)
                     nextXfer &+= 1
-                    outgoing = Outgoing(offer: offer, file: url, handle: handle)
+                    outgoing = Outgoing(offer: offer, file: url, handle: handle, digest: digest, heads: heads, pushed: pushed.remove(id) != nil)
                     counters.files += 1
                     log("out-file id=\(id) xfer=\(offer.xfer) size=\(size) chunks=\(chunks) delta=\(delta)")
                     send(.file(offer))
@@ -431,8 +464,9 @@ final class LinkSession: @unchecked Sendable {
     /// One chunk at a time when the socket can say it has sent it; then `file_end`.
     private func pumpChunks() {
         while phase == .ready, var out = outgoing, out.endedNs == nil, !chunkInFlight {
-            // A note copy must not compete with live ink for the phone's radio; the next tick looks again.
-            if io.penActive?() == true { return }
+            // A large note copy must not compete with live ink for the phone's radio; the next tick looks again. A small
+            // delta (a few typed words) is cheap and goes at once, behind the live frames, which queue ahead of it.
+            if io.penActive?() == true, out.offer.size > Self.smallTransfer { return }
             if out.nextIndex >= out.offer.chunks {
                 send(.fileEnd(xfer: out.offer.xfer))
                 out.endedNs = nowNs; outgoing = out
@@ -462,7 +496,12 @@ final class LinkSession: @unchecked Sendable {
 
     private func receiveHave(id: String, digest: String?) {
         guard peerVersion >= 1 else { return }
-        if outgoing?.offer.id == id { finishOutgoing() }
+        if let out = outgoing, out.offer.id == id {
+            // The phone reports the same operation set the Mac exported: it holds exactly the heads the Mac had then.
+            if let digest, digest == out.digest, !out.heads.isEmpty { peerHeads[id] = out.heads }
+            finishOutgoing()
+        }
+        if pushLater.remove(id) != nil { _ = push(id) }
         guard let digest, let host else { pumpWanted(); return }
         host.sessionHave(self, id: id, digest: digest) { [self] differs in
             io.run { [self] in
@@ -476,7 +515,12 @@ final class LinkSession: @unchecked Sendable {
     private func receiveFileError(xfer: UInt32, id: String, reason: String) {
         guard peerVersion >= 1, outgoing?.offer.xfer == xfer else { return }
         log("out-file-error id=\(id) reason=\(reason)")
-        finishOutgoing(); pumpWanted()
+        let wasPush = outgoing?.pushed == true
+        peerHeads[id] = nil
+        finishOutgoing()
+        // The phone never asked for a pushed file and has now said no: tell it the note changed, the ordinary way.
+        if wasPush { host?.sessionPushRefused(self, id: id) }
+        pumpWanted()
     }
 
     private func receiveFile(_ offer: FileOffer) {

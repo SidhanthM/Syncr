@@ -121,6 +121,7 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
     func sessionHeads(_ session: LinkSession, id: String, reply: @escaping @Sendable ([String: String]) -> Void) {
         main { $0.model.syncHeads(id) { reply($0) } }
     }
+    func sessionPushRefused(_ session: LinkSession, id: String) { main { $0.pushRefused(id, from: session) } }
     func sessionHave(_ session: LinkSession, id: String, digest: String, reply: @escaping @Sendable (Bool) -> Void) {
         main { $0.peerHave(id, digest: digest, reply: reply) }
     }
@@ -212,7 +213,6 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
     /// Link v1: sessions the Mac already sent its full notes list to, and the digest it last announced per note.
     private var announced: [ObjectIdentifier: [String: String]] = [:]
     private var dirty: Set<String> = []
-    private var dirtySince: Double?
     private var announceWork: DispatchWorkItem?
     /// v0 phones: per phone, the last sequence of each note the Mac merged (they announce no digests).
     private var seen: [String: [String: UInt64]] = [:]
@@ -240,6 +240,7 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
         publisher.recordView = { [engine = live.engine] rev, view in engine.recordView(view, rev: rev) }
         live.onViewport = { [weak self] _ in self?.publishTarget() }
         model.onCommit = { [weak self] id in self?.noteCommitted(id) }
+        model.onPeerMerge = { [weak self] id in if id == self?.workspace.active { self?.pictureChanged() } }
         if let data = model.readState(Self.seenFile), let loaded = try? JSONDecoder().decode([String: [String: UInt64]].self, from: data) { seen = loaded }
         live.onStrokeSaved = { [weak self] note, stroke in
             self?.log("link: stroke-saved note=\(note) stroke=\(stroke)")
@@ -307,7 +308,8 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
                 liveReset: { engine.reset(epoch: $0, wait: true) },
                 run: { block in connection.queue.async(execute: block) },
                 sendBulk: { connection.sendBulk($0, done: $1) },
-                penActive: { engine.penActive() })
+                // Only a large copy waits for the pen (a small delta goes at once); it waits until the pen has rested a while.
+                penActive: { engine.penActive(within: 2_500_000_000) })
             let session = LinkSession(config: .init(macName: name, macId: macId, epoch: epoch, stagingDir: staging,
                                                     udpPort: server?.udpPort, udpKey: UInt64.random(in: 1...UInt64.max)), store: store, io: io)
             session.host = bridge
@@ -508,7 +510,7 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
         guard model.liveIds.contains(id) else { reply(.refused("no such note")); return }
         model.syncExport(noteId: id, base: base) { result in
             switch result {
-            case .success(let e): reply(.file(url: e.file, size: e.size, sha256: e.sha256, seq: e.seq, digest: e.digest, ops: e.ops, delta: e.delta))
+            case .success(let e): reply(.file(url: e.file, size: e.size, sha256: e.sha256, seq: e.seq, digest: e.digest, ops: e.ops, delta: e.delta, heads: e.heads))
             case .failure(let error): reply(.refused(error.localizedDescription))
             }
         }
@@ -537,54 +539,54 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
         }
     }
 
-    /// A commit on the Mac (typing, ink, companion, pad strokes, renames, merges): tell v1 phones within about 400 ms,
-    /// later commits pushing the announcement back while the note keeps changing, but never past one second.
+    /// A commit on the Mac (typing, ink, companion, pad strokes, renames, merges): tell v1 phones within `announceCoalesceMs`.
+    /// Commits inside that window ride along, and none pushes it back, so continuous typing is announced as often as it commits.
+    static let announceCoalesceMs = 30.0
+
     private func noteCommitted(_ id: String) {
         if id == workspace.active { pictureChanged() }
         guard !announced.isEmpty else { return }
         dirty.insert(id)
-        let now = Double(monotonicNs()) / 1e6
-        if dirtySince == nil { dirtySince = now }
-        announceWork?.cancel()
-        let wait = max(0, min(400, 1000 - (now - (dirtySince ?? now))))
+        guard announceWork == nil else { return }
         let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.flushAnnouncements() } }
         announceWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + wait / 1000, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.announceCoalesceMs / 1000, execute: work)
     }
 
-    /// While the phone's pen is on the pad (or was, this recently) an announcement waits: each one costs the phone a
-    /// whole-note transfer and merge, which stalls the ink it is sending. Never held longer than the cap.
-    static let penQuietMs = 2500.0, penHoldCapMs = 30_000.0
-    /// While the pad is open the phone shows none of its notes, so the Mac's copy can wait for a real pause: nothing is
-    /// announced until the pen has been away this long (or the pad closes), however long the writing goes on.
-    static let padQuietMs = 15_000.0, padHoldCapMs = 600_000.0
-
+    /// Tells each v1 phone what changed. A phone known to hold everything older gets just the new operations pushed (small ones
+    /// even while its pen is writing: the session sends only large copies after the pen rests); otherwise the note is announced
+    /// and the phone asks for it.
     private func flushAnnouncements() {
-        let now = Double(monotonicNs()) / 1e6
-        let quiet = padOn ? Self.padQuietMs : Self.penQuietMs, cap = padOn ? Self.padHoldCapMs : Self.penHoldCapMs
-        if live.engine.penActive(within: UInt64(quiet * 1e6)), let since = dirtySince, now - since < cap {
-            announceWork?.cancel()
-            let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.flushAnnouncements() } }
-            announceWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
-            return
-        }
         let ids = dirty
-        dirty = []; dirtySince = nil; announceWork = nil
+        dirty = []; announceWork = nil
         guard !ids.isEmpty else { return }
         let targets = registry.sessions.filter { $0.peerVersion >= 1 && announced[ObjectIdentifier($0)] != nil }
         guard !targets.isEmpty else { return }
-        model.syncAnnouncements(only: ids, excluding: []) { [self] list in
-            for s in targets {
-                let key = ObjectIdentifier(s)
-                let fresh = list.filter { !s.peerTrash.contains($0.id) && announced[key]?[$0.id] != $0.digest }
-                guard !fresh.isEmpty else { continue }
-                for n in fresh { announced[key]?[n.id] = n.digest }
-                log("link: announce ids=\(fresh.map(\.id).joined(separator: ","))")
-                let s = s
-                s.onExecutor { s.announce(fresh) }
+        for s in targets {
+            s.onExecutor { [weak self] in
+                let rest = ids.filter { !s.push($0) }
+                DispatchQueue.main.async { MainActor.assumeIsolated { self?.announce(ids: Set(rest), pushed: ids.subtracting(rest), to: s) } }
             }
         }
+    }
+
+    private func announce(ids: Set<String>, pushed: Set<String>, to s: LinkSession) {
+        let key = ObjectIdentifier(s)
+        for id in pushed { announced[key]?[id] = nil; log("link: push id=\(id)") }
+        guard !ids.isEmpty, announced[key] != nil else { return }
+        model.syncAnnouncements(only: ids, excluding: []) { [self] list in
+            let fresh = list.filter { !s.peerTrash.contains($0.id) && announced[key]?[$0.id] != $0.digest }
+            guard !fresh.isEmpty else { return }
+            for n in fresh { announced[key]?[n.id] = n.digest }
+            log("link: announce ids=\(fresh.map(\.id).joined(separator: ","))")
+            s.onExecutor { s.announce(fresh) }
+        }
+    }
+
+    /// The phone refused a delta the Mac pushed: announce the note instead.
+    fileprivate func pushRefused(_ id: String, from s: LinkSession) {
+        log("link: push-refused id=\(id)")
+        announce(ids: [id], pushed: [], to: s)
     }
 
     /// A copy of `id` changed in the library. The shown note is reloaded in place (viewport kept) and its previews are

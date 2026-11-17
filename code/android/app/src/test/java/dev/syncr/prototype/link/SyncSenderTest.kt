@@ -183,40 +183,27 @@ class SyncSenderTest {
 
     // ---- change notices ----
 
-    @Test fun anOpenNotesSavesAreAnnouncedWithin400MsOfTheFirstEvenWhileTheyKeepComing() {
+    @Test fun anOpenNotesSavesAreAnnouncedAtOnceEachOnce() {
         val a1 = NoteMeta("a", 1, "A")
         val h = SessionHarness().connected(a1, open = "a")
         h.sync.update(listOf(NoteMeta("a", 2, "A")), "a")
-        h.clock.now += 300
-        h.sync.tick()
-        assertTrue(h.controls().isEmpty())
-        // Another save rides along instead of restarting the wait.
+        assertEquals(Control.Notes(listOf(NoteMeta("a", 2, "A"))), h.controls().single())
         h.sync.update(listOf(NoteMeta("a", 3, "A")), "a")
-        h.clock.now += 100
-        h.sync.tick()
         assertEquals(Control.Notes(listOf(NoteMeta("a", 3, "A"))), h.controls().single())
+        // The same list again is silent, however long it is left.
+        h.sync.update(listOf(NoteMeta("a", 3, "A")), "a")
         h.clock.now += 5_000
         h.sync.tick()
-        assertTrue(h.controls().isEmpty()) // announced once
-        // The next save starts a new window.
-        h.sync.update(listOf(NoteMeta("a", 4, "A")), "a")
-        h.clock.now += 399
-        h.sync.tick()
         assertTrue(h.controls().isEmpty())
-        h.clock.now += 1
-        h.sync.tick()
-        assertEquals(Control.Notes(listOf(NoteMeta("a", 4, "A"))), h.controls().single())
         h.cleanup()
     }
 
     @Test fun closingTheNoteAnnouncesAtOnce() {
         val h = SessionHarness().connected(NoteMeta("a", 1, "A"), open = "a")
         h.sync.update(listOf(NoteMeta("a", 2, "A")), "a")
-        assertTrue(h.controls().isEmpty())
-        // The library list may still carry the old sequence when the note closes.
-        h.sync.update(listOf(NoteMeta("a", 1, "A")), null)
         assertEquals(Control.Notes(listOf(NoteMeta("a", 2, "A"))), h.controls().single())
-        // The refreshed list agrees: nothing more to say.
+        // The library list may still carry the old sequence when the note closes: the Mac was already told.
+        h.sync.update(listOf(NoteMeta("a", 1, "A")), null)
         h.sync.update(listOf(NoteMeta("a", 2, "A")), null)
         assertTrue(h.controls().isEmpty())
         h.cleanup()

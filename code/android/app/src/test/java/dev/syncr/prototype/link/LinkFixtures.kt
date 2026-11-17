@@ -69,9 +69,12 @@ class NotesFixture : NoteSource {
     val exportedDeltas = ArrayList<Pair<String, Map<String, String>>>()
     var deltaOutcome: CopyOutcome = CopyOutcome.Applied(1, NoteDigest("0".repeat(64), 1), "delta")
     val deltasApplied = ArrayList<Pair<String, Long>>()
+    /** What [digests] answers: the operation set of each note. */
+    val digestsOf = HashMap<String, NoteDigest>()
     val copiesApplied = ArrayList<String>()
     override fun list() = notes.toList()
     override fun heads(id: String) = headsOf[id]
+    override fun digests(ids: List<String>): Map<String, NoteDigest> = ids.mapNotNull { id -> digestsOf[id]?.let { id to it } }.toMap()
     override fun exportDelta(id: String, base: Map<String, String>, dest: File): Long? {
         exportedDeltas += id to base
         val bytes = deltas[id] ?: return null
@@ -128,7 +131,7 @@ class SessionHarness(
     fun welcome(epoch: Long = 7) = mac(Control.Welcome(0, "Test Mac", MAC_ID, epoch))
 
     /** A Mac at link v1 that understands deltas. */
-    fun welcomeV1(epoch: Long = 7, delta: Boolean = true) = mac(Control.Welcome(1, "Test Mac", MAC_ID, epoch, delta))
+    fun welcomeV1(epoch: Long = 7, delta: Boolean = true, push: Boolean = false) = mac(Control.Welcome(1, "Test Mac", MAC_ID, epoch, delta, push))
 
     fun cleanup() { temp.deleteRecursively() }
 }

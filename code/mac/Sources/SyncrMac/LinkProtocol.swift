@@ -81,10 +81,11 @@ struct PointerPacket: Equatable, Sendable {
 
 /// One control message (`t` field). `unknown` keeps the name so it can be logged and ignored.
 enum LinkControl: Equatable, Sendable {
-    /// `delta`: this side can send and merge deltas. Written only when true.
-    case hello(v: Int, device: String?, phoneId: String?, token: String?, delta: Bool = false)
+    /// `delta`: this side can send and merge deltas. Written only when true. `push`: this side also takes a delta nobody
+    /// asked for and sends its own as soon as a note changes (latency-v1 T.3); only meaningful with `delta`.
+    case hello(v: Int, device: String?, phoneId: String?, token: String?, delta: Bool = false, push: Bool = false)
     /// `v` is the version this connection runs at: the phone's, when it is older than the Mac's (a v0 phone refuses any other).
-    case welcome(mac: String, macId: String, epoch: UInt32, v: Int = LinkLimits.version, delta: Bool = false)
+    case welcome(mac: String, macId: String, epoch: UInt32, v: Int = LinkLimits.version, delta: Bool = false, push: Bool = false)
     case pair
     case code(String)
     case paired(token: String)
@@ -121,13 +122,15 @@ enum LinkControl: Equatable, Sendable {
 
     var object: [String: Any] {
         switch self {
-        case .hello(let v, let device, let phoneId, let token, let delta):
+        case .hello(let v, let device, let phoneId, let token, let delta, let push):
             var o: [String: Any] = ["t": "hello", "v": v, "device": device ?? "", "phone_id": phoneId ?? "", "token": token.map { $0 as Any } ?? NSNull()]
             if delta { o["delta"] = true }
+            if push { o["push"] = true }
             return o
-        case .welcome(let mac, let macId, let epoch, let v, let delta):
+        case .welcome(let mac, let macId, let epoch, let v, let delta, let push):
             var o: [String: Any] = ["t": "welcome", "v": v, "mac": mac, "mac_id": macId, "epoch": epoch]
             if delta { o["delta"] = true }
+            if push { o["push"] = true }
             return o
         case .pair: return ["t": "pair"]
         case .code(let code): return ["t": "code", "code": code]
@@ -238,9 +241,9 @@ enum LinkControl: Equatable, Sendable {
         case "hello":
             guard let v = obj["v"].flatMap(integer), let version = Int(exactly: v) else { throw bad("v is not an integer") }
             return .hello(v: version, device: obj["device"] as? String, phoneId: obj["phone_id"] as? String, token: try optionalString("token"),
-                          delta: obj["delta"] as? Bool == true)
+                          delta: obj["delta"] as? Bool == true, push: obj["push"] as? Bool == true)
         case "welcome": return .welcome(mac: try string("mac"), macId: try string("mac_id"), epoch: try u32("epoch"), v: obj["v"].flatMap(integer).flatMap { Int(exactly: $0) } ?? 0,
-                                        delta: obj["delta"] as? Bool == true)
+                                        delta: obj["delta"] as? Bool == true, push: obj["push"] as? Bool == true)
         case "pair": return .pair
         case "code": return .code(try string("code"))
         case "paired": return .paired(token: try string("token"))

@@ -19,19 +19,24 @@ sealed class Control {
         return ByteArray(1 + body.size).also { it[0] = Wire.KIND_CONTROL.toByte(); System.arraycopy(body, 0, it, 1, body.size) }
     }
 
-    /** [delta]: this side can send and merge deltas (sync-delta.md). Written only when true, so an older peer sees the old message. */
-    data class Hello(val device: String, val phoneId: String, val token: String?, val v: Int = VERSION, val delta: Boolean = false) : Control() {
+    /**
+     * [delta]: this side can send and merge deltas (sync-delta.md). [push]: it also takes a delta nobody asked for and sends its
+     * own as soon as a note changes (latency-v1 T.3). Both are written only when true, so an older peer sees the old message.
+     */
+    data class Hello(val device: String, val phoneId: String, val token: String?, val v: Int = VERSION, val delta: Boolean = false, val push: Boolean = false) : Control() {
         override fun json(): Map<String, Any?> {
             val m = linkedMapOf<String, Any?>("t" to "hello", "v" to v, "device" to device, "phone_id" to phoneId, "token" to token)
             if (delta) m["delta"] = true
+            if (push) m["push"] = true
             return m
         }
     }
 
-    data class Welcome(val v: Int, val mac: String, val macId: String, val epoch: Long, val delta: Boolean = false) : Control() {
+    data class Welcome(val v: Int, val mac: String, val macId: String, val epoch: Long, val delta: Boolean = false, val push: Boolean = false) : Control() {
         override fun json(): Map<String, Any?> {
             val m = linkedMapOf<String, Any?>("t" to "welcome", "v" to v, "mac" to mac, "mac_id" to macId, "epoch" to epoch)
             if (delta) m["delta"] = true
+            if (push) m["push"] = true
             return m
         }
     }
@@ -186,8 +191,8 @@ sealed class Control {
             val root = Json.parse(message, 1) as? Map<*, *> ?: throw LinkProtocolException("control message is not an object")
             val m = Fields(root)
             return when (m.str("t")) {
-                "hello" -> Hello(m.str("device", 256), m.id("phone_id"), m.optStr("token", 128), m.int("v").toInt(), m.flag("delta"))
-                "welcome" -> Welcome(m.int("v").toInt(), m.str("mac", 256), m.id("mac_id"), m.u32("epoch"), m.flag("delta"))
+                "hello" -> Hello(m.str("device", 256), m.id("phone_id"), m.optStr("token", 128), m.int("v").toInt(), m.flag("delta"), m.flag("push"))
+                "welcome" -> Welcome(m.int("v").toInt(), m.str("mac", 256), m.id("mac_id"), m.u32("epoch"), m.flag("delta"), m.flag("push"))
                 "pair" -> PairRequest
                 "code" -> Code(m.str("code", 16))
                 "paired" -> Paired(m.str("token", 128))

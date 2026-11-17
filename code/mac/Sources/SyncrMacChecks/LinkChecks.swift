@@ -227,6 +227,8 @@ private final class SessionRig: LinkSessionHost, @unchecked Sendable {
     var exportAnswer: (String) -> ExportOutcome = { _ in .refused("none") }
     var haveSeen: [(String, String)] = []
     var haveDiffers = false
+    var pushRefused: [String] = []
+    var penOn = false
     var logs: [String] = []
     var wantAnswer: ([NoteAnnounce]) -> [String] = { $0.map(\.id) }
     var installAnswer: (FileOffer, URL) -> InstallOutcome = { _, _ in .installed(seq: 1) }
@@ -256,7 +258,7 @@ private final class SessionRig: LinkSessionHost, @unchecked Sendable {
             close: { [unowned self] in closed = true },
             liveReceive: { [unowned self] data, _ in live.append(data) },
             liveReset: { [unowned self] epoch in resetEpochs.append(epoch); events.append("reset") },
-            run: { $0() }, sendBulk: nil))
+            run: { $0() }, sendBulk: nil, penActive: { [unowned self] in penOn }))
         session.host = self
         session.start(atNs: now)
     }
@@ -267,14 +269,15 @@ private final class SessionRig: LinkSessionHost, @unchecked Sendable {
     func feed(_ c: LinkControl) { session.receive(.control(c), at: now) }
     func feed(_ f: LinkFrame) { session.receive(f, at: now) }
     func tick(after seconds: Double) { now += UInt64(seconds * 1e9); session.tick(atNs: now) }
-    func hello(token: String? = nil, v: Int = 0, device: String? = "Galaxy S23 Ultra", delta: Bool = false) {
-        feed(.hello(v: v, device: device, phoneId: phoneId, token: token, delta: delta))
+    func hello(token: String? = nil, v: Int = 0, device: String? = "Galaxy S23 Ultra", delta: Bool = false, push: Bool = false) {
+        feed(.hello(v: v, device: device, phoneId: phoneId, token: token, delta: delta, push: push))
     }
     func clearSent() { sent = Data() }
+    func controlsOffer() -> FileOffer? { for c in controls { if case .file(let o) = c { return o } }; return nil }
 
     /// Pairs and welcomes through the normal path. Returns the token.
-    @discardableResult func welcome(v: Int = 0, delta: Bool = false) throws -> String {
-        hello(v: v, delta: delta)
+    @discardableResult func welcome(v: Int = 0, delta: Bool = false, push: Bool = false) throws -> String {
+        hello(v: v, delta: delta, push: push)
         let code = codes.last?.code ?? ""
         feed(.code(code))
         guard case .paired(let token)? = controls.first(where: { if case .paired = $0 { true } else { false } }) else {
@@ -300,6 +303,7 @@ private final class SessionRig: LinkSessionHost, @unchecked Sendable {
     func sessionClock(_ session: LinkSession, clock: ClockSync) { clocks.append(clock) }
     func sessionClosed(_ session: LinkSession) { events.append("closed") }
     func sessionLog(_ line: String) { logs.append(line) }
+    func sessionPushRefused(_ session: LinkSession, id: String) { pushRefused.append(id) }
 }
 
 private func controlsList(_ data: Data) -> [LinkControl] { controls(data) }
@@ -529,6 +533,91 @@ private func bytesOf(_ url: URL) -> Int { ((try? FileManager.default.attributesO
     guard case .success(let w)? = whole else { throw CheckFailure(description: "copy export failed") }
     try check(!w.delta && w.size > e.size, "without a base the whole note goes (\(w.size) bytes against \(e.size))")
     print("delta check: whole copy \(w.size) bytes, delta \(e.size) bytes")
+}
+
+
+// MARK: - Push (latency-v1 T.3)
+
+@MainActor private func pushChecks() throws {
+    let held = ["AUTHOR1": "01M7PEC69Z6M1T1WDDDTS8FRSZ"], exported = ["AUTHOR1": "01M7PEC69Z6M1T1WDDDTS8FRT0"]
+    let digest = String(repeating: "c", count: 64)
+    // The wire: push is written only when used and read back, in both messages.
+    let hello = try LinkControl.parse(json: Data("{\"t\":\"hello\",\"v\":1,\"device\":\"x\",\"phone_id\":\"0123456789abcdef0123456789abcdef\",\"token\":null,\"delta\":true,\"push\":true}".utf8))
+    try check(hello == .hello(v: 1, device: "x", phoneId: "0123456789abcdef0123456789abcdef", token: nil, delta: true, push: true), "hello reads push")
+    try check(dictionary(.hello(v: 1, device: "x", phoneId: "p", token: nil, delta: true))["push"] == nil && dictionary(.welcome(mac: "m", macId: "i", epoch: 1, v: 1, delta: true))["push"] == nil, "without push no field is written")
+    try check(try frames(LinkControl.welcome(mac: "m", macId: "i", epoch: 1, v: 1, delta: true, push: true).framed()) == [.control(.welcome(mac: "m", macId: "i", epoch: 1, v: 1, delta: true, push: true))], "welcome with push round trips")
+
+    let dir = temp(); defer { try? FileManager.default.removeItem(at: dir) }
+    func stage(_ size: Int, to name: String) throws -> (URL, String) {
+        let file = dir.appendingPathComponent(name)
+        let bytes = Data(repeating: 7, count: size)
+        try bytes.write(to: file)
+        return (file, SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined())
+    }
+    func answerWithFile(_ rig: SessionRig, size: Int = 756, delta: Bool = true) {
+        rig.exportAnswer = { _ in
+            let n = UUID().uuidString
+            guard let (f, sha) = try? stage(size, to: n + ".bin") else { return .refused("stage") }
+            return .file(url: f, size: UInt64(size), sha256: sha, seq: 9, digest: digest, ops: 4, delta: delta, heads: exported)
+        }
+    }
+
+    // A phone that did not say push is never pushed to; one that did, only once the Mac knows what it holds.
+    let plain = SessionRig(dir: dir.appendingPathComponent("a"))
+    try plain.welcome(v: 1, delta: true); plain.clearSent()
+    plain.feed(.want(["A1"], base: ["A1": held]))
+    try check(!plain.session.push("A1") && !plain.session.peerPush, "a phone without push is not pushed to")
+    let rig = SessionRig(dir: dir.appendingPathComponent("b"))
+    try rig.welcome(v: 1, delta: true, push: true)
+    try check(rig.session.peerPush && dictionary(rig.controls.first { if case .welcome = $0 { true } else { false } }!)["push"] as? Bool == true, "the Mac says push back to a phone that said it")
+    rig.clearSent()
+    try check(!rig.session.push("A1"), "heads not known: not pushed, the note is announced instead")
+
+    // A want with a base teaches the heads; the phone's `have` for the same operation set keeps them current.
+    answerWithFile(rig)
+    rig.feed(.want(["A1"], base: ["A1": held]))
+    try check(rig.exportBases.last! == held, "the want's base is handed to the host")
+    rig.feed(.have(id: "A1", seq: 9, digest: digest, ops: 4))
+    rig.clearSent()
+    try check(rig.session.push("A1"), "heads known: pushed")
+    try check(rig.exportBases.last! == exported, "the push is exported from what the phone held at the last equal digest (\(String(describing: rig.exportBases.last)))")
+    guard case .file(let offer)? = rig.controls.first else { throw CheckFailure(description: "a push sends a file offer with no want: \(rig.controls)") }
+    try check(offer.delta && offer.size == 756 && offer.id == "A1", "the pushed file is a delta of the note")
+
+    // Another change while that file is in flight waits for its `have`, and then goes from the new heads.
+    try check(rig.session.push("A1"), "a second push while one is in flight is accepted")
+    let before = rig.exportBases.count
+    rig.clearSent()
+    rig.feed(.have(id: "A1", seq: 10, digest: digest, ops: 5))
+    try check(rig.exportBases.count == before + 1 && rig.exportBases.last! == exported, "it is sent when the first one is confirmed")
+    rig.feed(.have(id: "A1", seq: 11, digest: digest, ops: 6))
+
+    // A have with another operation set (the phone holds more) does not move the heads.
+    rig.feed(.want(["A2"], base: ["A2": held]))
+    rig.feed(.have(id: "A2", seq: 9, digest: String(repeating: "f", count: 64), ops: 9))
+    rig.clearSent()
+    try check(rig.session.push("A2") && rig.exportBases.last! == held, "an unequal digest keeps the base the phone gave")
+    rig.feed(.fileError(xfer: rig.controlsOffer()?.xfer ?? 0, id: "A2", reason: "busy"))
+    try check(rig.pushRefused == ["A2"], "a refused push is handed back to be announced")
+    try check(!rig.session.push("A2"), "and the heads are forgotten, so the next change is announced")
+
+    // Size decides whether the pen holds a transfer: a small delta goes while the pen is writing, a large copy waits.
+    let pen = SessionRig(dir: dir.appendingPathComponent("c"))
+    try pen.welcome(v: 1, delta: true, push: true)
+    pen.penOn = true
+    answerWithFile(pen, size: 756)
+    pen.clearSent()
+    pen.feed(.want(["A1"], base: ["A1": held]))
+    try check(pen.sent.count > 756, "a small delta is sent while the pen is writing (\(pen.sent.count) bytes)")
+    pen.feed(.have(id: "A1", seq: 9, digest: digest, ops: 4))
+    answerWithFile(pen, size: 70_000, delta: false)
+    pen.clearSent()
+    pen.feed(.want(["A1"]))
+    try check(pen.sent.count < 70_000, "a large copy waits while the pen is writing (\(pen.sent.count) bytes)")
+    pen.penOn = false
+    pen.tick(after: 0.1)
+    try check(pen.sent.count > 70_000, "and goes when the pen has rested (\(pen.sent.count) bytes)")
+
 }
 
 // MARK: - A phone's note, as the phone would export it
@@ -1033,7 +1122,7 @@ private func isTarget(_ c: LinkControl, note: String, writable: Bool) -> Bool {
     var token = "", epoch: UInt32 = 0
     try pump("paired and welcome") {
         if case .paired(let t)? = phone.take({ if case .paired = $0 { true } else { false } }) { token = t }
-        if case .welcome(_, _, let e, _, _)? = phone.take({ if case .welcome = $0 { true } else { false } }) { epoch = e }
+        if case .welcome(_, _, let e, _, _, _)? = phone.take({ if case .welcome = $0 { true } else { false } }) { epoch = e }
         return !token.isEmpty && epoch != 0
     }
     try check(shownCode == nil, "the code is hidden once paired")
@@ -1317,6 +1406,7 @@ private func padChecks() throws {
     try pairingChecks()
     try syncChecks()
     try deltaChecks()
+    try pushChecks()
     try mirrorChecks()
     try targetChecks()
     try padChecks()
