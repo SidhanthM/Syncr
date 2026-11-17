@@ -31,8 +31,12 @@ import java.util.concurrent.ThreadFactory
 /**
  * The note's text and the companion's comments, drawn under the ink (read-only). Everything slow happens on one
  * background thread: [show] only compares a cheap fingerprint of the text and companion entities and, when it changed,
- * queues a job that lays the scene out and records it into banded [Picture]s. The pen's path never waits: [draw] replays
+ * asks for a job that lays the scene out and records it into banded [Picture]s. The pen's path never waits: [draw] replays
  * the finished bands that are on screen, and a new scene is swapped in with one volatile write, then asks for a redraw.
+ *
+ * Latest only (latency-v1 T.4): at most one job runs and at most one newer request waits, replaced by each later one. A job
+ * checks whether it is still the newest before each expensive stage and gives up if not; the scene on screen stays until the
+ * newest one is ready, so a burst of edits costs one layout in flight plus one, not one per edit.
  */
 internal class TextLayer(private val invalidate: () -> Unit, private val onExtent: (Float) -> Unit) {
     private class Band(val top: Float, val bottom: Float, val picture: Picture)
@@ -49,7 +53,11 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
     private var queuedDark = false
     private var queuedHide: String? = null
     private var queuedNote: String? = null
-    private var generation = 0
+    @Volatile private var generation = 0
+    private class Request(val note: NoteSnapshot, val key: Long, val dark: Boolean, val hide: String?, val title: TitleDisplay?, val cell: Float, val mine: Int)
+    private val latest = LatestWork<Request>(executor, ::process)
+    /** Jobs that started and jobs that gave up halfway, for the tests. */
+    @Volatile var rendered = 0; @Volatile var abandoned = 0
     private val main = Handler(Looper.getMainLooper())
     private val dissolves = ArrayList<Dissolve>()
     private val coverPaint = Paint()
@@ -69,19 +77,23 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
         if (note.noteId != queuedNote) { done = null; onExtent(0f) }
         queuedNote = note.noteId; queuedKey = key; queuedDark = dark; queuedHide = hide
         val mine = ++generation
-        executor.execute {
-            val before = done
-            val cell = cellUnits
-            val result = try { render(note, key, dark, hide, before, cell, title) } catch (_: Throwable) { Done(key, dark, emptyList(), 0f) }
-            main.post {
-                if (mine == generation) {
-                    done = result; onExtent(result.bottom)
-                    // Items new to a note already on screen dissolve in, unless the pen is busy or animations are off.
-                    if (!reduced && (Stipple.freeze != null || !penBusy())) for ((id, covers) in result.arrivals) {
-                        result.scene.items[id]?.let { dissolves += Dissolve(it, SystemClock.uptimeMillis(), covers) }
-                    }
-                    invalidate()
+        latest.submit(Request(note, key, dark, hide, title, cellUnits, mine))
+    }
+
+    private fun process(r: Request) {
+        if (r.mine != generation) return
+        val before = done
+        val result = try { render(r, before) } catch (_: Throwable) { Done(r.key, r.dark, emptyList(), 0f) }
+        if (result == null) { abandoned++; return }
+        rendered++
+        main.post {
+            if (r.mine == generation) {
+                done = result; onExtent(result.bottom)
+                // Items new to a note already on screen dissolve in, unless the pen is busy or animations are off.
+                if (!reduced && (Stipple.freeze != null || !penBusy())) for ((id, covers) in result.arrivals) {
+                    result.scene.items[id]?.let { dissolves += Dissolve(it, SystemClock.uptimeMillis(), covers) }
                 }
+                invalidate()
             }
         }
     }
@@ -170,14 +182,20 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
         return out
     }
 
-    private fun render(note: NoteSnapshot, key: Long, dark: Boolean, hide: String?, before: Done?, cell: Float, title: TitleDisplay?): Done {
+    /** The scene for [r], or null when a newer request came in before it was done (nothing is published then). */
+    private fun render(r: Request, before: Done?): Done? {
+        val note = r.note; val key = r.key; val dark = r.dark; val hide = r.hide; val cell = r.cell; val title = r.title
+        fun stale() = r.mine != generation || latest.newerWaiting
+        if (stale()) return null
         val shaper = AndroidShaper()
         val cache = HashMap<String, PictureDisplayList?>()
         val scene = NoteTextSceneBuilder(shaper) { svg -> cache.getOrPut(svg) { try { pictureDisplayList(svg) } catch (_: Exception) { null } } }.build(note, hide, title)
+        if (stale()) return null
         val painter = TextPainter(dark, scene.pictures)
         val bands = ArrayList<Band>()
         var top = 0f
         while (top < scene.bottom) {
+            if (stale()) return null
             val bottom = top + BAND
             val inBand = scene.prims.filter { it.bottom >= top && it.top < bottom }
             if (inBand.isNotEmpty()) {
@@ -190,6 +208,7 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
             }
             top = bottom
         }
+        if (stale()) return null
         return Done(key, dark, bands, scene.bottom, scene.hits, hide, scene, note.noteId, arrivals(note.noteId, scene, before, dark, cell))
     }
 

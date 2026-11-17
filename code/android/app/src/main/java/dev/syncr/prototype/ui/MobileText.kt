@@ -36,12 +36,10 @@ private val draftSaver = listSaver<TextDraft, String>(
     save = { listOf(it.noteId, it.blockId.orEmpty(), it.head.orEmpty(), it.text) },
     restore = { TextDraft(it[0], it[1].ifEmpty { null }, it[2].ifEmpty { null }, it[3]) })
 
-/** How long a pause in typing waits before the text is stored (§5.3). */
-private const val SAVE_PAUSE_MS = 600L
-
 /**
  * Typing on the page, Obsidian-style (editor-v2 §3 to §5.3): the field lives in [canvas]; this holds what is around
- * it. The text is stored as a splice after a pause and when editing ends, never over a newer revision that arrived by
+ * it. The text is stored as a splice on a throttle (the first key at once, then every ~150 ms while typing goes on, see
+ * [TypingThrottle]) and when editing ends, never over a newer revision that arrived by
  * sync (then the typed text stays and a line offers Copy my text and Reload). The slash menu, `[[` completion, the
  * toolbar above the keyboard and the ask sheet are here.
  */
@@ -123,11 +121,16 @@ internal fun MobileTextEditor(repo: NotesRepository, block: String?, canvas: Not
             android.content.IntentFilter("dev.syncr.prototype.DEBUG_FOREIGN_EDIT"), androidx.core.content.ContextCompat.RECEIVER_EXPORTED)
         onDispose { context.unregisterReceiver(receiver) }
     }
+    // [0] is when the oldest unsaved keystroke arrived and [1] when the text was last stored; a keystroke restarts the effect
+    // below but not these, so the deadline stays where it was and a long burst is still stored every ~150 ms.
+    val clock = remember { longArrayOf(0L, 0L) }
     LaunchedEffect(state.text) {
         if (!conflict && state.text != draft.text) {
-            delay(SAVE_PAUSE_MS)
+            val now = android.os.SystemClock.uptimeMillis()
+            if (clock[0] == 0L) clock[0] = now
+            delay(TypingThrottle.delayMs(now, clock[0], clock[1]))
             // The next keystroke restarts this effect; a save already begun must still finish.
-            withContext(NonCancellable) { flush() }
+            withContext(NonCancellable) { clock[0] = 0L; clock[1] = android.os.SystemClock.uptimeMillis(); flush() }
         }
     }
 
