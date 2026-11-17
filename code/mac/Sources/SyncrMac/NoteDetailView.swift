@@ -725,6 +725,56 @@ import SyncrCore
         else { (companionOverlay.subviews.first { $0 is DrawingCard } as? DrawingCard)?.debug(action) }
     }
 
+    // MARK: Debug pan trace (debug flag only)
+
+    /// One presented frame while the pan test runs: the viewport the ink was drawn at, the viewport the text layer's
+    /// frame says it is at right after the same present call, and how the frame was presented.
+    private struct PanFrame { var ink: Viewport; var text: Viewport; var transaction: Bool; var moved: Bool }
+    private var panTrace: [PanFrame]?
+    private var panLast: Viewport?
+
+    private func tracePan(ink: Viewport, transaction: Bool) {
+        guard documentVisible, textLayer.bounds.width > 0 else { return }
+        let scale = textLayer.bounds.width / CGFloat(ink.visibleSize(textLayer.bounds.size).x)
+        let origin = documentEditor.frame.origin
+        let text = Viewport(left: Float(-origin.x / scale), top: Float(-origin.y / scale), zoom: ink.zoom)
+        panTrace?.append(PanFrame(ink: ink, text: text, transaction: transaction, moved: panLast.map { $0 != ink } ?? false))
+        panLast = ink
+    }
+
+    /// Pans the view programmatically for `seconds` (a sweep of the page, 120 steps a second) while the caller
+    /// replays ink, and traces every presented frame. `debugPanReport` reads the result.
+    func debugPanStart(seconds: Double) {
+        panTrace = []; panLast = nil
+        let start = CACurrentMediaTime(), base = viewport
+        let timer = Timer(timeInterval: 1.0 / 120, repeats: true) { [weak self] timer in
+            let finished = MainActor.assumeIsolated {
+                guard let self else { return true }
+                let t = CACurrentMediaTime() - start
+                if t >= seconds { return true }
+                var next = base
+                next.top = base.top + Float(400 * (1 - cos(t * 6)) / 2)
+                next.left = base.left + Float(60 * sin(t * 9))
+                self.centred = false
+                self.viewport = next; self.requestRedraw()
+                return false
+            }
+            if finished { timer.invalidate() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+    }
+    /// Frames traced, frames where text and ink viewports differ, frames that moved and were not presented through the
+    /// transaction (both must be 0), and how many frames each way.
+    func debugPanReport() -> String? {
+        guard let trace = panTrace else { return nil }
+        panTrace = nil
+        func differs(_ a: Viewport, _ b: Viewport) -> Bool { abs(a.left - b.left) > 0.05 || abs(a.top - b.top) > 0.05 }
+        let split = trace.filter { differs($0.ink, $0.text) }.count
+        let moving = trace.filter { $0.moved }
+        let unsynced = moving.filter { !$0.transaction }.count
+        return "pan-sync [\(mode.rawValue)]: \(trace.count) frames, \(split) with text and ink at different viewports, \(moving.count) moved, \(unsynced) moved without the transaction, \(trace.filter { $0.transaction }.count) transaction, \(trace.filter { !$0.transaction }.count) arrival"
+    }
+
     // MARK: Debug control (DebugControl.swift, debug flag only)
 
     var debugViewport: Viewport {
@@ -782,6 +832,7 @@ import SyncrCore
     /// Presentation modes, selected with `SYNCR_MAC_PRESENT_MODE` (see README for the measurements).
     /// `SYNCR_MAC_DRAWABLES` (2 or 3) and `SYNCR_MAC_FRAME_LATENCY` (link only) tune them.
     private let mode = PresentMode.current
+    private var presentPolicy = PresentPolicy()
     private var inFlight = false
     private var again = false
     private var cold = false
@@ -790,7 +841,8 @@ import SyncrCore
     private func configure(_ layer: CAMetalLayer) {
         let env = ProcessInfo.processInfo.environment
         layer.maximumDrawableCount = Int(env["SYNCR_MAC_DRAWABLES"] ?? "") .map { min(3, max(2, $0)) } ?? 2
-        layer.displaySyncEnabled = mode != .arrival
+        // Adaptive starts as `arrival`; present() switches both per frame.
+        layer.displaySyncEnabled = mode != .arrival && mode != .arrivalAdaptive
         layer.presentsWithTransaction = mode == .arrivalTransaction
         if env["SYNCR_MAC_OPAQUE"] == "1" { layer.isOpaque = true }
     }
@@ -860,6 +912,13 @@ import SyncrCore
         guard let renderer else { return }
         if !configured, let layer = canvas.layer as? CAMetalLayer { configure(layer); configured = true }
         let frameViewport = viewport
+        var transaction = mode == .arrivalTransaction
+        if mode == .arrivalAdaptive, let layer = canvas.layer as? CAMetalLayer {
+            transaction = presentPolicy.transaction(viewport: frameViewport, size: canvas.bounds.size,
+                                                    animating: slide != nil || canvas.inLiveResize)
+            // Same settings as the fixed modes, chosen for this frame only.
+            if layer.presentsWithTransaction != transaction { layer.presentsWithTransaction = transaction; layer.displaySyncEnabled = transaction }
+        }
         // Present the drawable and move the AppKit overlays in one CA commit.
         // In particular, never show new text coordinates over an older ink frame.
         CATransaction.begin()
@@ -879,9 +938,10 @@ import SyncrCore
         do {
             try renderer.render(model.drawing, wet: wet, viewport: frameViewport, dark: dark, target: drawable.texture,
                                 presenting: drawable, completion: failed, stage: stage,
-                                afterScheduled: mode == .arrivalTransaction)
+                                afterScheduled: transaction)
             displayedViewport = frameViewport
             positionText()
+            if panTrace != nil { tracePan(ink: frameViewport, transaction: transaction) }
         } catch { done?(); onError?(error) }
     }
 

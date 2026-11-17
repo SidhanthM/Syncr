@@ -415,6 +415,15 @@ import UniformTypeIdentifiers
         for (delay, kind) in [(1.0, ReplayKind.pen), (4.0, .highlighter), (7.0, .viewRelative)] {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { MainActor.assumeIsolated { live.replay(kind) } }
         }
+        // The same pen replay again while the view pans: text and ink must change viewport together.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) { [weak self] in
+            MainActor.assumeIsolated { self?.detail.debugPanStart(seconds: 2.5); live.replay(.pen) }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 13.5) { [weak self] in
+            MainActor.assumeIsolated {
+                if let report = self?.detail.debugPanReport() { FileHandle.standardError.write(Data((report + "\n").utf8)) }
+            }
+        }
     }
 
     func openCommandPalette() {

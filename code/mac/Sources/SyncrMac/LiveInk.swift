@@ -33,10 +33,29 @@ enum PresentMode: String {
     case arrivalSync = "arrival-sync"
     /// Arrival with presentsWithTransaction: presented in step with the window's Core Animation commit.
     case arrivalTransaction = "arrival-transaction"
+    /// `arrival` while the view's transform is stable, transaction presentation only while it moves (`PresentPolicy`).
+    case arrivalAdaptive = "arrival-adaptive"
     static var current: PresentMode {
-        // The editor combines AppKit text with Metal ink. Transaction presentation
-        // keeps both on the same viewport during rapid pan/zoom direction changes.
-        ProcessInfo.processInfo.environment["SYNCR_MAC_PRESENT_MODE"].flatMap(PresentMode.init(rawValue:)) ?? .arrivalTransaction
+        // The editor combines AppKit text with Metal ink. Transaction presentation keeps both on the same viewport
+        // during rapid pan/zoom direction changes; it costs about 20 ms, so the default pays it only while moving.
+        // `SYNCR_MAC_PRESENT_MODE=arrival-transaction` restores transaction presentation for every frame.
+        ProcessInfo.processInfo.environment["SYNCR_MAC_PRESENT_MODE"].flatMap(PresentMode.init(rawValue:)) ?? .arrivalAdaptive
+    }
+}
+
+/// Decides, per presented frame, whether `arrival-adaptive` presents with the window's Core Animation transaction.
+/// A frame is "moving" when its viewport or the canvas size differs from the previous frame's, or an animation (slide,
+/// live resize) is running. Moving frames and the one frame after them go through the transaction, so text, ink, margin
+/// content and the pad outline always change viewport together; a stable view presents like `arrival`. It only looks at
+/// frames already being drawn: nothing here schedules a frame.
+struct PresentPolicy {
+    private var last: Viewport?
+    private var lastSize = CGSize.zero
+    private var settling = false
+    mutating func transaction(viewport: Viewport, size: CGSize, animating: Bool) -> Bool {
+        let moving = animating || (last.map { $0 != viewport } ?? false) || (lastSize != .zero && lastSize != size)
+        defer { last = viewport; lastSize = size; settling = moving }
+        return moving || settling
     }
 }
 

@@ -500,7 +500,33 @@ private final class DoneFlag: @unchecked Sendable {
     print("live-ink offscreen replay stages:\n\(rig.engine.describeStages())")
 }
 
+/// `arrival-adaptive`: which frames go through the Core Animation transaction. (The view-level pan trace is in the
+/// app: `present-ab.sh` prints its `pan-sync` line from a release build.)
+@MainActor private func presentPolicyChecks() throws {
+    var policy = PresentPolicy()
+    let size = CGSize(width: 1200, height: 800)
+    var view = Viewport(left: 10, top: 20, zoom: 1.5)
+    try check(!policy.transaction(viewport: view, size: size, animating: false), "adaptive: the first frame is an ordinary arrival")
+    for i in 0..<5 { try check(!policy.transaction(viewport: view, size: size, animating: false), "adaptive: stable frame \(i) presents like arrival") }
+    // A pan: every frame that changes the viewport is a transaction frame, and so is the first still one after it.
+    for i in 1...8 {
+        view.top += 7; view.left -= 3
+        try check(policy.transaction(viewport: view, size: size, animating: false), "adaptive: pan frame \(i) goes through the transaction")
+    }
+    try check(policy.transaction(viewport: view, size: size, animating: false), "adaptive: one frame after the pan still does")
+    try check(!policy.transaction(viewport: view, size: size, animating: false), "adaptive: then back to arrival")
+    view.zoom = 1.8
+    try check(policy.transaction(viewport: view, size: size, animating: false), "adaptive: a zoom step goes through the transaction")
+    try check(policy.transaction(viewport: view, size: size, animating: false) && !policy.transaction(viewport: view, size: size, animating: false), "adaptive: settles after a zoom")
+    try check(policy.transaction(viewport: view, size: CGSize(width: 1100, height: 800), animating: false), "adaptive: a resize goes through the transaction")
+    _ = policy.transaction(viewport: view, size: CGSize(width: 1100, height: 800), animating: false)
+    try check(!policy.transaction(viewport: view, size: CGSize(width: 1100, height: 800), animating: false), "adaptive: and settles")
+    try check(policy.transaction(viewport: view, size: CGSize(width: 1100, height: 800), animating: true), "adaptive: an animation in flight counts as moving even when this frame did not move")
+    try check(PresentMode.current == .arrivalAdaptive || ProcessInfo.processInfo.environment["SYNCR_MAC_PRESENT_MODE"] != nil, "adaptive is the default mode")
+}
+
 @MainActor func liveInkChecks() throws {
+    try presentPolicyChecks()
     try liveInkEndToEnd()
     try liveInkCancelExpiryReset()
     try liveInkRefusals()
