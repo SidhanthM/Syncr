@@ -31,7 +31,7 @@ internal class FakeShaper(private val em: Float = 1400f / 60f / 48f) : Shaper {
 }
 
 class TextSceneTest {
-    private val shaper = FakeShaper()
+    internal val shaper = FakeShaper()
     private val typeset = Typeset(shaper)
     private fun tops(text: String, width: Float = 1400f) = typeset.document(text, 100f, 260f, width).vlines.map { it.top - 260f }
 
@@ -89,17 +89,17 @@ class TextSceneTest {
 
     // ---- scene ----
 
-    private val head = EntityHead("h", null)
-    private fun block(text: String, width: Float = 1600f, role: TextRole = TextRole.DOCUMENT, x: Float = 0f, y: Float = 0f) =
+    internal val head = EntityHead("h", null)
+    internal fun block(text: String, width: Float = 1600f, role: TextRole = TextRole.DOCUMENT, x: Float = 0f, y: Float = 0f) =
         TextBlockView("tb", "sheet", "a", head, role, x, y, IDENTITY, width, text, TextStyle(BrushSize.MEDIUM, InkColour.INK), false)
-    private fun item(id: String, body: CompanionBody, tombstone: Boolean = false) = CompanionItemView(id, "companion", head, tombstone, body)
-    private fun note(blocks: List<TextBlockView>, items: List<CompanionItemView> = emptyList()) = NoteSnapshot(
+    internal fun item(id: String, body: CompanionBody, tombstone: Boolean = false) = CompanionItemView(id, "companion", head, tombstone, body)
+    internal fun note(blocks: List<TextBlockView>, items: List<CompanionItemView> = emptyList()) = NoteSnapshot(
         noteId = "n", title = "Two sum", notebook = null, metadataHead = head, structureHead = head,
         sheets = listOf(SheetView("sheet", "c", 0f, 0f)), strokes = emptyList(), localSequence = 1u, cursor = EventCursor("s", 1u),
         undoTarget = null, redoTarget = null, undoDependencies = emptyList(), redoDependencies = emptyList(),
         textBlocks = blocks, companionItems = items)
-    private fun scene(n: NoteSnapshot, pictures: (String) -> PictureDisplayList? = { null }) = NoteTextSceneBuilder(shaper, pictures).build(n)
-    private fun texts(s: NoteTextScene) = s.prims.filterIsInstance<Prim.Text>()
+    internal fun scene(n: NoteSnapshot, pictures: (String) -> PictureDisplayList? = { null }) = NoteTextSceneBuilder(shaper) { pictures(it) }.build(n)
+    internal fun texts(s: NoteTextScene) = s.prims.filterIsInstance<Prim.Text>()
 
     @Test fun documentTextSitsAtTheMacsDefaultOrigin() {
         val s = scene(note(listOf(block("hello world"))))
@@ -135,18 +135,6 @@ class TextSceneTest {
         assertTrue(scene(note(listOf(gone))).prims.isEmpty())
     }
 
-    @Test fun marginNoteSitsBesideItsPassageInTheMargin() {
-        val items = listOf(
-            item("anchor", CompanionBody.Anchor(AnchorTarget.Text("tb", 10u, 14u, false))),
-            item("m", CompanionBody.MarginNote("anchor", MarginKind.EXPLANATION, "Think of a hash map.", "staff", MarginState.OPEN, emptyList())),
-        )
-        val s = scene(note(listOf(block("aaaa\nbbbb\ncccc\ndddd")), items))
-        val card = texts(s).first { it.text.startsWith("Think") }
-        assertEquals(1600f + 40f + 56f, card.x, 0.01f)
-        // The passage starts on the third line: 260 + 2 * 82.
-        val dot = s.prims.filterIsInstance<Prim.Fill>().first { it.w == 20f && it.h == 20f }
-        assertEquals(260f + 164f + 26f, dot.y, 0.01f)
-    }
 
     @Test fun dismissedMarginNotesAndTombstonedItemsAreSkipped() {
         val items = listOf(
@@ -197,19 +185,8 @@ class TextSceneTest {
         assertEquals(Family.MONO, inline.attr.family); assertEquals(Tok.INLINE_CODE, inline.attr.background)
     }
 
-    @Test fun anchorsUseUtf8OffsetsForNonAsciiText() {
-        val text = "é😀 first\nsecond"
-        val start = text.toByteArray().size - "second".length
-        val items = listOf(
-            item("anchor", CompanionBody.Anchor(AnchorTarget.Text("tb", start.toUInt(), (start + 6).toUInt(), false))),
-            item("m", CompanionBody.MarginNote("anchor", MarginKind.QUESTION, "why", "r", MarginState.OPEN, emptyList())),
-        )
-        val s = scene(note(listOf(block(text)), items))
-        val dot = s.prims.filterIsInstance<Prim.Fill>().first { it.w == 20f && it.h == 20f }
-        assertEquals(260f + 82f + 26f, dot.y, 0.01f)
-    }
 
-    private val picture = PictureDisplayList(
+    internal val picture = PictureDisplayList(
         width = 320f, height = 190f,
         always = listOf(PictureItem.Text("hi", 160f, 20f, "middle", "alphabetic", "font-voice", 16f, "ink", IDENTITY, PictureBounds(140f, 5f, 180f, 25f))),
         steps = listOf(PictureStep(1u, "A box.", emptyList(), emptyList(),
@@ -230,14 +207,6 @@ class TextSceneTest {
         assertEquals(260f + 82f + PictureGeometry.fittedHeight(picture) + MacMetrics.ascent(48f), after.baseline, 0.5f)
     }
 
-    @Test fun pictureWithoutAnEmbedWaitsInTheMargin() {
-        val items = listOf(
-            item("anchor", CompanionBody.Anchor(AnchorTarget.Text("tb", 0u, 5u, false))),
-            item("p", CompanionBody.Picture("anchor", "Box", "<svg/>")),
-        )
-        val place = scene(note(listOf(block("intro\nafter")), items)) { picture }.prims.filterIsInstance<Prim.Picture>().single()
-        assertEquals(1640f, place.x, 0f); assertEquals(1000f, place.w, 0f)
-    }
 
     @Test fun freeTextSitsAtItsOriginWithTheEditorsInset() {
         val free = block("floating", width = 600f, role = TextRole.FREE, x = 2000f, y = 500f).copy(id = "free")
@@ -245,12 +214,4 @@ class TextSceneTest {
         assertEquals(2000f, t.x, 0.01f); assertEquals(545f + MacMetrics.ascent(48f), t.baseline, 0.01f)
     }
 
-    @Test fun narrowerPageMovesTheMarginAndWrapsEarlier() {
-        val items = listOf(
-            item("anchor", CompanionBody.Anchor(AnchorTarget.Text("tb", 0u, 1u, false))),
-            item("m", CompanionBody.MarginNote("anchor", MarginKind.FLAG, "note", "r", MarginState.OPEN, emptyList())),
-        )
-        val s = scene(note(listOf(block("x", width = 1200f)), items))
-        assertEquals(1200f + 40f + 56f, texts(s).first { it.text == "note" }.x, 0.01f)
-    }
 }

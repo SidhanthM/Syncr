@@ -10,6 +10,7 @@ import dev.syncr.core.MarginInput
 import dev.syncr.core.MarginItem
 import dev.syncr.core.MarginItemKind
 import dev.syncr.core.MarginKind
+import dev.syncr.core.MarginLayout
 import dev.syncr.core.MarginLine
 import dev.syncr.core.MarginPolicy
 import dev.syncr.core.MarginState
@@ -54,7 +55,8 @@ internal data class TitleDisplay(val text: String, val meta: String)
  * block.width - 200; margin cards placed by the core's shared margin layout; see `NoteDetailView.showCompanion`). Pure and read-only: a snapshot
  * in, drawing instructions out. [pictureOf] decodes a picture's SVG into the core's display list (null if it cannot).
  */
-internal class NoteTextSceneBuilder(private val shaper: Shaper, private val pictureOf: (String) -> PictureDisplayList?) {
+internal class NoteTextSceneBuilder(private val shaper: Shaper, private val margins: (MarginInput) -> MarginLayout = ::layoutMargins,
+    private val pictureOf: (String) -> PictureDisplayList?) {
     private val typeset = Typeset(shaper)
     private val rich = RichText(shaper)
 
@@ -193,7 +195,7 @@ internal class NoteTextSceneBuilder(private val shaper: Shaper, private val pict
             marginPictures[item.id] = picture
             marginItems += MarginItem(item.id, MarginItemKind.PICTURE, at, PictureGeometry.fittedHeight(picture) * pictureRatio)
         }
-        val lanes = layoutMargins(MarginInput(MarginPolicy.PHONE, MacMetrics.TEXT_X, pageWidth - 100f, MARGIN_CARD_WIDTH,
+        val lanes = if (marginItems.isEmpty()) MarginLayout(emptyList(), 0f) else margins(MarginInput(MarginPolicy.PHONE, MacMetrics.TEXT_X, pageWidth - 100f, MARGIN_CARD_WIDTH,
             MacMetrics.MARGIN_GAP, MacMetrics.MARGIN_LANE_TOP, MacMetrics.MARGIN_SPACING, MacMetrics.TEXT_Y,
             layout.vlines.map { MarginLine(it.start.toUInt(), it.end.toUInt(), it.top) }, marginItems))
         for (spot in lanes.placements) {

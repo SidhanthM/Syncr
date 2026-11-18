@@ -472,11 +472,12 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
     fileprivate func install(_ offer: FileOffer, file: URL, from session: LinkSession, reply: @escaping @Sendable (InstallOutcome) -> Void) {
         let phone = session.phoneId ?? ""
         let incoming = offer.delta ? model.syncIncomingDelta : model.syncIncoming
+        log("link: file-in id=\(offer.id) size=\(offer.size) delta=\(offer.delta) epoch=\(Int64(Date().timeIntervalSince1970 * 1000))")
         incoming(file, offer.id, session.phoneName) { [self] result in
             switch result {
             case .success(let r):
                 if offer.delta {
-                    log("link: delta-merged id=\(offer.id) applied=\(r.applied) duplicates=\(r.duplicates) rejected=\(r.rejected) short=\(r.short) seq=\(r.seq)")
+                    log("link: delta-merged id=\(offer.id) applied=\(r.applied) duplicates=\(r.duplicates) rejected=\(r.rejected) short=\(r.short) seq=\(r.seq) epoch=\(Int64(Date().timeIntervalSince1970 * 1000))")
                     if r.rejected > 0 { log("link: sync-conflict note=\(offer.id) rejected=\(r.rejected) saved-in=.mac/sync-conflicts/\(offer.id)") }
                     if r.applied > 0 { installed(offer.id) }
                     reply(r.short ? .deltaShort : .installed(seq: r.seq, digest: r.digest, ops: r.ops))
@@ -572,7 +573,7 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
 
     private func announce(ids: Set<String>, pushed: Set<String>, to s: LinkSession) {
         let key = ObjectIdentifier(s)
-        for id in pushed { announced[key]?[id] = nil; log("link: push id=\(id)") }
+        for id in pushed { announced[key]?[id] = nil; log("link: push id=\(id) epoch=\(Int64(Date().timeIntervalSince1970 * 1000))") }
         guard !ids.isEmpty, announced[key] != nil else { return }
         model.syncAnnouncements(only: ids, excluding: []) { [self] list in
             let fresh = list.filter { !s.peerTrash.contains($0.id) && announced[key]?[$0.id] != $0.digest }

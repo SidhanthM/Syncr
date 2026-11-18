@@ -592,11 +592,11 @@ private func bytesOf(_ url: URL) -> Int { ((try? FileManager.default.attributesO
     try check(rig.exportBases.count == before + 1 && rig.exportBases.last! == exported, "it is sent when the first one is confirmed")
     rig.feed(.have(id: "A1", seq: 11, digest: digest, ops: 6))
 
-    // A have with another operation set (the phone holds more) does not move the heads.
+    // Whatever else the phone holds, a have means it applied the whole file: it holds what the Mac held when it exported.
     rig.feed(.want(["A2"], base: ["A2": held]))
     rig.feed(.have(id: "A2", seq: 9, digest: String(repeating: "f", count: 64), ops: 9))
     rig.clearSent()
-    try check(rig.session.push("A2") && rig.exportBases.last! == held, "an unequal digest keeps the base the phone gave")
+    try check(rig.session.push("A2") && rig.exportBases.last! == exported, "a have teaches the heads whatever its digest says")
     rig.feed(.fileError(xfer: rig.controlsOffer()?.xfer ?? 0, id: "A2", reason: "busy"))
     try check(rig.pushRefused == ["A2"], "a refused push is handed back to be announced")
     try check(!rig.session.push("A2"), "and the heads are forgotten, so the next change is announced")

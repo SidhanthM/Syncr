@@ -76,13 +76,13 @@ class PushTest {
         h.cleanup()
     }
 
-    @Test fun aHaveWithAnotherSetKeepsTheBaseTheMacGave() {
+    @Test fun aHaveTeachesTheHeadsWhateverItsDigestSaysBecauseTheMacAppliedTheWholeFile() {
         val h = connected()
         h.teachHeads(equal = false)
         h.sync.update(listOf(NoteMeta("a", 6, "A")), "a")
         h.loop.runPosted()
         h.collect()
-        assertEquals("a" to held, h.source.exportedDeltas.last())
+        assertEquals("a" to exported, h.source.exportedDeltas.last())
         h.cleanup()
     }
 

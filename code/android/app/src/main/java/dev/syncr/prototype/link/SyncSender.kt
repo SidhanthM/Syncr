@@ -27,8 +27,8 @@ class SyncSender(
     private val onSent: (id: String, bytes: Long, delta: Boolean) -> Unit = { _, _, _ -> },
 ) {
     private class Transfer(val xfer: Long, val id: String, val seq: Long, val file: File, val stream: FileStream, val delta: Boolean = false,
-        /** What the phone held when it exported this, and whether the Mac did not ask for it. */
-        val heads: Map<String, String> = emptyMap(), val digest: String? = null, val pushed: Boolean = false) {
+        /** What the phone held when it started to export this (never newer than the file), and whether the Mac did not ask for it. */
+        val heads: Map<String, String> = emptyMap(), val pushed: Boolean = false) {
         var sentAt = 0L
     }
 
@@ -52,8 +52,9 @@ class SyncSender(
     /** The Mac takes a delta nobody asked for. */
     private var push = false
     /**
-     * What the Mac is known to hold, per note: the newest operation per author. Learned from a `want`'s base and from a `have`
-     * that reports the operation set the phone exported; dropped at any refusal. A wrong one only makes a push fall short.
+     * What the Mac is known to hold, per note: the newest operation per author. Learned from a `want`'s base and, once the Mac
+     * confirms a transfer with `have`, from what the phone held when it exported (the Mac then holds all of it); dropped at any
+     * refusal. A wrong one only makes a push fall short.
      */
     private val peerHeads = HashMap<String, Map<String, String>>()
     /** Notes whose next transfer is a push, and notes to push once the transfer in flight is confirmed. */
@@ -202,8 +203,8 @@ class SyncSender(
         delivered += id to seq
         onDelivered(id, seq)
         active?.takeIf { it.id == id }?.let { t ->
-            // The Mac reports the operation set the phone exported: it holds exactly the heads the phone had then.
-            if (digest != null && digest == t.digest && t.heads.isNotEmpty()) peerHeads[id] = t.heads
+            // The Mac applied the whole file, so it holds everything the phone held when the export began.
+            if (t.heads.isNotEmpty()) peerHeads[id] = t.heads
             discard(t)
             active = null
         }
@@ -243,19 +244,17 @@ class SyncSender(
         loop.background {
             var file: File? = null
             var result: Prepared? = null
+            var heads: Map<String, String> = emptyMap()
             try {
                 tempDir.mkdirs()
                 file = File(tempDir, "xfer-$xfer.syncr")
                 // Only what the Mac lacks, when it said what it has and a delta is worth it; else the whole note.
+                // Read first: a save during the export makes this older than the file, which is safe, never newer.
+                if (push) heads = try { source.heads(id).orEmpty() } catch (e: Exception) { emptyMap() }
                 var asDelta = false
                 var seq = base?.let { source.exportDelta(id, it, file) }
                 if (seq != null && file.isFile) asDelta = true else { file.delete(); seq = source.exportCopy(id, file) }
-                if (seq != null && file.isFile) {
-                    // What the phone holds now, to learn the Mac's heads from its `have` (a wrong guess only makes a push fall short).
-                    val heads = if (push) try { source.heads(id).orEmpty() } catch (e: Exception) { emptyMap() } else emptyMap()
-                    val digest = if (push) try { source.digests(listOf(id))[id]?.digest } catch (e: Exception) { null } else null
-                    result = Prepared(seq, file.length(), sha256(file), asDelta, heads, digest, pushed)
-                }
+                if (seq != null && file.isFile) result = Prepared(seq, file.length(), sha256(file), asDelta, heads, pushed)
             } catch (e: Exception) {
                 log("export of $id failed: ${e.javaClass.simpleName}")
             }
@@ -264,8 +263,7 @@ class SyncSender(
         }
     }
 
-    private class Prepared(val seq: Long, val size: Long, val sha256: String, val delta: Boolean,
-        val heads: Map<String, String> = emptyMap(), val digest: String? = null, val pushed: Boolean = false)
+    private class Prepared(val seq: Long, val size: Long, val sha256: String, val delta: Boolean, val heads: Map<String, String>, val pushed: Boolean = false)
 
     private fun onPrepared(mine: Int, id: String, xfer: Long, file: File?, result: Prepared?) {
         if (mine != generation || !connected) {
@@ -282,7 +280,7 @@ class SyncSender(
         val stream = FileStream(file, xfer, chunks)
         scheduler.sendControl(Control.File(xfer, id, result.seq, result.size, result.sha256, chunks, result.delta))
         scheduler.file = stream
-        active = Transfer(xfer, id, result.seq, file, stream, result.delta, result.heads, result.digest, result.pushed)
+        active = Transfer(xfer, id, result.seq, file, stream, result.delta, result.heads, result.pushed)
         onSent(id, result.size, result.delta)
     }
 

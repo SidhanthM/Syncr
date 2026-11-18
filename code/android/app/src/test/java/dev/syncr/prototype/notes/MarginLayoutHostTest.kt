@@ -15,7 +15,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** The shared margin vectors (`code/shared/layout/margin-v1.json`) through the generated Kotlin binding. */
-class MarginLayoutTest {
+class MarginLayoutHostTest {
     private fun anchor(j: JSONObject): MarginAnchor = when (j.getString("kind")) {
         "text" -> MarginAnchor.Text(j.getLong("offset").toUInt())
         "canvas" -> MarginAnchor.Canvas(j.getDouble("y").toFloat())

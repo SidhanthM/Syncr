@@ -111,7 +111,6 @@ final class LinkSession: @unchecked Sendable {
         let file: URL
         let handle: FileHandle
         /// What the Mac held when it exported this (see `ExportOutcome.file`), and whether the phone did not ask for it.
-        var digest = ""
         var heads: [String: String] = [:]
         var pushed = false
         var nextIndex: UInt32 = 0
@@ -152,8 +151,9 @@ final class LinkSession: @unchecked Sendable {
     private(set) var peerDelta = false
     /// The phone also takes a delta nobody asked for (latency-v1 T.3).
     private(set) var peerPush = false
-    /// What the phone is known to hold, per note: the newest operation per author. Learned from a `want`'s base and from a
-    /// `have` that reports the operation set the Mac exported. Dropped at any refusal; a wrong one only makes a push fall short.
+    /// What the phone is known to hold, per note: the newest operation per author. Learned from a `want`'s base and, once the phone
+    /// confirms a transfer with `have`, from what the Mac held when it exported. Dropped at any refusal; a wrong one only makes a
+    /// push fall short.
     private var peerHeads: [String: [String: String]] = [:]
     /// Notes to push whose previous transfer is still in flight (sent when its `have` arrives).
     private var pushLater: Set<String> = []
@@ -451,9 +451,9 @@ final class LinkSession: @unchecked Sendable {
                     }
                     let offer = FileOffer(xfer: nextXfer, id: id, seq: seq, size: size, sha256: sha, chunks: chunks, delta: delta)
                     nextXfer &+= 1
-                    outgoing = Outgoing(offer: offer, file: url, handle: handle, digest: digest, heads: heads, pushed: pushed.remove(id) != nil)
+                    outgoing = Outgoing(offer: offer, file: url, handle: handle, heads: heads, pushed: pushed.remove(id) != nil)
                     counters.files += 1
-                    log("out-file id=\(id) xfer=\(offer.xfer) size=\(size) chunks=\(chunks) delta=\(delta)")
+                    log("out-file id=\(id) xfer=\(offer.xfer) size=\(size) chunks=\(chunks) delta=\(delta) pushed=\(pushed.contains(id) || outgoing?.pushed == true) epoch=\(Int64(Date().timeIntervalSince1970 * 1000))")
                     send(.file(offer))
                     pumpChunks()
                 }
@@ -496,9 +496,10 @@ final class LinkSession: @unchecked Sendable {
 
     private func receiveHave(id: String, digest: String?) {
         guard peerVersion >= 1 else { return }
+        log("have-in id=\(id) epoch=\(Int64(Date().timeIntervalSince1970 * 1000))")
         if let out = outgoing, out.offer.id == id {
-            // The phone reports the same operation set the Mac exported: it holds exactly the heads the Mac had then.
-            if let digest, digest == out.digest, !out.heads.isEmpty { peerHeads[id] = out.heads }
+            // The phone applied the whole file, so it holds everything the Mac held when it exported (read in the same step).
+            if !out.heads.isEmpty { peerHeads[id] = out.heads }
             finishOutgoing()
         }
         if pushLater.remove(id) != nil { _ = push(id) }
