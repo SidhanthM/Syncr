@@ -11,6 +11,8 @@ enum Motion {
     static let textFade: CFTimeInterval = 0.22
     /// One loop of the waiting band across placeholder lines.
     static let drift: CFTimeInterval = 1.5
+    /// The sticky title dissolving in or out.
+    static let title: CFTimeInterval = 0.2
     /// The owner's own menus and panels.
     static let menu: CFTimeInterval = 0.12
     /// Hover actions on a card.

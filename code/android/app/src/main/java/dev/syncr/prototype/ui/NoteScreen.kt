@@ -3,6 +3,19 @@ package dev.syncr.prototype.ui
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import android.os.SystemClock
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.animation.AnimatedVisibility
@@ -84,9 +97,10 @@ class NoteActions(
 
 /**
  * The note (design "Canvas, resting"): one continuous canvas, and at rest only your writing and the tool dot.
- * "Title · Notebook" appears while the bar is open (design `.tb-cap`); a banner only when something needs
- * attention, and the selection bar only while strokes are selected.
+ * Once the page's masthead scrolls off, a sticky title band keeps the note's name in reach and steps aside while
+ * writing ([TitleBand]); a banner only when something needs attention, and the selection bar only while strokes are selected.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun NoteScreen(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: ToolState, actions: NoteActions,
     banner: @Composable () -> Unit) {
@@ -97,28 +111,32 @@ fun NoteScreen(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: Tool
     var temporaryEraser by remember(snapshot.noteId) { mutableStateOf(false) }
     var contentId by androidx.compose.runtime.saveable.rememberSaveable(snapshot.noteId) { mutableStateOf<String?>(null) }
     var response by androidx.compose.runtime.saveable.rememberSaveable(snapshot.noteId) { mutableStateOf(false) }
-    var titleOnScreen by remember(snapshot.noteId) { mutableStateOf(true) }
+    var band by remember(snapshot.noteId) { mutableStateOf(TitleBand()) }
     var underTop by remember(snapshot.noteId) { mutableStateOf(false) }
+    val bandBottom = with(LocalDensity.current) { (WindowInsets.statusBars.getTop(this) + TITLE_BAND_HEIGHT.toPx()) }
+    // The keyboard or the text field opening sends the band away; it returns a beat after both are gone.
+    val typingNow = (contentId != null && !response) || WindowInsets.isImeVisible
+    LaunchedEffect(typingNow) {
+        if (typingNow) band = band.typingOpened()
+        else if (band.typing) band = band.typingClosed(SystemClock.uptimeMillis(), view?.lastWriteY.underBand(bandBottom))
+    }
+    LaunchedEffect(band) {
+        val wait = band.wakeInMs(SystemClock.uptimeMillis()) ?: return@LaunchedEffect
+        delay(wait)
+        band = band.tick(SystemClock.uptimeMillis())
+    }
     Box(Modifier.fillMaxSize().background(c.desk).imePadding()) {
         NoteCanvas(vm, state, dark, tools, actions, onView = { view = it }, onSelection = { selected = it },
-            onTitle = { titleOnScreen = it }, onUnderTop = { underTop = it },
+            onTitle = { band = band.masthead(it) }, onUnderTop = { underTop = it },
+            onScrolled = { dy -> if (dy > TitleBand.SCROLL_SLOP_PX) band = band.scrolledDown() else if (dy < -TitleBand.SCROLL_SLOP_PX) band = band.scrolledUp() },
+            onPenContact = { down -> band = if (down) band.penDown() else band.penUp(SystemClock.uptimeMillis(), view?.lastWriteY.underBand(bandBottom)) },
             onTemporaryEraser = { temporaryEraser = it },
             onContent = { if (contentId == null) { contentId = it.id; response = it.response } })
 
-        StatusBarScrim(underTop, Modifier.align(Alignment.TopCenter))
-        Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().safeDrawingPadding()
+        StatusBarScrim(underTop && !band.visible, Modifier.align(Alignment.TopCenter))
+        val bandPad by animateDpAsState(if (band.visible) TITLE_BAND_HEIGHT else 0.dp, Motion.fade(Syncr.reducedMotion), label = "title band space")
+        Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().safeDrawingPadding().padding(top = bandPad)
             .padding(horizontal = Space.l, vertical = Space.s), verticalArrangement = Arrangement.spacedBy(Space.s)) {
-            val notebook = snapshot.notebook ?: "Inbox"
-            AnimatedVisibility(tools.barOpen && !titleOnScreen, enter = Motion.fadeInOnly(Syncr.reducedMotion), exit = Motion.fadeOutOnly(Syncr.reducedMotion)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(Space.s)) {
-                    val shown = rememberDisplayTitle(snapshot.title)
-                    Text("$shown · ${notebook.uppercase()}", style = Syncr.type.meta.copy(fontWeight = FontWeight.SemiBold), color = c.muted, maxLines = 1,
-                        overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false)
-                            .semantics { contentDescription = "$shown, in $notebook" })
-                    LinkDot()
-                }
-            }
             banner()
             AnimatedVisibility(selected > 0, Modifier.align(Alignment.CenterHorizontally),
                 enter = Motion.fadeInOnly(Syncr.reducedMotion), exit = Motion.fadeOutOnly(Syncr.reducedMotion)) {
@@ -128,6 +146,8 @@ fun NoteScreen(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: Tool
                     onDeselect = { view?.deselect() })
             }
         }
+
+        StickyTitle(band, snapshot.title, snapshot.notebook ?: "Inbox", Modifier.align(Alignment.TopCenter)) { band = band.statusTapped() }
 
         if (contentId != null && !response) {
             Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().safeDrawingPadding()) {
@@ -145,11 +165,48 @@ fun NoteScreen(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: Tool
     }
 }
 
+/** Height of the sticky title band below the status bar. */
+private val TITLE_BAND_HEIGHT = 52.dp
+
+/** True when [this] (a screen y) lies under the band, where a sticky title would cover it. Unknown counts as clear. */
+private fun Float?.underBand(bottom: Float) = this != null && this >= 0f && this < bottom
+
+/**
+ * The sticky title: the note's name in the display style and the quiet notebook line, on the desk colour under the status
+ * bar. It dissolves in and out on the stipple ([Motion.TITLE_MS]); while hidden, a tap on the status strip brings it back.
+ */
+@Composable
+private fun StickyTitle(band: TitleBand, title: String, notebook: String, modifier: Modifier, onStatusTap: () -> Unit) {
+    val c = Syncr.colors
+    val reduced = Syncr.reducedMotion
+    val progress = remember { Animatable(0f) }
+    LaunchedEffect(band.visible, reduced) {
+        val target = if (band.visible) 1f else 0f
+        if (reduced) progress.snapTo(target) else progress.animateTo(target, Motion.linear(Motion.TITLE_MS))
+    }
+    val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    if (band.visible || progress.value > 0f) {
+        val shown = rememberDisplayTitle(title)
+        Row(modifier.fillMaxWidth().dissolve { progress.value }.background(c.desk.copy(alpha = 0.94f)).padding(top = top)
+            .height(top + TITLE_BAND_HEIGHT).padding(horizontal = Space.l),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.s)) {
+            Column(Modifier.weight(1f).semantics { contentDescription = "$shown, in $notebook" }, verticalArrangement = Arrangement.Center) {
+                Text(shown, style = Syncr.type.noteTitle, color = c.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(notebook.uppercase(), style = Syncr.type.meta, color = c.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            LinkDot()
+        }
+    } else if (!band.titleOnScreen) {
+        Box(modifier.fillMaxWidth().height(top).pointerInput(Unit) { detectTapGestures { onStatusTap() } }
+            .semantics { contentDescription = "Show the note's title" })
+    }
+}
+
 /** The canvas view, wired to the repository and the tool state. */
 @Composable
 private fun NoteCanvas(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: ToolState, actions: NoteActions,
     onView: (NoteCanvasView) -> Unit, onSelection: (Int) -> Unit, onTitle: (Boolean) -> Unit, onUnderTop: (Boolean) -> Unit,
-    onTemporaryEraser: (Boolean) -> Unit,
+    onScrolled: (Float) -> Unit, onPenContact: (Boolean) -> Unit, onTemporaryEraser: (Boolean) -> Unit,
     onContent: (dev.syncr.prototype.notes.ContentTarget) -> Unit) {
     val repo = vm.repository
     val context = LocalContext.current
@@ -165,6 +222,7 @@ private fun NoteCanvas(vm: NotesViewModel, state: NotesState, dark: Boolean, too
         update = { canvas ->
             canvas.brush = tools.brush; canvas.eraser = tools.eraser; canvas.lasso = tools.lasso
             canvas.typing = tools.typing; canvas.chromeOpen = tools.barOpen; canvas.onTitleVisible = onTitle; canvas.onContentUnderTop = onUnderTop
+            canvas.onScrolled = onScrolled; canvas.onPenContact = onPenContact
             canvas.onTemporaryEraser = onTemporaryEraser
             canvas.sideButtonErases = gestures.sideButton == SideButtonAction.ERASE
             canvas.doubleTapFit = gestures.doubleTapFit; canvas.palmMs = gestures.palmDelay.millis

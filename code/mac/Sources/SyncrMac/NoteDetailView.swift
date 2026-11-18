@@ -17,8 +17,15 @@ import SyncrCore
         didSet {
             live?.viewChanged(viewport)
             if renderer == nil { displayedViewport = viewport; positionText() }
+            stickyScrolled()
         }
     }
+    // The sticky title (look-and-ink v1 §4.2): shows once the page's own title has scrolled off, steps aside for typing
+    // and pad ink, and returns on mouse movement or a quiet moment.
+    private let stickyTitle = StickyTitleView()
+    private var sticky = StickyTitleState() { didSet { stickyTitle.setShown(sticky.visible) } }
+    private var stickyTimer: Timer?
+    private var stickyTracking: NSTrackingArea?
     private var pinchStart: Viewport?
     private var pinchAnchor = SIMD2<Float>(0.5, 0.5)
     /// The document view keeps the text column in the middle of the window by showing space left of the canvas (a
@@ -119,7 +126,7 @@ import SyncrCore
         textLayer.addSubview(streamOverlay)
         padOutline.isHidden = true
         textLayer.addSubview(padOutline)
-        documentEditor.onActivity = { [weak self] in self?.onCompanionActivity?(false) }
+        documentEditor.onActivity = { [weak self] in self?.onCompanionActivity?(false); self?.stickyActivity() }
         documentEditor.isHidden = true
 
         empty.font = .systemFont(ofSize: 14)
@@ -152,7 +159,7 @@ import SyncrCore
             cardStack.leadingAnchor.constraint(equalTo: pairingCard.leadingAnchor), cardStack.trailingAnchor.constraint(equalTo: pairingCard.trailingAnchor),
             cardStack.topAnchor.constraint(equalTo: pairingCard.topAnchor), cardStack.bottomAnchor.constraint(equalTo: pairingCard.bottomAnchor)
         ])
-        for view in [tabBar, companionStrip, canvas, textLayer, empty, pairingCard] as [NSView] {
+        for view in [tabBar, companionStrip, canvas, textLayer, stickyTitle, empty, pairingCard] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
@@ -165,6 +172,8 @@ import SyncrCore
             canvas.trailingAnchor.constraint(equalTo: trailingAnchor), canvas.bottomAnchor.constraint(equalTo: bottomAnchor),
             textLayer.topAnchor.constraint(equalTo: canvas.topAnchor), textLayer.leadingAnchor.constraint(equalTo: canvas.leadingAnchor),
             textLayer.trailingAnchor.constraint(equalTo: canvas.trailingAnchor), textLayer.bottomAnchor.constraint(equalTo: canvas.bottomAnchor),
+            stickyTitle.topAnchor.constraint(equalTo: canvas.topAnchor), stickyTitle.leadingAnchor.constraint(equalTo: canvas.leadingAnchor),
+            stickyTitle.trailingAnchor.constraint(equalTo: canvas.trailingAnchor), stickyTitle.heightAnchor.constraint(equalToConstant: StickyTitleView.height),
             empty.centerXAnchor.constraint(equalTo: canvas.centerXAnchor), empty.centerYAnchor.constraint(equalTo: centerYAnchor),
             pairingCard.centerXAnchor.constraint(equalTo: canvas.centerXAnchor), pairingCard.topAnchor.constraint(equalTo: tabBar.bottomAnchor, constant: 56),
             pairingCard.widthAnchor.constraint(equalToConstant: 340)
@@ -211,6 +220,7 @@ import SyncrCore
         if let document { documentEditor.show(document: document, title: title, width: width) }
         if opening && document != nil { documentView() } else { recentre() }
         positionText()
+        stickyScrolled()
     }
     func showFree(_ blocks: [(CGFloat, CGFloat, CGFloat, any TextDocument)]) {
         let previous = freeEditors
@@ -300,6 +310,39 @@ import SyncrCore
         if let line = DocumentLayout.lines(note: page, width: documentEditor.textWidth).first(where: { NSLocationInRange(offset, $0.range) || $0.range.location == offset }) {
             viewport.top = offset == 0 ? 0 : Float(max(0, line.rect.minY - 120)); requestRedraw()
         }
+    }
+    private func stickyScrolled() {
+        // The page's own title sits at canvas y 70 and is about one line tall; it is gone once the view's top passes it.
+        let gone = documentVisible && CGFloat(viewport.top) > 70 + 90 * AppPreferences.shared.textScale
+        stickyTitle.set(title: documentEditor.title.stringValue)
+        if sticky.titleOnScreen == gone { sticky.masthead(onScreen: !gone) }
+    }
+    private func stickyActivity() {
+        sticky.activity(at: CACurrentMediaTime())
+        scheduleStickyReturn()
+    }
+    private func scheduleStickyReturn() {
+        stickyTimer?.invalidate(); stickyTimer = nil
+        guard let wait = sticky.wake(at: CACurrentMediaTime()) else { return }
+        let timer = Timer(timeInterval: wait, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.sticky.tick(at: CACurrentMediaTime()); self.scheduleStickyReturn()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common); stickyTimer = timer
+    }
+    override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); window?.acceptsMouseMovedEvents = true }
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let area = stickyTracking { removeTrackingArea(area) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil)
+        addTrackingArea(area); stickyTracking = area
+    }
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        guard sticky.hidden else { return }
+        sticky.mouseMoved(at: CACurrentMediaTime()); scheduleStickyReturn()
     }
     override func layout() { super.layout(); recentre(); positionText(); live?.viewChanged(viewport) }
     private func positionText() {
@@ -816,7 +859,7 @@ import SyncrCore
     func attach(_ live: LiveInkCoordinator) {
         self.live = live
         live.viewport = { [weak self] in self?.viewport ?? Viewport() }
-        live.onWake = { [weak self] in self?.onCompanionActivity?(true); self?.wake() }
+        live.onWake = { [weak self] in self?.onCompanionActivity?(true); self?.stickyActivity(); self?.wake() }
         live.onStatus = { [weak self] text in self?.onLiveStatus?(text) }
         live.visibleRect = { [weak self] in self?.visibleCanvasRect ?? .zero }
         live.scrollBy = { [weak self] dx, dy in self?.padScroll(dx: dx, dy: dy) }

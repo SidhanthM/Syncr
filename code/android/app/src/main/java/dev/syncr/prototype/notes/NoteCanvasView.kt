@@ -163,6 +163,16 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     /** Hears whether the page is scrolled, so that content sits under the status bar. */
     var onContentUnderTop: (Boolean) -> Unit = {}
     private var underTop = false
+    /** Hears the page scroll: positive pixels when it moves toward the end of the note (reading down), negative back up. */
+    var onScrolled: (Float) -> Unit = {}
+    private var lastTy = Float.NaN
+    /** Hears the pen touch down or lift, so the sticky title can step aside. */
+    var onPenContact: (down: Boolean) -> Unit = {}
+    private var penTouching = false
+    /** Screen y of the last pen contact or typing tap: where the writer's attention was, for the title band to keep clear. */
+    var lastWriteY = -1f
+        private set
+    private fun penContact(down: Boolean) { if (penTouching != down) { penTouching = down; onPenContact(down) } }
     private var chromeAtDown = false
     private var selectionAtDown = false
     private var fitTookTap = false
@@ -338,6 +348,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         wet.cancel()
         pen.cancel()
         cancelMirror()
+        penContact(false)
         activePointer = -1
         selection.cancelGesture()
         fingerMode = FingerMode.NONE
@@ -423,6 +434,8 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         // The page's own title (canvas y 70 to about 165) hides the floating title chip while any of it is on screen.
         val titleShown = m.toScreen(0f, MacMetrics.TITLE_Y + 100f).second > 24f * density
         if (titleShown != titleVisible) { titleVisible = titleShown; post { onTitleVisible(titleShown) } }
+        if (!lastTy.isNaN() && m.ty != lastTy) onScrolled(lastTy - m.ty)
+        lastTy = m.ty
         val under = m.ty < -1f
         if (under != underTop) { underTop = under; post { onContentUnderTop(under) } }
         textInput.position(m, dark)
@@ -592,6 +605,8 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
             fingerMode = FingerMode.NONE
             tapCandidate = false
             activePointer = event.getPointerId(actionIndex)
+            lastWriteY = event.getY(actionIndex)
+            penContact(true)
             palmBlocked = true
             panZoom.reanchor()
             requestUnbufferedDispatch(event)
@@ -611,7 +626,9 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
                 if (pen.mode == PenMode.ERASE && action == MotionEvent.ACTION_MOVE) commitErase(event.eventTime, force = false)
             }
             if (penLifted) {
+                lastWriteY = event.getY(index)
                 penUp(event, index)
+                penContact(false)
                 lastPenUp = event.eventTime
             }
         } else if (!palmBlocked && (0 until event.pointerCount).all { event.getToolType(it) == MotionEvent.TOOL_TYPE_FINGER }) {
@@ -858,7 +875,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
                         when (action) {
                             TapAction.Ignored -> Unit
                             is TapAction.Task -> onTask(action.block, action.line)
-                            is TapAction.Content -> { lastTextTap = event.x to event.y; onContent(action.target) }
+                            is TapAction.Content -> { lastTextTap = event.x to event.y; lastWriteY = event.y; onContent(action.target) }
                             is TapAction.Type -> {
                                 lastTextTap = event.x to event.y
                                 val wait = typingWaitMs(doubleTapFit, typing, ViewConfiguration.getDoubleTapTimeout().toLong())

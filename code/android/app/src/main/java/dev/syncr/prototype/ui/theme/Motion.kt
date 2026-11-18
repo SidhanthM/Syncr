@@ -46,6 +46,9 @@ object Motion {
     /** A stipple cell, in dp, on every screen and at every zoom. */
     const val STIPPLE_CELL_DP = 3f
 
+    /** The sticky title band dissolving in or out. */
+    const val TITLE_MS = 200
+
     /** The slash menu and other plain panels of the owner's own actions: a fade, never the stipple. */
     const val MENU_MS = 120
     /** Reduced-motion crossfade. */
