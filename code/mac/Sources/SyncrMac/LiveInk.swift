@@ -283,6 +283,8 @@ final class LiveInk: @unchecked Sendable {
     static let phoneScope = "phone socket write to Mac drawable presented, clock offset from the lowest-round-trip ping; excludes pen sampling, the phone's own queueing before the write, and display scan-out"
     /// A stroke's End arrived (ingest queue). For the debug latency log.
     var onStrokeEnded: (@Sendable () -> Void)?
+    /// A stroke began with this brush (ingest queue): the pen the phone is writing with now. For the status bar's pen glyph.
+    var onPenSeen: (@Sendable (Brush) -> Void)?
 
     init(device: MTLDevice) { self.device = device }
 
@@ -549,6 +551,7 @@ final class LiveInk: @unchecked Sendable {
                 if blocked || builders[id] != nil { continue }
                 builders[id] = WetBuilder(id: id, brush: brush, space: space, view: view, device: device)
                 order.append(id)
+                onPenSeen?(brush)
             case .samplesAppended(let id, _, let channels, let sentMs):
                 guard let builder = builders[id] else { continue }
                 builder.append(channels); dirty.append(id); visible.append(item.ns)

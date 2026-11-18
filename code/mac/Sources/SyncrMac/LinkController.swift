@@ -179,6 +179,8 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
     private(set) var pairingCode: (phone: String, code: String)?
     private(set) var viewing: String?
     private(set) var padOn = false
+    /// The pen the phone last began a stroke with (look and ink); nil until it has written something this session.
+    private(set) var penBrush: Brush?
     /// What the pad asked for with `padmode`; nil until it does (an older phone never does, and gets no pad additions).
     private(set) var padMode: (local: Bool, pics: Bool, aspect: CGFloat)?
     /// The pen frame while the pad is in Local mode.
@@ -249,6 +251,12 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
         }
         live.engine.onStrokeEnded = { [weak self] in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.scheduleLatencyLog() } }
+        }
+        live.engine.onPenSeen = { [weak self] brush in
+            DispatchQueue.main.async { MainActor.assumeIsolated {
+                guard let self, !self.registry.isEmpty, self.penBrush != brush else { return }
+                self.penBrush = brush; self.onStatus?()
+            } }
         }
     }
 
@@ -408,6 +416,7 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
             old.onExecutor { old.close(bye: nil) }
         }
         live.engine.clearRecordedViews()
+        penBrush = nil
         live.mirrorEnabled = true
         clearPad()
         log("link: connected phone=\"\(session.phoneName)\" id=\(id) epoch=\(session.config.epoch)")
@@ -438,7 +447,7 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
         live.engine.setClockOffset(nil)
         live.engine.clearRecordedViews()
         latestClock = ClockSync()
-        padOn = false; viewing = nil; pendingFollow = nil
+        padOn = false; viewing = nil; pendingFollow = nil; penBrush = nil
         clearPad()
     }
 

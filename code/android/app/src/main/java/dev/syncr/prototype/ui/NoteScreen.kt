@@ -40,7 +40,11 @@ import dev.syncr.core.BrushSize
 import dev.syncr.core.InkColour
 import dev.syncr.core.newId
 import dev.syncr.prototype.link.android.LinkController
+import dev.syncr.prototype.notes.Ink
 import dev.syncr.prototype.notes.InkPreferencesStore
+import dev.syncr.prototype.notes.InkTool
+import dev.syncr.prototype.notes.strokeArgb
+import dev.syncr.core.Oklch
 import dev.syncr.prototype.notes.InkPreview
 import dev.syncr.prototype.notes.NoteCanvasView
 import dev.syncr.prototype.notes.NotesState
@@ -200,9 +204,19 @@ private fun NoteBubble(state: NotesState, tools: ToolState, actions: NoteActions
     val canRedo = dev.syncr.prototype.notes.handwritingHistoryAvailable(snapshot, true) && !state.unsaved && !state.busy
     val onTools = actions.onTools
     fun choose(next: ToolState) = onTools(next.folded())
-    fun options(family: BrushFamily) = onTools(tools.copy(eraser = false, lasso = false, typing = false,
-        brush = tools.brush.copy(family = family), optionsOpen = true))
     val ink by remember(context) { InkPreferencesStore.state(context) }.collectAsState()
+    val penTool = InkTool.of(ink.penLook)
+    val activeTool = if (tools.highlighter) InkTool.HIGHLIGHTER else penTool
+    // Every head keeps its own ink and size: choosing a tool puts that tool's remembered brush on the bar.
+    fun options(family: BrushFamily) = onTools(tools.copy(eraser = false, lasso = false, typing = false,
+        brush = ink.brushFor(if (family == BrushFamily.PEN) penTool else InkTool.HIGHLIGHTER), optionsOpen = true))
+    var pickerOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(tools.optionsOpen) { if (!tools.optionsOpen) pickerOpen = false }
+    LaunchedEffect(Unit) { val remembered = ink.brushFor(activeTool); if (remembered != tools.brush) onTools(tools.copy(brush = remembered)) }
+    fun pickCustom(oklch: Oklch) {
+        InkPreferencesStore.update(context) { it.withInk(activeTool, Ink.Custom(oklch)) }
+        onTools(tools.copy(brush = tools.brush.copy(colour = InkColour.INK, customInk = oklch)))
+    }
     val displayed = if (temporaryEraser) tools.copy(eraser = true, lasso = false, typing = false) else tools
     val pip = if (displayed.eraser || displayed.lasso || displayed.typing) null else Color(inkColour(tools.brush, c.dark))
     FloatingChrome(open = tools.barOpen, optionsOpen = tools.optionsOpen && !displayed.eraser && !displayed.lasso,
@@ -211,19 +225,40 @@ private fun NoteBubble(state: NotesState, tools: ToolState, actions: NoteActions
         ring = { BubbleRing(status.ring.kind(), pip) },
         glyph = { TemporaryEraserGlyph(tools, temporaryEraser) },
         bar = { drag, release -> NoteToolBar(displayed.brush, displayed.eraser, displayed.typing,
-            canUndo = canUndo, canRedo = canRedo,
+            canUndo = canUndo, canRedo = canRedo, penHead = penTool.head(),
+            inkOf = { head -> ink.headInk(head, c.dark) },
             onPen = { if (tools.pen) onTools(tools.copy(optionsOpen = !tools.optionsOpen))
-                else choose(tools.copy(eraser = false, lasso = false, typing = false, brush = tools.brush.copy(family = BrushFamily.PEN))) },
+                else choose(tools.copy(eraser = false, lasso = false, typing = false, brush = ink.brushFor(penTool))) },
             onHighlighter = { if (tools.highlighter) onTools(tools.copy(optionsOpen = !tools.optionsOpen))
-                else choose(tools.copy(eraser = false, lasso = false, typing = false, brush = tools.brush.copy(family = BrushFamily.HIGHLIGHTER))) },
+                else choose(tools.copy(eraser = false, lasso = false, typing = false, brush = ink.brushFor(InkTool.HIGHLIGHTER))) },
             onEraser = { choose(tools.copy(eraser = true, lasso = false, typing = false)) },
             onTyping = { choose(tools.copy(typing = true)); onType() },
             onUndo = actions.onUndo, onRedo = actions.onRedo, onMore = actions.onMore,
             lasso = displayed.lasso, onLasso = { choose(tools.copy(lasso = true, eraser = false, typing = false)) },
-            onPenOptions = { options(BrushFamily.PEN) }, onHighlighterOptions = { options(BrushFamily.HIGHLIGHTER) },
+            onPenOptions = { options(BrushFamily.PEN); pickerOpen = true },
+            onHighlighterOptions = { options(BrushFamily.HIGHLIGHTER); pickerOpen = true },
             onDrag = drag, onRelease = release) },
-        options = { ToolOptions(tools.brush, penLook = if (tools.pen) ink.penLook else null,
-            onPenLook = { look -> InkPreferencesStore.update(context) { it.copy(penLook = look) } },
-            onSize = { onTools(tools.copy(brush = tools.brush.copy(size = it))) },
-            onColour = { onTools(tools.copy(brush = tools.brush.copy(colour = it))) }) })
+        options = {
+            if (pickerOpen) InkPicker(ink.pickerStart(activeTool), ink.recentInks, (ink.inkFor(activeTool) as? Ink.Named)?.colour,
+                onChange = {}, onCommit = ::pickCustom,
+                onNamed = { colour ->
+                    InkPreferencesStore.update(context) { it.withInk(activeTool, Ink.Named(colour)) }
+                    onTools(tools.copy(brush = tools.brush.copy(colour = colour, customInk = null)))
+                }, onClose = { pickerOpen = false })
+            else ToolOptions(tools.brush, penLook = if (tools.pen) ink.penLook else null,
+                onPenLook = { look ->
+                    InkPreferencesStore.update(context) { it.copy(penLook = look) }
+                    onTools(tools.copy(brush = ink.brushFor(InkTool.of(look))))
+                },
+                inkOf = { head -> ink.headInk(head, c.dark) },
+                customInk = (ink.inkFor(activeTool) as? Ink.Custom)?.let { Color(it.oklch.strokeArgb(c.dark)) },
+                onOpenPicker = { pickerOpen = true },
+                onSize = { size ->
+                    InkPreferencesStore.update(context) { it.withSize(activeTool, size) }
+                    onTools(tools.copy(brush = tools.brush.copy(size = size)))
+                },
+                onColour = { colour ->
+                    InkPreferencesStore.update(context) { it.withInk(activeTool, Ink.Named(colour)) }
+                    onTools(tools.copy(brush = tools.brush.copy(colour = colour, customInk = null)))
+                }) })
 }

@@ -1,6 +1,8 @@
 package dev.syncr.prototype.tablet
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
@@ -19,6 +21,17 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import dev.syncr.core.PenLook
+import dev.syncr.prototype.link.android.LinkController
+import dev.syncr.prototype.notes.InkPreferencesStore
+import dev.syncr.prototype.notes.InkTool
+import dev.syncr.prototype.ui.BubbleHead
+import dev.syncr.prototype.ui.Head
+import dev.syncr.prototype.ui.headInk
 import dev.syncr.prototype.ui.BubbleBarScope
 import dev.syncr.prototype.ui.BubbleChip
 import dev.syncr.prototype.ui.BubbleRing
@@ -52,6 +65,9 @@ fun LinkState.ring() = when (this) {
 @Composable
 fun TabletBubble(state: TabletUiState, open: Boolean, actions: TabletBubbleActions) {
     val area = state.area ?: return
+    val context = LocalContext.current
+    val ink by remember(context) { InkPreferencesStore.state(context) }.collectAsState()
+    val head = Head.valueOf(ink.penLook.name)
     BackHandler(open) { actions.close() }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val density = LocalDensity.current
@@ -71,18 +87,30 @@ fun TabletBubble(state: TabletUiState, open: Boolean, actions: TabletBubbleActio
             description = "Tablet mode options. ${state.caption}", stateDescription = state.caption,
             onOpen = actions.open,
             ring = { BubbleRing(state.link.ring()) },
-            glyph = { if (state.trackpad) SyncrIcon(SyncrIcons.Trackpad, Syncr.colors.ink, size = 22.dp) else PenGlyph() },
+            glyph = { if (state.trackpad) SyncrIcon(SyncrIcons.Trackpad, Syncr.colors.ink, size = 22.dp) else PenGlyph(head, ink.headInk(head, Syncr.colors.dark) ?: Syncr.colors.ink) },
             bar = { TabletBar(state, actions) })
     }
 }
 
 @Composable
 private fun BubbleBarScope.TabletBar(state: TabletUiState, actions: TabletBubbleActions) {
-    val count = if (state.trackpad) 3 else 4
-    Row(Modifier.padding(horizontal = 6.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-        BubbleChip(if (state.trackpad) "Trackpad" else "Pen", 0, count,
+    val pen = !state.trackpad
+    val heads = if (pen) PenLook.entries.size else 0
+    val count = if (state.trackpad) 3 else 4 + heads
+    val context = LocalContext.current
+    val ink by remember(context) { InkPreferencesStore.state(context) }.collectAsState()
+    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+        // The pad writes with the same heads as the note: choosing one restores that head's remembered ink and size.
+        if (pen) PenLook.entries.forEachIndexed { i, look ->
+            val head = Head.valueOf(look.name)
+            BubbleHead(head, i, count, ink.penLook == look, ink.headInk(head, Syncr.colors.dark)) {
+                InkPreferencesStore.update(context) { it.copy(penLook = look) }
+                LinkController.get(context).usePen(ink.brushFor(InkTool.of(look)))
+            }
+        }
+        BubbleChip(if (state.trackpad) "Trackpad" else "Pen", heads, count,
             description = "Switch between pen tablet and finger trackpad", onClick = actions.toggleTrackpad)
-        if (!state.trackpad) BubbleChip(if (state.streamLocal) "Local" else "Whole view", 1, count,
+        if (!state.trackpad) BubbleChip(if (state.streamLocal) "Local" else "Whole view", heads + 1, count,
             description = if (state.streamLocal) "The pad writes inside a frame on the Mac's page; two fingers move it, a pinch resizes it. Switch to the whole view"
             else "The pad covers the Mac's whole view. Switch to Local, a frame you move with two fingers",
             onClick = actions.toggleLocal)

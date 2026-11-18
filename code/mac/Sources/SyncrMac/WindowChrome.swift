@@ -1,4 +1,5 @@
 import AppKit
+import SyncrCore
 
 /// The narrow strip at the far left: files, search, daily note, phone. Stays when the file tree collapses.
 @MainActor final class RibbonView: ThemedView {
@@ -111,12 +112,15 @@ import AppKit
         budget.isHidden = text.isEmpty
     }
     func show(phone text: String, state: Phone) { pill.show(text, state: state) }
+    /// The pad's last observed pen and ink; nil hides it until a brush has actually arrived.
+    func show(brush: Brush?) { pill.showPen(brush) }
 }
 
 private final class PhonePill: NSView {
     var onClick: (() -> Void)?
     private let dot = ThemedView()
     private let label = NSTextField(labelWithString: "")
+    private let pen = PenGlyphView(height: 14)
     override var isFlipped: Bool { true }
 
     override init(frame: NSRect) {
@@ -127,7 +131,7 @@ private final class PhonePill: NSView {
         dot.radius = 3
         label.font = Theme.smallFont
         label.textColor = Theme.ink
-        let row = NSStackView(views: [dot, label])
+        let row = NSStackView(views: [dot, label, pen])
         row.spacing = 6
         row.edgeInsets = NSEdgeInsets(top: 0, left: 8, bottom: 0, right: 9)
         row.translatesAutoresizingMaskIntoConstraints = false
@@ -152,6 +156,7 @@ private final class PhonePill: NSView {
         label.textColor = state == .off ? Theme.muted : Theme.ink
         needsDisplay = true
     }
+    func showPen(_ brush: Brush?) { pen.show(brush: brush) }
     override func updateLayer() { layer?.borderColor = Theme.hairlineStrong.cgColor }
     override var wantsUpdateLayer: Bool { true }
     override func mouseDown(with event: NSEvent) { onClick?() }

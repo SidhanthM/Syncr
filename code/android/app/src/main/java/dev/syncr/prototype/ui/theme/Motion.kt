@@ -8,6 +8,7 @@ import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.InfiniteRepeatableSpec
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.snap
@@ -86,6 +87,15 @@ object Motion {
     fun <T> drift(): InfiniteRepeatableSpec<T> = infiniteRepeatable(tween(DRIFT_MS, easing = LinearEasing), RepeatMode.Restart)
     /** The saving ring's pulse: [halfMs] each way. */
     fun <T> pulse(halfMs: Int): InfiniteRepeatableSpec<T> = infiniteRepeatable(tween(halfMs, easing = FastOutSlowInEasing), RepeatMode.Reverse)
+
+    /** A pen head drawing itself on, once: [PEN_DRAW_MS], ease-out. */
+    const val PEN_DRAW_MS = 260
+    fun <T> penDraw(): FiniteAnimationSpec<T> = tween(PEN_DRAW_MS, easing = LinearOutSlowInEasing)
+    /** The ink picker's stipple dissolve in and out (a straight line through the dissolve's own steps). */
+    const val PICKER_IN_MS = 240
+    const val PICKER_OUT_MS = 180
+    fun <T> pickerIn(): FiniteAnimationSpec<T> = linear(PICKER_IN_MS)
+    fun <T> pickerOut(): FiniteAnimationSpec<T> = linear(PICKER_OUT_MS)
 
     /** Something growing into a column (a banner); reduced motion just fades. */
     fun appear(reduced: Boolean): EnterTransition =

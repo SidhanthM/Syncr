@@ -211,6 +211,7 @@ import UniformTypeIdentifiers
         case .failed: ("Phone link could not listen", .needsYou)
         }
         statusBar.show(phone: text, state: state)
+        statusBar.show(brush: link.padOn ? link.penBrush : nil)
         let colour: NSColor = switch state { case .connected: Theme.connected; case .needsYou: Theme.needsYou; default: Theme.muted }
         ribbon.showPhone(colour: colour, tip: link.statusText)
         sidebar.update(workspace.sidebar, active: workspace.active, live: link.liveNote)
