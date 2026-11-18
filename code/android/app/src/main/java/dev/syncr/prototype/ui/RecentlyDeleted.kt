@@ -37,7 +37,8 @@ fun RecentlyDeletedList(deleted: List<DeletedNoteSummary>, now: Long, enabled: B
                 style = Syncr.type.caption, color = c.muted, modifier = Modifier.padding(bottom = Space.s))
         }
         if (ready && deleted.isEmpty()) item(key = "empty") {
-            EmptyState(SyncrIcons.Trash, "Recently deleted is empty", "Notes you delete wait here before they're gone for good.")
+            EmptyState(SyncrIcons.Trash, "Recently deleted is empty", "Notes you delete wait here before they're gone for good.",
+                art = EmptyArtData.search)
         }
         items(deleted, key = { it.id }) { note ->
             DeletedRow(note, now, enabled, onRestore = { onRestore(note.id) }, onPurge = { onPurge(note) })

@@ -14,7 +14,7 @@ struct PanelRow {
 /// size at every page zoom. Up to eight rows show, the rest scroll, and the chosen row is always in view.
 @MainActor final class CommandPanel: NSView {
     static let width: CGFloat = 320, rowHeight: CGFloat = 30, headerHeight: CGFloat = 24, visibleRows = 8
-    /// The 120 ms fade of the app's own surfaces (never the stipple: that is the companion's).
+    /// The 150 ms fade of the app's own surfaces (never the stipple: that is the companion's).
     static let fadeSeconds: CFTimeInterval = Motion.menu
     private enum Item { case header(String), row(Int) }
     private(set) var rows: [PanelRow] = []
@@ -152,12 +152,12 @@ struct PanelRow {
         }
     }
 
-    /// Fades in or out over the 120 ms, or just appears with Reduce motion.
+    /// Fades in or out over `Motion.menu`, or just appears with Reduce motion.
     func fade(in show: Bool, done: (() -> Void)? = nil) {
         guard !AppPreferences.shared.reducedMotion, let layer else { isHidden = !show; done?(); return }
         isHidden = false
         let a = CABasicAnimation(keyPath: "opacity")
-        a.fromValue = show ? 0 : 1; a.toValue = show ? 1 : 0; a.duration = Self.fadeSeconds
+        a.fromValue = show ? 0 : 1; a.toValue = show ? 1 : 0; a.duration = Self.fadeSeconds; a.timingFunction = Motion.easeOut
         layer.opacity = show ? 1 : 0
         CATransaction.begin()
         CATransaction.setCompletionBlock { done?() }

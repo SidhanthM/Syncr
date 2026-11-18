@@ -349,11 +349,11 @@ import SyncrCompanion
         addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInKeyWindow], owner: self))
     }
     override func mouseEntered(with event: NSEvent) {
-        if AppPreferences.shared.reducedMotion { actions.alphaValue = 1 } else { NSAnimationContext.runAnimationGroup { $0.duration = Motion.hover; actions.animator().alphaValue = 1 } }
+        if AppPreferences.shared.reducedMotion { actions.alphaValue = 1 } else { NSAnimationContext.runAnimationGroup { $0.duration = Motion.hover; $0.timingFunction = Motion.easeOut; actions.animator().alphaValue = 1 } }
         hover?(true)
     }
     override func mouseExited(with event: NSEvent) {
-        if AppPreferences.shared.reducedMotion { actions.alphaValue = 0 } else { NSAnimationContext.runAnimationGroup { $0.duration = Motion.hover; actions.animator().alphaValue = 0 } }
+        if AppPreferences.shared.reducedMotion { actions.alphaValue = 0 } else { NSAnimationContext.runAnimationGroup { $0.duration = Motion.hover; $0.timingFunction = Motion.easeOut; actions.animator().alphaValue = 0 } }
         hover?(false)
     }
 }

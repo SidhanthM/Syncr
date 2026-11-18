@@ -82,7 +82,7 @@ fun NoteGrid(state: NotesState, filter: LibraryFilter, now: Long, enabled: Boole
             !ready -> items(3, key = { "placeholder-$it" }) { PlaceholderCard() }
             shown.isEmpty() -> item(span = { GridItemSpan(maxLineSpan) }, key = "empty") {
                 val (icon, title, hint) = emptyCopy(filter, state.notes.isEmpty())
-                EmptyState(icon, title, hint)
+                EmptyState(icon, title, hint, art = if (state.notes.isEmpty() && filter == LibraryFilter.All) EmptyArtData.library else EmptyArtData.notebook)
             }
             else -> items(shown, key = { it.id }) { note ->
                 NoteCard(note, state.thumbnails[note.id], showNotebook, now, enabled,

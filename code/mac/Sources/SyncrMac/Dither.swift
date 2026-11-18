@@ -1,22 +1,39 @@
 import AppKit
 
-/// Every duration of the Mac's motion, in one place. The stipple (arriving, leaving, waiting) is only for what the
-/// companion makes; the owner's own surfaces (menus, hover actions) use the plain fades or nothing.
+/// Every duration of the Mac's motion, in one place; the phone's `Motion.kt` has the same names. Calm: nothing moves at
+/// rest, motion only answers the user, every change runs 150 to 280 ms on ease-out (no springs, no bounce), appearing and
+/// leaving is the stipple dissolve, line art is drawn on once, and only the waiting band loops while the companion works.
 enum Motion {
+    // The table: three durations and one easing.
+    /// A press, a hover, a menu: the quickest thing that still reads as an answer.
+    static let quick: CFTimeInterval = 0.15
+    /// Things appearing or leaving in place: the sticky title, a text line that changed.
+    static let standard: CFTimeInterval = 0.22
+    /// Shape changes (the sidebar) and line art being drawn on: the slowest ordinary motion.
+    static let slow: CFTimeInterval = 0.28
+    /// Ease-out: starts fast, settles gently. The only easing.
+    nonisolated(unsafe) static let easeOut = CAMediaTimingFunction(controlPoints: 0.2, 0, 0, 1)
+
+    // Names for what uses them.
+    /// A one-shot hand-drawn reveal: an outline drawing itself on.
+    static let drawOn: CFTimeInterval = slow
+    /// The stipple dissolve of what the owner's own actions bring in or send away.
+    static let dissolve: CFTimeInterval = standard
+
     /// A companion card, picture or answer dissolving in from its top edge down.
     static let reveal: CFTimeInterval = 0.42
     /// The same dissolve run backwards when something is dismissed, replaced or undone: two thirds of the time.
     static let leave: CFTimeInterval = reveal * 2 / 3
     /// A line of companion text that changed (a step's name): a plain fade, where a stipple would be noise.
-    static let textFade: CFTimeInterval = 0.22
+    static let textFade: CFTimeInterval = standard
     /// One loop of the waiting band across placeholder lines.
     static let drift: CFTimeInterval = 1.5
     /// The sticky title dissolving in or out.
-    static let title: CFTimeInterval = 0.2
+    static let title: CFTimeInterval = dissolve
     /// The owner's own menus and panels.
-    static let menu: CFTimeInterval = 0.12
+    static let menu: CFTimeInterval = quick
     /// Hover actions on a card.
-    static let hover: CFTimeInterval = 0.12
+    static let hover: CFTimeInterval = quick
     /// A dissolve does not start on the page while the pen is down or was active this recently (150 ms, in ns).
     static let penQuietNs: UInt64 = 150_000_000
 }
@@ -139,7 +156,7 @@ enum Motion {
         view.wantsLayer = true
         let fade = CABasicAnimation(keyPath: "opacity")
         fade.fromValue = 0; fade.toValue = 1; fade.duration = duration
-        fade.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        fade.timingFunction = Motion.easeOut
         view.layer?.add(fade, forKey: "fade")
     }
 }

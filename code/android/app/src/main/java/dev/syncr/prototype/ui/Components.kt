@@ -169,14 +169,17 @@ fun Chip(text: String, selected: Boolean, modifier: Modifier = Modifier, icon: I
     }
 }
 
-/** A calm empty state: a faint icon, one line saying what this place is for, and an optional hint. */
+/**
+ * A calm empty state: a small hand-drawn picture ([art], drawn on once) or else a faint icon, one line saying what this
+ * place is for, and an optional hint.
+ */
 @Composable
-fun EmptyState(icon: ImageVector, title: String, hint: String?, modifier: Modifier = Modifier) {
+fun EmptyState(icon: ImageVector, title: String, hint: String?, modifier: Modifier = Modifier, art: List<ArtStroke>? = null) {
     val c = Syncr.colors
     Column(modifier.fillMaxWidth().padding(vertical = Space.xxl, horizontal = Space.l)
         .semantics(mergeDescendants = true) { },
         horizontalAlignment = Alignment.CenterHorizontally) {
-        SyncrIcon(icon, c.faint, size = 32.dp)
+        if (art != null) EmptyArt(art, Modifier.size(width = 120.dp, height = 90.dp)) else SyncrIcon(icon, c.faint, size = 32.dp)
         Text(title, style = Syncr.type.title, color = c.ink, textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = Space.m))
         if (hint != null) Text(hint, style = Syncr.type.caption, color = c.muted, textAlign = TextAlign.Center,

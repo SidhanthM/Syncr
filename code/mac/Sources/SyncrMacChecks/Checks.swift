@@ -199,7 +199,8 @@ func viewportAndOffscreenMeshPixels() throws {
             try pointerScrollChecks()
             try penGlyphChecks()
             try stickyTitleChecks()
-            print("Mac viewer checks: OK (migration, newer copies, cancelled loads, MSAA, overlap/wrap, GPU reuse, notebooks, switcher, read-only vs Mac notes, session, live ink, phone link, pen heads, sticky title)")
+            try emptyArtChecks()
+            print("Mac viewer checks: OK (migration, newer copies, cancelled loads, MSAA, overlap/wrap, GPU reuse, notebooks, switcher, read-only vs Mac notes, session, live ink, phone link, pen heads, sticky title, empty art)")
         } catch {
             fputs("Mac viewer checks: FAILED: \(error)\n", stderr)
             exit(1)

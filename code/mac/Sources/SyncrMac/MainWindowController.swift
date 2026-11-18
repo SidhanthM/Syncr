@@ -247,7 +247,12 @@ import UniformTypeIdentifiers
 
     private func setSidebarCollapsed(_ collapsed: Bool) {
         if AppPreferences.shared.reducedMotion { sidebarItem.isCollapsed = collapsed }
-        else { sidebarItem.animator().isCollapsed = collapsed }
+        else {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = Motion.slow; context.timingFunction = Motion.easeOut; context.allowsImplicitAnimation = true
+                sidebarItem.animator().isCollapsed = collapsed
+            }
+        }
     }
 
     private func hotkeysChanged() {

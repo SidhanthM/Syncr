@@ -72,6 +72,9 @@ private final class Outline: NSOutlineView {
     private var liveNote: String?
     private var newNoteButton: NSButton?
     private var newNotebookButton: NSButton?
+    private let emptyArt = EmptyArtView(EmptyArtData.library)
+    private let emptyCaption = NSTextField(labelWithString: "")
+    private var emptyShown: Bool? // the picture is drawn on once each time the sidebar goes empty
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -114,13 +117,18 @@ private final class Outline: NSOutlineView {
         let wordmark = WordmarkView()
         wordmark.translatesAutoresizingMaskIntoConstraints = false
         addSubview(wordmark); addSubview(header); addSubview(scroll)
+        emptyCaption.font = Theme.smallFont; emptyCaption.textColor = Theme.muted; emptyCaption.alignment = .center
+        for view in [emptyArt, emptyCaption] { view.translatesAutoresizingMaskIntoConstraints = false; view.isHidden = true; addSubview(view) }
         NSLayoutConstraint.activate([
             wordmark.topAnchor.constraint(equalTo: topAnchor, constant: 12), wordmark.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             header.topAnchor.constraint(equalTo: wordmark.bottomAnchor, constant: 10), header.heightAnchor.constraint(equalToConstant: 24),
             header.leadingAnchor.constraint(equalTo: leadingAnchor), header.trailingAnchor.constraint(equalTo: trailingAnchor),
             scroll.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 8),
             scroll.leadingAnchor.constraint(equalTo: leadingAnchor), scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scroll.bottomAnchor.constraint(equalTo: bottomAnchor)
+            scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
+            emptyArt.centerXAnchor.constraint(equalTo: centerXAnchor), emptyArt.centerYAnchor.constraint(equalTo: scroll.centerYAnchor, constant: 40),
+            emptyArt.widthAnchor.constraint(equalToConstant: EmptyArtData.size.width), emptyArt.heightAnchor.constraint(equalToConstant: EmptyArtData.size.height),
+            emptyCaption.centerXAnchor.constraint(equalTo: centerXAnchor), emptyCaption.topAnchor.constraint(equalTo: emptyArt.bottomAnchor, constant: 10)
         ])
     }
     required init?(coder: NSCoder) { fatalError("not used") }
@@ -146,6 +154,15 @@ private final class Outline: NSOutlineView {
         outline.reloadData()
         for item in items where item.section.expanded { outline.expandItem(item) }
         selectActive(active)
+        showEmpty(items.allSatisfy { $0.section.kind == .trash || $0.section.notes.isEmpty })
+    }
+
+    /// An empty library or a filter that matches nothing gets a small drawing and a line, in place of a bare list.
+    private func showEmpty(_ empty: Bool) {
+        let filtering = !search.stringValue.trimmingCharacters(in: .whitespaces).isEmpty
+        emptyCaption.stringValue = filtering ? "No notes match" : "No notes yet"
+        emptyArt.isHidden = !empty; emptyCaption.isHidden = !empty
+        if emptyShown != empty { emptyShown = empty; if empty { emptyArt.play() } }
     }
 
     private func selectActive(_ id: String?) {

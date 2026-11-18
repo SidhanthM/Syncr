@@ -90,6 +90,8 @@ import SyncrCore
     private var linkDirty = true
     private var linkCallbacks = 0
     private let empty = NSTextField(labelWithString: "")
+    private let emptyArt = EmptyArtView(EmptyArtData.notebook)
+    private var emptyPlayed = false
     private let pairingCard = ThemedView()
     private let pairingCaption = NSTextField(wrappingLabelWithString: "")
     private let pairingDigits = NSTextField(labelWithString: "")
@@ -159,7 +161,7 @@ import SyncrCore
             cardStack.leadingAnchor.constraint(equalTo: pairingCard.leadingAnchor), cardStack.trailingAnchor.constraint(equalTo: pairingCard.trailingAnchor),
             cardStack.topAnchor.constraint(equalTo: pairingCard.topAnchor), cardStack.bottomAnchor.constraint(equalTo: pairingCard.bottomAnchor)
         ])
-        for view in [tabBar, companionStrip, canvas, textLayer, stickyTitle, empty, pairingCard] as [NSView] {
+        for view in [tabBar, companionStrip, canvas, textLayer, stickyTitle, emptyArt, empty, pairingCard] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
@@ -174,7 +176,9 @@ import SyncrCore
             textLayer.trailingAnchor.constraint(equalTo: canvas.trailingAnchor), textLayer.bottomAnchor.constraint(equalTo: canvas.bottomAnchor),
             stickyTitle.topAnchor.constraint(equalTo: canvas.topAnchor), stickyTitle.leadingAnchor.constraint(equalTo: canvas.leadingAnchor),
             stickyTitle.trailingAnchor.constraint(equalTo: canvas.trailingAnchor), stickyTitle.heightAnchor.constraint(equalToConstant: StickyTitleView.height),
-            empty.centerXAnchor.constraint(equalTo: canvas.centerXAnchor), empty.centerYAnchor.constraint(equalTo: centerYAnchor),
+            empty.centerXAnchor.constraint(equalTo: canvas.centerXAnchor), empty.centerYAnchor.constraint(equalTo: centerYAnchor, constant: 40),
+            emptyArt.centerXAnchor.constraint(equalTo: canvas.centerXAnchor), emptyArt.bottomAnchor.constraint(equalTo: empty.topAnchor, constant: -14),
+            emptyArt.widthAnchor.constraint(equalToConstant: EmptyArtData.size.width), emptyArt.heightAnchor.constraint(equalToConstant: EmptyArtData.size.height),
             pairingCard.centerXAnchor.constraint(equalTo: canvas.centerXAnchor), pairingCard.topAnchor.constraint(equalTo: tabBar.bottomAnchor, constant: 56),
             pairingCard.widthAnchor.constraint(equalToConstant: 340)
         ])
@@ -186,7 +190,10 @@ import SyncrCore
 
     /// nil title = nothing open (empty state, canvas hidden).
     func show(title: String?, readOnly: Bool) {
+        let wasEmpty = !empty.isHidden
         empty.isHidden = title != nil
+        emptyArt.isHidden = title != nil
+        if title == nil && !wasEmpty { emptyArt.play(); emptyPlayed = true }
         canvas.isHidden = title == nil
         requestRedraw()
     }
@@ -332,7 +339,10 @@ import SyncrCore
         }
         RunLoop.main.add(timer, forMode: .common); stickyTimer = timer
     }
-    override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); window?.acceptsMouseMovedEvents = true }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow(); window?.acceptsMouseMovedEvents = true
+        if !emptyPlayed, !empty.isHidden { emptyPlayed = true; emptyArt.play() }
+    }
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let area = stickyTracking { removeTrackingArea(area) }

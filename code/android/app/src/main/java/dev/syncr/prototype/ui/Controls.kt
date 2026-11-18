@@ -211,20 +211,24 @@ private class MenuPosition(private val gap: Int) : PopupPositionProvider {
 
 /**
  * A popover menu on [surface3]: it opens under the composable it sits in, with the slash menu's row style
- * ([MenuItem]), and fades on [Motion.MENU_MS]. It stays composed while it fades out.
+ * ([MenuItem]), and dissolves in and out on the stipple ([Motion.DISSOLVE_MS]). It stays composed while it leaves.
  */
 @Composable
 fun SyncrMenu(expanded: Boolean, onDismiss: () -> Unit, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
     val reduced = Syncr.reducedMotion
-    val state = remember { MutableTransitionState(false) }
-    state.targetState = expanded
+    var present by remember { androidx.compose.runtime.mutableStateOf(expanded) }
+    val progress = remember { androidx.compose.animation.core.Animatable(if (expanded) 1f else 0f) }
+    androidx.compose.runtime.LaunchedEffect(expanded, reduced) {
+        if (expanded) present = true
+        val target = if (expanded) 1f else 0f
+        if (reduced) progress.snapTo(target) else progress.animateTo(target, Motion.dissolve())
+        if (!expanded) present = false
+    }
     val gap = with(LocalDensity.current) { 4.dp.roundToPx() }
-    if (state.currentState || state.targetState) {
+    if (present) {
         Popup(MenuPosition(gap), onDismissRequest = onDismiss, properties = PopupProperties(focusable = true)) {
-            AnimatedVisibility(visibleState = state, enter = Motion.menuIn(reduced), exit = Motion.menuOut(reduced)) {
-                Column(modifier.padding(8.dp).sizeIn(minWidth = 200.dp, maxWidth = 280.dp).raised(Level.THREE, Radius.m)
-                    .padding(vertical = Space.xs).verticalScroll(rememberScrollState()), content = content)
-            }
+            Column(modifier.padding(8.dp).sizeIn(minWidth = 200.dp, maxWidth = 280.dp).dissolve { progress.value }.raised(Level.THREE, Radius.m)
+                .padding(vertical = Space.xs).verticalScroll(rememberScrollState()), content = content)
         }
     }
 }

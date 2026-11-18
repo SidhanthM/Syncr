@@ -251,7 +251,7 @@ private func slash(_ before: String, row: Int = 0) throws -> SlashOutcome {
 
 /// Part R: one table of durations, and Reduce motion: no dissolve, no wait.
 @MainActor private func motionChecks() throws {
-    try check(abs(Motion.leave - Motion.reveal * 2 / 3) < 1e-9 && Motion.menu == 0.12 && Motion.reveal == Dither.revealSeconds, "Motion: leaving takes two thirds of arriving; the menu fade is 120 ms")
+    try check(abs(Motion.leave - Motion.reveal * 2 / 3) < 1e-9 && Motion.menu == 0.15 && Motion.reveal == Dither.revealSeconds, "Motion: leaving takes two thirds of arriving; the menu fade is 150 ms")
     let saved = AppPreferences.shared.values.reduceMotion
     try AppPreferences.shared.update { $0.reduceMotion = true }
     defer { try? AppPreferences.shared.update { $0.reduceMotion = saved } }

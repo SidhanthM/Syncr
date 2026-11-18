@@ -191,7 +191,9 @@ import SyncrCompanion
     private func updateUI() {
         guard let s = snapshot, let id = noteID else { return }
         let settings = CompanionStore.settings(s)
+        let stripWasHidden = detail.companionStrip.isHidden
         detail.companionStrip.isHidden = false; detail.companionStrip.show(settings,readers:readers,writable:true)
+        if stripWasHidden { Dither.reveal(detail.companionStrip, duration: Motion.dissolve) }
         detail.companionStrip.voice.state = voiceNotes.contains(id) ? .on : .off
         let speak = voiceNotes.contains(id)
         for item in s.companionItems where !item.tombstone && !spoken.contains(item.id) {
