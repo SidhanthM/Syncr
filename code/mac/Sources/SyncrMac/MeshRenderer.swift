@@ -232,7 +232,7 @@ final class MeshRenderer {
                                 mesh.maxX + stroke.originX, mesh.maxY + stroke.originY) else { continue }
             bind(stroke.highlighter)
             draw(upload.vertices, upload.indices, count: mesh.indices.count / 4, origin: SIMD2(stroke.originX, stroke.originY),
-                 colour: MeshRenderer.colour(stroke.colour, dark: dark, highlighter: stroke.highlighter))
+                 colour: MeshRenderer.colour(stroke.colour, custom: stroke.custom, dark: dark, highlighter: stroke.highlighter))
         }
         // Wet layer. Sheet origin is zero: only the first sheet of a Mac note takes live ink.
         for stroke in wet?.strokes ?? [] {
@@ -240,7 +240,7 @@ final class MeshRenderer {
             for piece in stroke.pieces where visibleBounds(piece.minX, piece.minY, piece.maxX, piece.maxY) {
                 if !bound { bind(stroke.highlighter); bound = true }
                 draw(piece.vertices, piece.indices, count: piece.indexCount, origin: .zero,
-                     colour: MeshRenderer.colour(stroke.colour, dark: dark, highlighter: stroke.highlighter))
+                     colour: MeshRenderer.colour(stroke.colour, custom: stroke.custom, dark: dark, highlighter: stroke.highlighter))
             }
         }
         if let hover = wet?.hover {
@@ -288,7 +288,14 @@ enum RendererError: Error { case unavailable }
 extension MeshRenderer {
     /// Pen colours on the Mac's page. Plain ink is the window's Ink token so handwriting matches typed text
     /// at full strength; the other pen colours are the shared ones.
-    static func colour(_ colour: InkColour, dark: Bool, highlighter: Bool) -> SIMD4<Float> {
+    static func colour(_ colour: InkColour, custom: Oklch? = nil, dark: Bool, highlighter: Bool) -> SIMD4<Float> {
+        if let custom {
+            // The writer's own ink, gamut-mapped by the core and drawn as chosen in both themes; near-black and
+            // near-white greys take the window's ink so writing stays readable.
+            let resolved = resolveCustomInk(ink: custom)
+            let rgb = resolved.themeInk ? ThemeTokens.ink(dark) : resolved.argb
+            return NotePalette.rgba(highlighter ? (rgb & 0x00ffffff) | (NotePalette.highlighterAlpha << 24) : rgb)
+        }
         guard colour == .ink else { return NotePalette.colour(colour, dark: dark, highlighter: highlighter) }
         let rgb = ThemeTokens.ink(dark)
         return NotePalette.rgba(highlighter ? (rgb & 0x00ffffff) | (NotePalette.highlighterAlpha << 24) : rgb)

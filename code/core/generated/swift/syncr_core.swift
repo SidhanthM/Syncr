@@ -2184,11 +2184,16 @@ public func FfiConverterTypeAuthorHead_lower(_ value: AuthorHead) -> RustBuffer 
 public struct Brush: Equatable, Hashable {
     public var family: BrushFamily
     public var size: BrushSize
+    /**
+     * The named ink. When `custom_ink` is set this is only a fallback: it is not part of the
+     * canonical bytes or the wire, which carry the custom ink alone (set it to Ink).
+     */
     public var colour: InkColour
     /**
      * None = Fountain. Only Pen strokes may carry another look.
      */
     public var look: PenLook?
+    public var customInk: Oklch?
     /**
      * None = the feel the Mac has always drawn with (see `mesh.rs`).
      */
@@ -2196,10 +2201,14 @@ public struct Brush: Equatable, Hashable {
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(family: BrushFamily, size: BrushSize, colour: InkColour, 
+    public init(family: BrushFamily, size: BrushSize, 
+        /**
+         * The named ink. When `custom_ink` is set this is only a fallback: it is not part of the
+         * canonical bytes or the wire, which carry the custom ink alone (set it to Ink).
+         */colour: InkColour, 
         /**
          * None = Fountain. Only Pen strokes may carry another look.
-         */look: PenLook? = nil, 
+         */look: PenLook? = nil, customInk: Oklch? = nil, 
         /**
          * None = the feel the Mac has always drawn with (see `mesh.rs`).
          */feel: PenFeel? = nil) {
@@ -2207,6 +2216,7 @@ public struct Brush: Equatable, Hashable {
         self.size = size
         self.colour = colour
         self.look = look
+        self.customInk = customInk
         self.feel = feel
     }
 
@@ -2230,6 +2240,7 @@ public struct FfiConverterTypeBrush: FfiConverterRustBuffer {
                 size: FfiConverterTypeBrushSize.read(from: &buf), 
                 colour: FfiConverterTypeInkColour.read(from: &buf), 
                 look: FfiConverterOptionTypePenLook.read(from: &buf), 
+                customInk: FfiConverterOptionTypeOklch.read(from: &buf), 
                 feel: FfiConverterOptionTypePenFeel.read(from: &buf)
         )
     }
@@ -2239,6 +2250,7 @@ public struct FfiConverterTypeBrush: FfiConverterRustBuffer {
         FfiConverterTypeBrushSize.write(value.size, into: &buf)
         FfiConverterTypeInkColour.write(value.colour, into: &buf)
         FfiConverterOptionTypePenLook.write(value.look, into: &buf)
+        FfiConverterOptionTypeOklch.write(value.customInk, into: &buf)
         FfiConverterOptionTypePenFeel.write(value.feel, into: &buf)
     }
 }
@@ -4081,6 +4093,68 @@ public func FfiConverterTypeNotebookSummary_lower(_ value: NotebookSummary) -> R
 
 
 /**
+ * A custom ink exactly as the writer chose it: OKLCH lightness 0..1, chroma 0..0.37, hue in
+ * degrees 0..360. Never a converted RGB; see `oklch.rs` for the one conversion.
+ */
+public struct Oklch: Equatable, Hashable {
+    public var l: Float
+    public var c: Float
+    public var h: Float
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(l: Float, c: Float, h: Float) {
+        self.l = l
+        self.c = c
+        self.h = h
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension Oklch: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeOklch: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Oklch {
+        return
+            try Oklch(
+                l: FfiConverterFloat.read(from: &buf), 
+                c: FfiConverterFloat.read(from: &buf), 
+                h: FfiConverterFloat.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: Oklch, into buf: inout [UInt8]) {
+        FfiConverterFloat.write(value.l, into: &buf)
+        FfiConverterFloat.write(value.c, into: &buf)
+        FfiConverterFloat.write(value.h, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeOklch_lift(_ buf: RustBuffer) throws -> Oklch {
+    return try FfiConverterTypeOklch.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeOklch_lower(_ value: Oklch) -> RustBuffer {
+    return FfiConverterTypeOklch.lower(value)
+}
+
+
+/**
  * The device feel a stroke was drawn with, resolved at draw time and stored so changing a
  * setting later cannot change an existing stroke. Pressure response and smoothing are whole
  * percents of the 0..1 setting (50 is the tuned default); taper switches both tapers.
@@ -4684,6 +4758,75 @@ public func FfiConverterTypeRejectedOperation_lift(_ buf: RustBuffer) throws -> 
 #endif
 public func FfiConverterTypeRejectedOperation_lower(_ value: RejectedOperation) -> RustBuffer {
     return FfiConverterTypeRejectedOperation.lower(value)
+}
+
+
+/**
+ * The sRGB colour an ink resolves to, and whether it should instead draw in the theme's ink.
+ */
+public struct ResolvedInk: Equatable, Hashable {
+    /**
+     * 0xAARRGGBB with alpha 0xff: the gamut-mapped colour as chosen.
+     */
+    public var argb: UInt32
+    /**
+     * True for near-black / near-white low-chroma inks: draw `NotePalette.ink(dark)` instead.
+     */
+    public var themeInk: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * 0xAARRGGBB with alpha 0xff: the gamut-mapped colour as chosen.
+         */argb: UInt32, 
+        /**
+         * True for near-black / near-white low-chroma inks: draw `NotePalette.ink(dark)` instead.
+         */themeInk: Bool) {
+        self.argb = argb
+        self.themeInk = themeInk
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ResolvedInk: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeResolvedInk: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ResolvedInk {
+        return
+            try ResolvedInk(
+                argb: FfiConverterUInt32.read(from: &buf), 
+                themeInk: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ResolvedInk, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.argb, into: &buf)
+        FfiConverterBool.write(value.themeInk, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeResolvedInk_lift(_ buf: RustBuffer) throws -> ResolvedInk {
+    return try FfiConverterTypeResolvedInk.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeResolvedInk_lower(_ value: ResolvedInk) -> RustBuffer {
+    return FfiConverterTypeResolvedInk.lower(value)
 }
 
 
@@ -8677,6 +8820,30 @@ fileprivate struct FfiConverterOptionTypeCompanionSettingsView: FfiConverterRust
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeOklch: FfiConverterRustBuffer {
+    typealias SwiftType = Oklch?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeOklch.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeOklch.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypePenFeel: FfiConverterRustBuffer {
     typealias SwiftType = PenFeel?
 
@@ -9592,6 +9759,65 @@ public func tessellateStroke(samples: Data, style: StrokeStyle, transform: Affin
 })
 }
 /**
+ * The same ink with chroma reduced, at fixed lightness and hue, until it fits sRGB. Out-of-range
+ * input is clamped first (lightness 0..1, chroma 0..0.37, hue wrapped to 0..360).
+ */
+public func oklchGamutMap(ink: Oklch) -> Oklch  {
+    return try!  FfiConverterTypeOklch_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_syncr_core_fn_func_oklch_gamut_map(
+        FfiConverterTypeOklch_lower(ink),uniffiCallStatus
+    )
+})
+}
+/**
+ * The largest chroma sRGB can show at this lightness and hue (at most 0.37). The picker draws
+ * its gamut edge from this.
+ */
+public func oklchMaxChroma(l: Float, h: Float) -> Float  {
+    return try!  FfiConverterFloat.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_syncr_core_fn_func_oklch_max_chroma(
+        FfiConverterFloat.lower(l),
+        FfiConverterFloat.lower(h),uniffiCallStatus
+    )
+})
+}
+/**
+ * The gamut-mapped sRGB colour of an ink as 0xFFRRGGBB.
+ */
+public func oklchToSrgb(ink: Oklch) -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_syncr_core_fn_func_oklch_to_srgb(
+        FfiConverterTypeOklch_lower(ink),uniffiCallStatus
+    )
+})
+}
+/**
+ * True for a near-black (L < 0.3) or near-white (L > 0.92) ink of low chroma (C < 0.04), the
+ * inks that map to the theme's own ink so writing stays readable. Same rule in both themes.
+ */
+public func oklchUsesThemeInk(ink: Oklch) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_syncr_core_fn_func_oklch_uses_theme_ink(
+        FfiConverterTypeOklch_lower(ink),uniffiCallStatus
+    )
+})
+}
+/**
+ * Colour and theme rule in one call.
+ */
+public func resolveCustomInk(ink: Oklch) -> ResolvedInk  {
+    return try!  FfiConverterTypeResolvedInk_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_syncr_core_fn_func_resolve_custom_ink(
+        FfiConverterTypeOklch_lower(ink),uniffiCallStatus
+    )
+})
+}
+/**
  * Canonical sanitization, with bounded reference expansion checked before admission.
  */
 public func filterPicture(svg: String)throws  -> String  {
@@ -9704,6 +9930,21 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_syncr_core_checksum_func_tessellate_stroke() != 44957) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_syncr_core_checksum_func_oklch_gamut_map() != 29673) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_syncr_core_checksum_func_oklch_max_chroma() != 19083) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_syncr_core_checksum_func_oklch_to_srgb() != 58653) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_syncr_core_checksum_func_oklch_uses_theme_ink() != 7758) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_syncr_core_checksum_func_resolve_custom_ink() != 12835) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_syncr_core_checksum_func_filter_picture() != 7943) {

@@ -122,6 +122,7 @@ struct WetStroke: @unchecked Sendable {
     let colour: InkColour
     let highlighter: Bool
     let pieces: [WetPiece]
+    var custom: Oklch? = nil
 }
 
 struct HoverDot: Equatable, Sendable { var x: Float, y: Float }
@@ -210,7 +211,8 @@ final class WetBuilder {
     }
 
     var stroke: WetStroke {
-        WetStroke(id: id, colour: brush.colour, highlighter: highlighter, pieces: frozen + (tail.map { [$0] } ?? []))
+        WetStroke(id: id, colour: brush.colour, highlighter: highlighter, pieces: frozen + (tail.map { [$0] } ?? []),
+                  custom: brush.customInk)
     }
 }
 

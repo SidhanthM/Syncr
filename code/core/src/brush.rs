@@ -6,15 +6,17 @@
 //! - family byte: Pen/Fountain `0`, Highlighter `1`, Pen/Ballpoint `2`, Pen/Fineliner `3`; bit
 //!   `0x10` says a feel block follows the colour.
 //! - size byte: Small `0`, Medium `1`, Large `2`.
-//! - colour byte: named Ink `0`, Red `1`, Green `2`, Blue `3`, Orange `4`.
+//! - colour byte: named Ink `0`, Red `1`, Green `2`, Blue `3`, Orange `4`; `5` = custom OKLCH ink,
+//!   followed by three little-endian f32 (l, c, h).
 //! - feel block: pressure u8, smoothing u8, taper u8 (0 or 1).
 use crate::{
-    Brush, BrushFamily, BrushSize, CoreResult, InkColour, PenFeel, PenLook, error::invalid,
+    Brush, BrushFamily, BrushSize, CoreResult, InkColour, Oklch, PenFeel, PenLook, error::invalid,
     preview::Reader,
 };
 
 const FEEL_FLAG: u8 = 0x10;
-pub(crate) const MAX_BRUSH_BYTES: usize = 3 + 3;
+const CUSTOM_INK: u8 = 5;
+pub(crate) const MAX_BRUSH_BYTES: usize = 3 + 12 + 3;
 
 impl Brush {
     /// A plain stroke brush: Fountain look, named ink, default feel.
@@ -24,6 +26,7 @@ impl Brush {
             size,
             colour,
             look: None,
+            custom_ink: None,
             feel: None,
         }
     }
@@ -33,13 +36,24 @@ impl Brush {
     }
     /// True when this brush needs more than the original three bytes.
     pub(crate) fn is_extended(&self) -> bool {
-        self.pen_look() != PenLook::Fountain || self.feel.is_some()
+        self.pen_look() != PenLook::Fountain || self.custom_ink.is_some() || self.feel.is_some()
     }
 }
 
 pub(crate) fn validate(b: &Brush) -> CoreResult<()> {
     if b.family == BrushFamily::Highlighter && b.pen_look() != PenLook::Fountain {
         return Err(invalid("Only a Pen stroke has a pen look"));
+    }
+    if let Some(ink) = &b.custom_ink {
+        let ok = ink.l.is_finite()
+            && ink.c.is_finite()
+            && ink.h.is_finite()
+            && (0.0..=1.0).contains(&ink.l)
+            && (0.0..=crate::oklch::MAX_CHROMA).contains(&ink.c)
+            && (0.0..=360.0).contains(&ink.h);
+        if !ok {
+            return Err(invalid("Custom ink is outside OKLCH range"));
+        }
     }
     if let Some(feel) = &b.feel
         && (feel.pressure > 100 || feel.smoothing > 100)
@@ -62,13 +76,21 @@ pub(crate) fn encode(b: &Brush, out: &mut Vec<u8>) {
         BrushSize::Medium => 1,
         BrushSize::Large => 2,
     });
-    out.push(match b.colour {
-        InkColour::Ink => 0,
-        InkColour::Red => 1,
-        InkColour::Green => 2,
-        InkColour::Blue => 3,
-        InkColour::Orange => 4,
-    });
+    match &b.custom_ink {
+        Some(ink) => {
+            out.push(CUSTOM_INK);
+            for v in [ink.l, ink.c, ink.h] {
+                out.extend_from_slice(&v.to_le_bytes());
+            }
+        }
+        None => out.push(match b.colour {
+            InkColour::Ink => 0,
+            InkColour::Red => 1,
+            InkColour::Green => 2,
+            InkColour::Blue => 3,
+            InkColour::Orange => 4,
+        }),
+    }
     if let Some(feel) = &b.feel {
         out.extend_from_slice(&[feel.pressure, feel.smoothing, u8::from(feel.taper)]);
     }
@@ -90,12 +112,16 @@ pub(crate) fn decode(r: &mut Reader) -> CoreResult<Brush> {
         2 => BrushSize::Large,
         _ => return Err(invalid("Unknown brush size")),
     };
-    let colour = match r.u8()? {
-        0 => InkColour::Ink,
-        1 => InkColour::Red,
-        2 => InkColour::Green,
-        3 => InkColour::Blue,
-        4 => InkColour::Orange,
+    let (colour, custom_ink) = match r.u8()? {
+        0 => (InkColour::Ink, None),
+        1 => (InkColour::Red, None),
+        2 => (InkColour::Green, None),
+        3 => (InkColour::Blue, None),
+        4 => (InkColour::Orange, None),
+        CUSTOM_INK => {
+            let (l, c, h) = (r.f32()?, r.f32()?, r.f32()?);
+            (InkColour::Ink, Some(Oklch { l, c, h }))
+        }
         _ => return Err(invalid("Unknown brush colour")),
     };
     let feel = if feel_present {
@@ -116,6 +142,7 @@ pub(crate) fn decode(r: &mut Reader) -> CoreResult<Brush> {
         size,
         colour,
         look,
+        custom_ink,
         feel,
     };
     validate(&brush)?;
@@ -157,7 +184,7 @@ mod tests {
     }
 
     #[test]
-    fn looks_and_feel_are_additive_tags() {
+    fn looks_custom_ink_and_feel_are_additive_tags() {
         let mut b = Brush::plain(BrushFamily::Pen, BrushSize::Medium, InkColour::Ink);
         b.look = Some(PenLook::Ballpoint);
         assert_eq!(roundtrip(&b), vec![2, 1, 0]);
@@ -168,7 +195,14 @@ mod tests {
             taper: true,
         });
         assert_eq!(roundtrip(&b), vec![0x13, 1, 0, 50, 50, 1]);
-        assert_eq!(roundtrip(&b).len(), MAX_BRUSH_BYTES);
+        b.custom_ink = Some(Oklch {
+            l: 0.5,
+            c: 0.1,
+            h: 20.0,
+        });
+        let bytes = roundtrip(&b);
+        assert_eq!(bytes.len(), MAX_BRUSH_BYTES);
+        assert_eq!(&bytes[..3], &[0x13, 1, 5]);
     }
 
     #[test]
@@ -187,6 +221,13 @@ mod tests {
             } else {
                 assert!(result.is_err(), "{bytes:?}");
             }
+        }
+        for bad in [0.5f32, f32::NAN] {
+            let mut out = vec![0u8, 0, 5];
+            for v in [0.5f32, if bad.is_nan() { bad } else { 0.5 }, 10.0] {
+                out.extend_from_slice(&v.to_le_bytes());
+            }
+            assert!(decode(&mut Reader::new(&out)).is_err()); // chroma above 0.37, then NaN
         }
         let mut hl = Brush::plain(BrushFamily::Highlighter, BrushSize::Small, InkColour::Ink);
         hl.look = Some(PenLook::Ballpoint);

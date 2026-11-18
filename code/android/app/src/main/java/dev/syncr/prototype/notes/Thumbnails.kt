@@ -38,7 +38,7 @@ fun buildThumbnail(snapshot: NoteSnapshot, samples: (String) -> SampleChannels?,
 
 /** Optional on-disk cache so library cards don't reopen every note on each launch. Failures are ignored. */
 internal object ThumbnailCache {
-    private const val MAGIC = 0x53544845 // STHE: strokes keep their look and feel; STHD and older caches are ignored
+    private const val MAGIC = 0x53544845 // STHE: strokes keep their look, ink and feel; STHD and older caches are ignored
     private fun file(dir: File, noteId: String) =
         if (noteId.isNotEmpty() && noteId.all { it.isLetterOrDigit() }) File(dir, "$noteId.thumb") else null
 
@@ -55,8 +55,9 @@ internal object ThumbnailCache {
                     val size = BrushSize.entries[input.readByte().toInt()]
                     val colour = InkColour.entries[input.readByte().toInt()]
                     val look = input.readByte().toInt().takeIf { it > 0 }?.let { PenLook.entries[it - 1] }
+                    val custom = if (input.readBoolean()) Oklch(input.readFloat(), input.readFloat(), input.readFloat()) else null
                     val feel = if (input.readBoolean()) PenFeel(input.readByte().toUByte(), input.readByte().toUByte(), input.readBoolean()) else null
-                    val brush = Brush(family, size, colour, look, feel = feel)
+                    val brush = Brush(family, size, colour, look, custom, feel)
                     val points = FloatArray(input.readInt()) { input.readFloat() }
                     val pressure = FloatArray(points.size / 2) { input.readFloat() }
                     val elapsed = IntArray(points.size / 2) { input.readInt() }
@@ -99,6 +100,8 @@ internal object ThumbnailCache {
                     out.writeByte(s.brush.size.ordinal)
                     out.writeByte(s.brush.colour.ordinal)
                     out.writeByte((s.brush.look?.ordinal ?: -1) + 1)
+                    out.writeBoolean(s.brush.customInk != null)
+                    s.brush.customInk?.let { out.writeFloat(it.l); out.writeFloat(it.c); out.writeFloat(it.h) }
                     out.writeBoolean(s.brush.feel != null)
                     s.brush.feel?.let { out.writeByte(it.pressure.toInt()); out.writeByte(it.smoothing.toInt()); out.writeBoolean(it.taper) }
                     out.writeInt(s.points.size)

@@ -43,7 +43,7 @@ class InkStylesHostTest {
         val after = drawn(changed)
         assertNotEquals(before, after)
         assertEquals(styleBefore, InkStyles.style(before)) // same stored brush, same style: no preference is read
-        assertNull(before.look)
+        assertEquals(PenLook.FOUNTAIN, InkTool.of(before).look)
         assertNotEquals(styleBefore, InkStyles.style(after)) // the new stroke does differ
     }
 
@@ -88,6 +88,8 @@ class InkStylesHostTest {
         assertEquals(PenLook.BALLPOINT, drawn(InkPreferences(penLook = PenLook.BALLPOINT)).look)
         val highlighter = drawn(InkPreferences(penLook = PenLook.BALLPOINT), Brush(BrushFamily.HIGHLIGHTER, BrushSize.MEDIUM, InkColour.ORANGE))
         assertNull(highlighter.look)
+        assertEquals(InkTool.HIGHLIGHTER, InkTool.of(highlighter))
+        assertEquals(InkTool.BALLPOINT, InkTool.of(drawn(InkPreferences(penLook = PenLook.BALLPOINT))))
     }
 
     @Test fun highlighterIsFlatTranslucentChiselWithoutTaper() {
@@ -136,6 +138,19 @@ class InkStylesHostTest {
     @Test fun minimumSizeKeepsThumbnailHairlines() {
         assertEquals(9f, InkStyles.style(pen(BrushSize.SMALL), minSize = 9f).size, 0f)
         assertEquals(brushWidth(pen(BrushSize.LARGE)), InkStyles.style(pen(BrushSize.LARGE), minSize = 1f).size, 0f)
+    }
+
+    @Test fun theBrushOfARememberedToolCarriesItsInkSizeLookAndFeel() {
+        val custom = Oklch(0.62f, 0.19f, 143.5f)
+        val prefs = InkPreferences(penLook = PenLook.BALLPOINT)
+            .withInk(InkTool.BALLPOINT, Ink.Custom(custom)).withSize(InkTool.BALLPOINT, BrushSize.LARGE)
+        val brush = prefs.brushFor(InkTool.BALLPOINT)
+        assertEquals(BrushFamily.PEN, brush.family); assertEquals(BrushSize.LARGE, brush.size)
+        assertEquals(custom, brush.customInk); assertEquals(PenLook.BALLPOINT, brush.look)
+        assertEquals(Ink.Custom(custom), brush.ink)
+        // Another tool keeps its own ink.
+        assertEquals(InkColour.ORANGE, prefs.brushFor(InkTool.HIGHLIGHTER).colour)
+        assertEquals(InkColour.INK, prefs.brushFor(InkTool.FOUNTAIN).colour)
     }
 
     private fun curve(): ByteArray {

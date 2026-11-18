@@ -31,6 +31,14 @@ pub enum PenLook {
     Ballpoint,
     Fineliner,
 }
+/// A custom ink exactly as the writer chose it: OKLCH lightness 0..1, chroma 0..0.37, hue in
+/// degrees 0..360. Never a converted RGB; see `oklch.rs` for the one conversion.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize, uniffi::Record)]
+pub struct Oklch {
+    pub l: f32,
+    pub c: f32,
+    pub h: f32,
+}
 /// The device feel a stroke was drawn with, resolved at draw time and stored so changing a
 /// setting later cannot change an existing stroke. Pressure response and smoothing are whole
 /// percents of the 0..1 setting (50 is the tuned default); taper switches both tapers.
@@ -61,11 +69,16 @@ pub struct NotebookSummary {
 pub struct Brush {
     pub family: BrushFamily,
     pub size: BrushSize,
+    /// The named ink. When `custom_ink` is set this is only a fallback: it is not part of the
+    /// canonical bytes or the wire, which carry the custom ink alone (set it to Ink).
     pub colour: InkColour,
     /// None = Fountain. Only Pen strokes may carry another look.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[uniffi(default = None)]
     pub look: Option<PenLook>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[uniffi(default = None)]
+    pub custom_ink: Option<Oklch>,
     /// None = the feel the Mac has always drawn with (see `mesh.rs`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[uniffi(default = None)]

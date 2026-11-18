@@ -1,4 +1,4 @@
-//! Strokes keep the look they were drawn with (look-and-ink-v1 part 1): additive tags, a
+//! Strokes keep the look they were drawn with (look-and-ink-v1 parts 1 and 2): additive tags, a
 //! note's version rises only on first use, and nothing about another stroke changes a mesh.
 mod common;
 use common::{base, brush, path};
@@ -105,9 +105,15 @@ fn a_plain_stroke_leaves_the_note_at_version_three_and_a_new_look_raises_it_once
 }
 
 #[test]
-fn feel_is_stored_as_drawn_and_retries_are_duplicates() {
+fn custom_ink_and_feel_are_stored_as_chosen_and_retries_are_duplicates() {
     let (root, _lib, r, note) = setup();
+    let ink = Oklch {
+        l: 0.62,
+        c: 0.19,
+        h: 143.5,
+    };
     let b = Brush {
+        custom_ink: Some(ink),
         feel: Some(PenFeel {
             pressure: 80,
             smoothing: 20,
@@ -130,29 +136,50 @@ fn feel_is_stored_as_drawn_and_retries_are_duplicates() {
     };
     assert!(!note.submit(command.clone()).unwrap().duplicate);
     assert!(note.submit(command.clone()).unwrap().duplicate);
-    // Same ID, other feel: different canonical bytes.
+    // Same ID, other ink: different canonical bytes.
     let mut other = command.clone();
     if let CommandBody::Marks { mutations } = &mut other.body
         && let MarkMutation::AddStroke { brush, .. } = &mut mutations[0]
     {
-        brush.feel = Some(PenFeel {
-            pressure: 81,
-            smoothing: 20,
-            taper: false,
-        });
+        brush.custom_ink = Some(Oklch { h: 144.0, ..ink });
     }
     assert!(matches!(
         note.submit(other),
         Err(CoreError::IdCollision { .. })
     ));
-    assert_eq!(note.snapshot().unwrap().strokes[0].brush, b);
+    let snap = note.snapshot().unwrap();
+    assert_eq!(snap.strokes[0].brush, b); // the OKLCH as chosen, not a converted RGB
     assert_eq!(version(root.path(), &r.note_id), 8);
 }
 
 #[test]
-fn bad_feel_and_highlighter_looks_are_refused_atomically() {
+fn bad_inks_and_highlighter_looks_are_refused_atomically() {
     let (_root, _lib, r, note) = setup();
     for bad in [
+        Brush {
+            custom_ink: Some(Oklch {
+                l: 1.5,
+                c: 0.1,
+                h: 0.0,
+            }),
+            ..brush()
+        },
+        Brush {
+            custom_ink: Some(Oklch {
+                l: 0.5,
+                c: 0.4,
+                h: 0.0,
+            }),
+            ..brush()
+        },
+        Brush {
+            custom_ink: Some(Oklch {
+                l: 0.5,
+                c: f32::NAN,
+                h: 0.0,
+            }),
+            ..brush()
+        },
         Brush {
             feel: Some(PenFeel {
                 pressure: 101,
@@ -255,6 +282,11 @@ fn a_phone_ballpoint_stroke_tessellates_the_same_on_the_mac() {
     // The Mac receives the stroke through the durable commit wire, then stores and draws it.
     let b = Brush {
         look: Some(PenLook::Ballpoint),
+        custom_ink: Some(Oklch {
+            l: 0.7,
+            c: 0.12,
+            h: 200.0,
+        }),
         feel: Some(PenFeel {
             pressure: 50,
             smoothing: 50,

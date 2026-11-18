@@ -25,6 +25,7 @@ mod image_types;
 mod layout;
 mod library;
 mod mesh;
+mod oklch;
 mod picture;
 mod picture_display;
 mod picture_path;
@@ -55,6 +56,10 @@ pub use library::{Note, SyncrLibrary, open_library};
 pub use mesh::{
     MAX_MESH_VERTICES, MESH_RENDERER_VERSION, StrokeMesh, StrokeStyle, default_stroke_style,
     mesh_renderer_version, stroke_style_min_size, tessellate_stroke,
+};
+pub use oklch::{
+    ResolvedInk, oklch_gamut_map, oklch_max_chroma, oklch_to_srgb, oklch_uses_theme_ink,
+    resolve_custom_ink,
 };
 pub use picture::{filter_picture, picture_display_list};
 pub use picture_types::*;

@@ -96,14 +96,20 @@ fn is_limit(e: &CoreError) -> bool {
 
 // ------------------------------------------------------------------ codec
 
-/// Link vector: the Begin body for a Ballpoint stroke with a stored feel. The brush is
-/// `[0x12, size, colour, pressure, smoothing, taper]`; a plain brush stays three bytes.
+/// Link vector: the Begin body for a Ballpoint stroke in a custom ink with a stored feel. The brush is
+/// `[0x12, size, 5, l, c, h (f32 LE), pressure, smoothing, taper]`; a plain brush stays three bytes.
 #[test]
-fn begin_carries_the_look_and_feel_after_the_original_three_bytes() {
+fn begin_carries_the_look_custom_ink_and_feel_after_the_original_three_bytes() {
     let id = S1.to_string();
     let plain = enc(&begin(&id, 0));
     let mut b = brush();
+    b.colour = InkColour::Ink; // the fallback colour of a custom ink is not carried
     b.look = Some(PenLook::Ballpoint);
+    b.custom_ink = Some(Oklch {
+        l: 0.5,
+        c: 0.125,
+        h: 90.0,
+    });
     b.feel = Some(PenFeel {
         pressure: 50,
         smoothing: 20,
@@ -118,8 +124,13 @@ fn begin_carries_the_look_and_feel_after_the_original_three_bytes() {
             space: CoordinateSpace::Canvas,
         },
     ));
-    assert_eq!(extended.len(), plain.len() + 3);
-    assert_eq!(&extended[68..74], &[0x12, 1, 3, 50, 20, 0]);
+    assert_eq!(extended.len(), plain.len() + 15);
+    let mut expected = vec![0x12, 1, 5];
+    for v in [0.5f32, 0.125, 90.0] {
+        expected.extend_from_slice(&v.to_le_bytes());
+    }
+    expected.extend_from_slice(&[50, 20, 0]);
+    assert_eq!(&extended[68..68 + 18], expected.as_slice());
     let PreviewBody::Begin { brush: got, .. } = decode_preview_frame(extended).unwrap().body else {
         panic!("not a Begin")
     };

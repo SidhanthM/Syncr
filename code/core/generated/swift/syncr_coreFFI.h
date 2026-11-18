@@ -608,6 +608,31 @@ RustBuffer uniffi_syncr_core_fn_func_stroke_style_min_size(RustBuffer brush, flo
 RustBuffer uniffi_syncr_core_fn_func_tessellate_stroke(RustBuffer samples, RustBuffer style, RustBuffer transform, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_OKLCH_GAMUT_MAP
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_OKLCH_GAMUT_MAP
+RustBuffer uniffi_syncr_core_fn_func_oklch_gamut_map(RustBuffer ink, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_OKLCH_MAX_CHROMA
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_OKLCH_MAX_CHROMA
+float uniffi_syncr_core_fn_func_oklch_max_chroma(float l, float h, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_OKLCH_TO_SRGB
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_OKLCH_TO_SRGB
+uint32_t uniffi_syncr_core_fn_func_oklch_to_srgb(RustBuffer ink, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_OKLCH_USES_THEME_INK
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_OKLCH_USES_THEME_INK
+int8_t uniffi_syncr_core_fn_func_oklch_uses_theme_ink(RustBuffer ink, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_RESOLVE_CUSTOM_INK
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_RESOLVE_CUSTOM_INK
+RustBuffer uniffi_syncr_core_fn_func_resolve_custom_ink(RustBuffer ink, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_FILTER_PICTURE
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_FILTER_PICTURE
 RustBuffer uniffi_syncr_core_fn_func_filter_picture(RustBuffer svg, RustCallStatus *_Nonnull out_status
@@ -960,6 +985,36 @@ uint16_t uniffi_syncr_core_checksum_func_stroke_style_min_size(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_TESSELLATE_STROKE
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_TESSELLATE_STROKE
 uint16_t uniffi_syncr_core_checksum_func_tessellate_stroke(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_OKLCH_GAMUT_MAP
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_OKLCH_GAMUT_MAP
+uint16_t uniffi_syncr_core_checksum_func_oklch_gamut_map(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_OKLCH_MAX_CHROMA
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_OKLCH_MAX_CHROMA
+uint16_t uniffi_syncr_core_checksum_func_oklch_max_chroma(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_OKLCH_TO_SRGB
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_OKLCH_TO_SRGB
+uint16_t uniffi_syncr_core_checksum_func_oklch_to_srgb(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_OKLCH_USES_THEME_INK
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_OKLCH_USES_THEME_INK
+uint16_t uniffi_syncr_core_checksum_func_oklch_uses_theme_ink(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_RESOLVE_CUSTOM_INK
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_RESOLVE_CUSTOM_INK
+uint16_t uniffi_syncr_core_checksum_func_resolve_custom_ink(void
     
 );
 #endif

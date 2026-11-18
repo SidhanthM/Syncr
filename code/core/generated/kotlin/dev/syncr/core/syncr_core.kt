@@ -693,6 +693,16 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_syncr_core_checksum_func_tessellate_stroke(
     ): Int
+    external fun uniffi_syncr_core_checksum_func_oklch_gamut_map(
+    ): Int
+    external fun uniffi_syncr_core_checksum_func_oklch_max_chroma(
+    ): Int
+    external fun uniffi_syncr_core_checksum_func_oklch_to_srgb(
+    ): Int
+    external fun uniffi_syncr_core_checksum_func_oklch_uses_theme_ink(
+    ): Int
+    external fun uniffi_syncr_core_checksum_func_resolve_custom_ink(
+    ): Int
     external fun uniffi_syncr_core_checksum_func_filter_picture(
     ): Int
     external fun uniffi_syncr_core_checksum_func_picture_display_list(
@@ -979,6 +989,16 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_func_tessellate_stroke(`samples`: RustBuffer.ByValue,`style`: RustBuffer.ByValue,`transform`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_func_oklch_gamut_map(`ink`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_func_oklch_max_chroma(`l`: Float,`h`: Float,uniffi_out_err: UniffiRustCallStatus, 
+    ): Float
+    external fun uniffi_syncr_core_fn_func_oklch_to_srgb(`ink`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Int
+    external fun uniffi_syncr_core_fn_func_oklch_uses_theme_ink(`ink`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Byte
+    external fun uniffi_syncr_core_fn_func_resolve_custom_ink(`ink`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_func_filter_picture(`svg`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_func_picture_display_list(`svg`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1139,6 +1159,21 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_syncr_core_checksum_func_tessellate_stroke() and 0xFFFF) != 44957) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_func_oklch_gamut_map() and 0xFFFF) != 29673) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_func_oklch_max_chroma() and 0xFFFF) != 19083) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_func_oklch_to_srgb() and 0xFFFF) != 58653) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_func_oklch_uses_theme_ink() and 0xFFFF) != 7758) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_func_resolve_custom_ink() and 0xFFFF) != 12835) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_syncr_core_checksum_func_filter_picture() and 0xFFFF) != 7943) {
@@ -4142,12 +4177,18 @@ data class Brush (
     , 
     var `size`: BrushSize
     , 
+    /**
+     * The named ink. When `custom_ink` is set this is only a fallback: it is not part of the
+     * canonical bytes or the wire, which carry the custom ink alone (set it to Ink).
+     */
     var `colour`: InkColour
     , 
     /**
      * None = Fountain. Only Pen strokes may carry another look.
      */
     var `look`: PenLook? = null 
+    , 
+    var `customInk`: Oklch? = null 
     , 
     /**
      * None = the feel the Mac has always drawn with (see `mesh.rs`).
@@ -4173,6 +4214,7 @@ public object FfiConverterTypeBrush: FfiConverterRustBuffer<Brush> {
             FfiConverterTypeBrushSize.read(buf),
             FfiConverterTypeInkColour.read(buf),
             FfiConverterOptionalTypePenLook.read(buf),
+            FfiConverterOptionalTypeOklch.read(buf),
             FfiConverterOptionalTypePenFeel.read(buf),
         )
     }
@@ -4182,6 +4224,7 @@ public object FfiConverterTypeBrush: FfiConverterRustBuffer<Brush> {
             FfiConverterTypeBrushSize.allocationSize(value.`size`) +
             FfiConverterTypeInkColour.allocationSize(value.`colour`) +
             FfiConverterOptionalTypePenLook.allocationSize(value.`look`) +
+            FfiConverterOptionalTypeOklch.allocationSize(value.`customInk`) +
             FfiConverterOptionalTypePenFeel.allocationSize(value.`feel`)
     )
 
@@ -4190,6 +4233,7 @@ public object FfiConverterTypeBrush: FfiConverterRustBuffer<Brush> {
             FfiConverterTypeBrushSize.write(value.`size`, buf)
             FfiConverterTypeInkColour.write(value.`colour`, buf)
             FfiConverterOptionalTypePenLook.write(value.`look`, buf)
+            FfiConverterOptionalTypeOklch.write(value.`customInk`, buf)
             FfiConverterOptionalTypePenFeel.write(value.`feel`, buf)
     }
 }
@@ -5603,6 +5647,53 @@ public object FfiConverterTypeNotebookSummary: FfiConverterRustBuffer<NotebookSu
 
 
 /**
+ * A custom ink exactly as the writer chose it: OKLCH lightness 0..1, chroma 0..0.37, hue in
+ * degrees 0..360. Never a converted RGB; see `oklch.rs` for the one conversion.
+ */
+data class Oklch (
+    var `l`: kotlin.Float
+    , 
+    var `c`: kotlin.Float
+    , 
+    var `h`: kotlin.Float
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeOklch: FfiConverterRustBuffer<Oklch> {
+    override fun read(buf: ByteBuffer): Oklch {
+        return Oklch(
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: Oklch) = (
+            FfiConverterFloat.allocationSize(value.`l`) +
+            FfiConverterFloat.allocationSize(value.`c`) +
+            FfiConverterFloat.allocationSize(value.`h`)
+    )
+
+    override fun write(value: Oklch, buf: ByteBuffer) {
+            FfiConverterFloat.write(value.`l`, buf)
+            FfiConverterFloat.write(value.`c`, buf)
+            FfiConverterFloat.write(value.`h`, buf)
+    }
+}
+
+
+
+/**
  * The device feel a stroke was drawn with, resolved at draw time and stored so changing a
  * setting later cannot change an existing stroke. Pressure response and smoothing are whole
  * percents of the 0..1 setting (50 is the tuned default); taper switches both tapers.
@@ -6087,6 +6178,53 @@ public object FfiConverterTypeRejectedOperation: FfiConverterRustBuffer<Rejected
             FfiConverterString.write(value.`payloadJson`, buf)
             FfiConverterString.write(value.`canonicalHex`, buf)
             FfiConverterString.write(value.`reason`, buf)
+    }
+}
+
+
+
+/**
+ * The sRGB colour an ink resolves to, and whether it should instead draw in the theme's ink.
+ */
+data class ResolvedInk (
+    /**
+     * 0xAARRGGBB with alpha 0xff: the gamut-mapped colour as chosen.
+     */
+    var `argb`: kotlin.UInt
+    , 
+    /**
+     * True for near-black / near-white low-chroma inks: draw `NotePalette.ink(dark)` instead.
+     */
+    var `themeInk`: kotlin.Boolean
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeResolvedInk: FfiConverterRustBuffer<ResolvedInk> {
+    override fun read(buf: ByteBuffer): ResolvedInk {
+        return ResolvedInk(
+            FfiConverterUInt.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ResolvedInk) = (
+            FfiConverterUInt.allocationSize(value.`argb`) +
+            FfiConverterBoolean.allocationSize(value.`themeInk`)
+    )
+
+    override fun write(value: ResolvedInk, buf: ByteBuffer) {
+            FfiConverterUInt.write(value.`argb`, buf)
+            FfiConverterBoolean.write(value.`themeInk`, buf)
     }
 }
 
@@ -10617,6 +10755,38 @@ public object FfiConverterOptionalTypeCompanionSettingsView: FfiConverterRustBuf
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeOklch: FfiConverterRustBuffer<Oklch?> {
+    override fun read(buf: ByteBuffer): Oklch? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeOklch.read(buf)
+    }
+
+    override fun allocationSize(value: Oklch?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeOklch.allocationSize(value)
+        }
+    }
+
+    override fun write(value: Oklch?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeOklch.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypePenFeel: FfiConverterRustBuffer<PenFeel?> {
     override fun read(buf: ByteBuffer): PenFeel? {
         if (buf.get().toInt() == 0) {
@@ -11672,6 +11842,80 @@ public object FfiConverterSequenceTypePreviewEvent: FfiConverterRustBuffer<List<
         FfiConverterByteArray.lower(`samples`),
         FfiConverterTypeStrokeStyle.lower(`style`),
         FfiConverterTypeAffine.lower(`transform`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * The same ink with chroma reduced, at fixed lightness and hue, until it fits sRGB. Out-of-range
+         * input is clamped first (lightness 0..1, chroma 0..0.37, hue wrapped to 0..360).
+         */ fun `oklchGamutMap`(`ink`: Oklch): Oklch {
+            return FfiConverterTypeOklch.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_func_oklch_gamut_map(
+    
+        
+        FfiConverterTypeOklch.lower(`ink`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * The largest chroma sRGB can show at this lightness and hue (at most 0.37). The picker draws
+         * its gamut edge from this.
+         */ fun `oklchMaxChroma`(`l`: kotlin.Float, `h`: kotlin.Float): kotlin.Float {
+            return FfiConverterFloat.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_func_oklch_max_chroma(
+    
+        
+        FfiConverterFloat.lower(`l`),
+        FfiConverterFloat.lower(`h`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * The gamut-mapped sRGB colour of an ink as 0xFFRRGGBB.
+         */ fun `oklchToSrgb`(`ink`: Oklch): kotlin.UInt {
+            return FfiConverterUInt.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_func_oklch_to_srgb(
+    
+        
+        FfiConverterTypeOklch.lower(`ink`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * True for a near-black (L < 0.3) or near-white (L > 0.92) ink of low chroma (C < 0.04), the
+         * inks that map to the theme's own ink so writing stays readable. Same rule in both themes.
+         */ fun `oklchUsesThemeInk`(`ink`: Oklch): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_func_oklch_uses_theme_ink(
+    
+        
+        FfiConverterTypeOklch.lower(`ink`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Colour and theme rule in one call.
+         */ fun `resolveCustomInk`(`ink`: Oklch): ResolvedInk {
+            return FfiConverterTypeResolvedInk.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_func_resolve_custom_ink(
+    
+        
+        FfiConverterTypeOklch.lower(`ink`),_status)
 }
     )
     }

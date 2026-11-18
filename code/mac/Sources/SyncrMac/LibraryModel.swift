@@ -8,6 +8,8 @@ struct DrawStroke: Sendable {
     let originY: Float
     let colour: InkColour
     let highlighter: Bool
+    /// The writer's own OKLCH ink, when the stroke has one (`colour` is then only a fallback).
+    var custom: Oklch? = nil
     /// The stroke this was built from and the operation it was built at, when known: a reload keeps the mesh while both match.
     var markId: String? = nil
     var head: String? = nil
@@ -407,7 +409,8 @@ private final class LoadToken: @unchecked Sendable {
             style: defaultStrokeStyle(brush: mark.brush), transform: mark.transform)
         guard mesh.rendererVersion == meshRendererVersion() else { throw ViewerError.invalidSource }
         return DrawStroke(mesh: mesh, originX: sheet.originX, originY: sheet.originY,
-                          colour: mark.brush.colour, highlighter: mesh.discardSelfOverlap, markId: mark.id, head: mark.head.operationId)
+                          colour: mark.brush.colour, highlighter: mesh.discardSelfOverlap, custom: mark.brush.customInk,
+                          markId: mark.id, head: mark.head.operationId)
     }
 
     /// Synchronous path for disposable fixture checks only; the GUI uses openAsync.
@@ -594,7 +597,7 @@ private final class LoadToken: @unchecked Sendable {
             style: defaultStrokeStyle(brush: commit.brush), transform: Affine(a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0))
         guard mesh.rendererVersion == meshRendererVersion() else { throw ViewerError.invalidSource }
         return DrawStroke(mesh: mesh, originX: sheet.originX, originY: sheet.originY,
-                          colour: commit.brush.colour, highlighter: mesh.discardSelfOverlap)
+                          colour: commit.brush.colour, highlighter: mesh.discardSelfOverlap, custom: commit.brush.customInk)
     }
 
     /// Adds a freshly written stroke to the shown note (main thread, same block as removing its preview).

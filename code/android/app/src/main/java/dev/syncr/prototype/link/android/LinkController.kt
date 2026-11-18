@@ -44,6 +44,7 @@ import dev.syncr.prototype.link.StreamPen
 import dev.syncr.prototype.link.StreamTarget
 import dev.syncr.prototype.link.PointerInput
 import dev.syncr.prototype.link.PointerStatus
+import dev.syncr.prototype.notes.InkCodec
 import dev.syncr.prototype.notes.InkPreferencesStore
 import dev.syncr.prototype.notes.NotesRepository
 import dev.syncr.prototype.notes.NotesState
@@ -225,6 +226,7 @@ class LinkController private constructor(private val app: Application) {
             putString(BRUSH_FAMILY, brush.family.name)
             putString(BRUSH_SIZE, brush.size.name)
             putString(BRUSH_COLOUR, brush.colour.name)
+            putString(BRUSH_CUSTOM, brush.customInk?.let { InkCodec.encode(it) })
         }
     }
 
@@ -402,6 +404,7 @@ class LinkController private constructor(private val app: Application) {
             pick(BRUSH_FAMILY, BrushFamily.entries.toTypedArray(), BrushFamily.PEN),
             pick(BRUSH_SIZE, BrushSize.entries.toTypedArray(), BrushSize.MEDIUM),
             pick(BRUSH_COLOUR, InkColour.entries.toTypedArray(), InkColour.INK),
+            customInk = prefs.getString(BRUSH_CUSTOM, null)?.let { InkCodec.decodeOklch(it) },
         )
     }
 
@@ -411,6 +414,7 @@ class LinkController private constructor(private val app: Application) {
         private const val BRUSH_FAMILY = "brush_family"
         private const val BRUSH_SIZE = "brush_size"
         private const val BRUSH_COLOUR = "brush_colour"
+        private const val BRUSH_CUSTOM = "brush_custom_ink"
 
         @Volatile private var instance: LinkController? = null
 

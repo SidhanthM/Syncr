@@ -17,6 +17,7 @@ import dev.syncr.core.BrushFamily
 import dev.syncr.core.BrushSize
 import dev.syncr.core.InkColour
 import dev.syncr.core.SampleChannels
+import dev.syncr.core.resolveCustomInk
 import dev.syncr.core.strokeStyleMinSize
 import dev.syncr.prototype.ui.theme.NotePalette
 import java.util.concurrent.ConcurrentHashMap
@@ -33,9 +34,17 @@ fun brushWidth(brush: Brush): Float {
     return if (brush.family == BrushFamily.HIGHLIGHTER) width * 5f else width
 }
 
-/** A brush's ARGB colour under the theme. Highlighters are translucent. */
+/**
+ * A brush's ARGB colour under the theme. A custom OKLCH ink draws exactly as chosen (gamut-mapped by the
+ * core) in both themes, except near-black and near-white greys, which draw in the theme's ink so writing
+ * stays readable. Highlighters are translucent.
+ */
 fun inkColour(brush: Brush, dark: Boolean = false): Int {
-    val rgb = when (brush.colour) {
+    val custom = brush.customInk
+    val rgb = if (custom != null) {
+        val resolved = resolveCustomInk(custom)
+        if (resolved.themeInk) NotePalette.ink(dark) else resolved.argb.toInt()
+    } else when (brush.colour) {
         InkColour.INK -> NotePalette.ink(dark)
         InkColour.RED -> NotePalette.red(dark)
         InkColour.GREEN -> NotePalette.green(dark)
