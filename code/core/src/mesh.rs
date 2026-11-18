@@ -30,7 +30,7 @@
 //! Interpretations: `epsilon` is measured in the stroke's own (pre-transform) units; the transform
 //! may flip winding, so renderers should not cull back faces.
 use crate::{
-    Affine, Brush, BrushFamily, BrushSize, CoreResult,
+    Affine, Brush, BrushFamily, BrushSize, CoreResult, PenFeel, PenLook,
     error::{invalid, limit},
     samples,
 };
@@ -85,16 +85,95 @@ const SPEED_START_UNITS: f32 = 900.0;
 const SPEED_END_UNITS: f32 = 4500.0;
 const PRESSURE_CURVE: [f32; 4] = [0.25, 0.5, 0.6, 1.0];
 const SPEED_DAMPING_SECONDS: f64 = 0.03;
-// Default InkPreferences: FOUNTAIN look, pressure 0.5, smoothing 0.5, taper on.
+// The feel the Mac has always drawn with: pressure 0.5, smoothing 0.5, taper on. Strokes without a
+// stored feel keep it, so old notes render exactly as before.
 const DEFAULT_PRESSURE: f32 = 0.5;
 const DEFAULT_SMOOTHING: f32 = 0.5;
-const FOUNTAIN_PRESSURE: f32 = 0.6;
-const FOUNTAIN_SPEED_THINNING: f32 = 0.82;
-const FOUNTAIN_TAPER_START: f32 = 0.22;
-const FOUNTAIN_TAPER_END: f32 = 0.18;
-const FOUNTAIN_TAPER_START_UNITS: f32 = 18.0;
-const FOUNTAIN_TAPER_END_UNITS: f32 = 16.0;
-const FOUNTAIN_TAPER_PER_SIZE: f32 = 2.0;
+
+/// Per-look constants, owned here for both devices. Taper lengths are note units plus a share of
+/// the size, so they read at every size.
+struct Look {
+    pressure: f32,
+    speed_thinning: f32,
+    taper_start: f32,
+    taper_end: f32,
+    taper_start_units: f32,
+    taper_end_units: f32,
+    taper_per_size: f32,
+}
+const FOUNTAIN: Look = Look {
+    pressure: 0.6,
+    speed_thinning: 0.82,
+    taper_start: 0.22,
+    taper_end: 0.18,
+    taper_start_units: 18.0,
+    taper_end_units: 16.0,
+    taper_per_size: 2.0,
+};
+const BALLPOINT: Look = Look {
+    pressure: 0.15,
+    speed_thinning: 0.93,
+    taper_start: 0.6,
+    taper_end: 0.6,
+    taper_start_units: 8.0,
+    taper_end_units: 8.0,
+    taper_per_size: 1.0,
+};
+const FINELINER: Look = Look {
+    pressure: 0.0,
+    speed_thinning: 1.0,
+    taper_start: 1.0,
+    taper_end: 1.0,
+    taper_start_units: 0.0,
+    taper_end_units: 0.0,
+    taper_per_size: 1.0,
+};
+
+/// The resolved device feel of a stroke: how hard pressure pushes width, how long the centre
+/// line is smoothed, whether the ends taper.
+struct Feel {
+    gain: f32,
+    window_ms: u32,
+    damping_seconds: f32,
+    taper: bool,
+}
+
+impl Feel {
+    /// 0 -> off, 0.5 -> 1 (the tuned default), 1 -> 1.7.
+    fn pressure_gain(p: f32) -> f32 {
+        let p = p.clamp(0.0, 1.0);
+        if p <= 0.5 {
+            p * 2.0
+        } else {
+            1.0 + (p - 0.5) * 1.4
+        }
+    }
+    /// A stroke with no stored feel: the Mac's historical constants (20 ms window).
+    fn legacy() -> Feel {
+        Feel {
+            gain: DEFAULT_PRESSURE * 2.0,
+            window_ms: (6.0_f32 + DEFAULT_SMOOTHING * 28.0).round() as u32,
+            damping_seconds: 0.006 + 0.024 * DEFAULT_SMOOTHING,
+            taper: true,
+        }
+    }
+    /// A stored feel, mapped the way the phone tuned it: 0 -> 1 ms (raw), 0.5 -> 8 ms, 1 -> 24 ms.
+    fn stored(f: &PenFeel) -> Feel {
+        let pressure = f32::from(f.pressure.min(100)) / 100.0;
+        let smoothing = f32::from(f.smoothing.min(100)) / 100.0;
+        let window = if smoothing <= 0.5 {
+            1.0 + smoothing * 14.0
+        } else {
+            8.0 + (smoothing - 0.5) * 32.0
+        };
+        Feel {
+            gain: Self::pressure_gain(pressure),
+            window_ms: window.round() as u32,
+            damping_seconds: 0.004 + 0.010 * smoothing,
+            taper: f.taper,
+        }
+    }
+}
 
 const MAX_INSERTED_PER_GAP: usize = 64;
 const MAX_ARC_SEGMENTS: usize = 64;
@@ -113,11 +192,23 @@ fn brush_width(brush: &Brush) -> f32 {
     }
 }
 
-/// The phone's default look for a brush: `InkStyles.style(brush, InkPreferences())`.
+/// How a stored brush is drawn: its look and stored feel, nothing from any current setting, so a
+/// stroke looks the same every time and on every device. Strokes without a look are Fountain and
+/// without a feel use the historical Mac feel.
 #[uniffi::export]
 pub fn default_stroke_style(brush: Brush) -> StrokeStyle {
-    let size = brush_width(&brush);
-    let window = (6.0_f32 + DEFAULT_SMOOTHING * 28.0).round() as u32;
+    stroke_style(&brush, 0.0)
+}
+
+/// [`default_stroke_style`] with a floor on the width, so tiny thumbnails keep hairlines visible.
+#[uniffi::export]
+pub fn stroke_style_min_size(brush: Brush, min_size: f32) -> StrokeStyle {
+    stroke_style(&brush, if min_size.is_finite() { min_size } else { 0.0 })
+}
+
+fn stroke_style(brush: &Brush, min_size: f32) -> StrokeStyle {
+    let size = brush_width(brush).max(min_size);
+    let feel = brush.feel.as_ref().map_or_else(Feel::legacy, Feel::stored);
     if brush.family == BrushFamily::Highlighter {
         return StrokeStyle {
             size,
@@ -132,7 +223,7 @@ pub fn default_stroke_style(brush: Brush) -> StrokeStyle {
             taper_start_sizes: 0.0,
             taper_end: 1.0,
             taper_end_sizes: 0.0,
-            smoothing_window_ms: window,
+            smoothing_window_ms: feel.window_ms,
             upsampling_hz: UPSAMPLING_HZ,
             tip_scale_x: 0.4,
             tip_scale_y: 1.0,
@@ -141,22 +232,35 @@ pub fn default_stroke_style(brush: Brush) -> StrokeStyle {
             discard_self_overlap: true,
         };
     }
-    let gain = DEFAULT_PRESSURE * 2.0; // pressureGain(0.5) == 1
-    let amount = FOUNTAIN_PRESSURE * gain;
+    let look = match brush.pen_look() {
+        PenLook::Fountain => &FOUNTAIN,
+        PenLook::Ballpoint => &BALLPOINT,
+        PenLook::Fineliner => &FINELINER,
+    };
+    let amount = look.pressure * feel.gain;
+    let taper = feel.taper && look.taper_start < 1.0;
     StrokeStyle {
         size,
         epsilon: EPSILON,
-        pressure_low: (1.0 - amount).max(0.12),
-        pressure_high: (1.0 + amount).min(2.0),
-        pressure_damping_seconds: 0.006 + 0.024 * DEFAULT_SMOOTHING,
-        speed_thinning: FOUNTAIN_SPEED_THINNING,
+        pressure_low: if amount > 0.0 {
+            (1.0 - amount).max(0.12)
+        } else {
+            1.0
+        },
+        pressure_high: if amount > 0.0 {
+            (1.0 + amount).min(2.0)
+        } else {
+            1.0
+        },
+        pressure_damping_seconds: feel.damping_seconds,
+        speed_thinning: look.speed_thinning,
         speed_start_sizes_per_second: SPEED_START_UNITS / size,
         speed_end_sizes_per_second: SPEED_END_UNITS / size,
-        taper_start: FOUNTAIN_TAPER_START,
-        taper_start_sizes: (FOUNTAIN_TAPER_START_UNITS + FOUNTAIN_TAPER_PER_SIZE * size) / size,
-        taper_end: FOUNTAIN_TAPER_END,
-        taper_end_sizes: (FOUNTAIN_TAPER_END_UNITS + FOUNTAIN_TAPER_PER_SIZE * size) / size,
-        smoothing_window_ms: window,
+        taper_start: if taper { look.taper_start } else { 1.0 },
+        taper_start_sizes: (look.taper_start_units + look.taper_per_size * size) / size,
+        taper_end: if taper { look.taper_end } else { 1.0 },
+        taper_end_sizes: (look.taper_end_units + look.taper_per_size * size) / size,
+        smoothing_window_ms: feel.window_ms,
         upsampling_hz: UPSAMPLING_HZ,
         tip_scale_x: 1.0,
         tip_scale_y: 1.0,
@@ -782,11 +886,7 @@ mod tests {
     };
 
     fn pen(size: BrushSize) -> StrokeStyle {
-        default_stroke_style(Brush {
-            family: BrushFamily::Pen,
-            size,
-            colour: InkColour::Ink,
-        })
+        default_stroke_style(Brush::plain(BrushFamily::Pen, size, InkColour::Ink))
     }
 
     fn blob(points: &[(f32, f32, f32, u32)]) -> Vec<u8> {
@@ -889,11 +989,11 @@ mod tests {
         assert!(!medium.discard_self_overlap);
         assert_eq!(pen(BrushSize::Small).size, 2.0);
         assert_eq!(pen(BrushSize::Large).size, 8.0);
-        let highlighter = default_stroke_style(Brush {
-            family: BrushFamily::Highlighter,
-            size: BrushSize::Large,
-            colour: InkColour::Orange,
-        });
+        let highlighter = default_stroke_style(Brush::plain(
+            BrushFamily::Highlighter,
+            BrushSize::Large,
+            InkColour::Orange,
+        ));
         assert_eq!(highlighter.size, 40.0);
         assert_eq!(highlighter.pressure_low, highlighter.pressure_high);
         assert_eq!((highlighter.taper_start, highlighter.taper_end), (1.0, 1.0));
@@ -1064,11 +1164,11 @@ mod tests {
 
     #[test]
     fn highlighter_is_a_flat_translucent_chisel() {
-        let style = default_stroke_style(Brush {
-            family: BrushFamily::Highlighter,
-            size: BrushSize::Medium,
-            colour: InkColour::Green,
-        });
+        let style = default_stroke_style(Brush::plain(
+            BrushFamily::Highlighter,
+            BrushSize::Medium,
+            InkColour::Green,
+        ));
         let horizontal = tessellate_stroke(line(0.3), style.clone(), IDENTITY).unwrap();
         check_well_formed(&horizontal);
         assert!(horizontal.discard_self_overlap);

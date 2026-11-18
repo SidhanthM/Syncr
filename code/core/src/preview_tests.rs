@@ -14,11 +14,7 @@ fn stroke(n: u32) -> Id {
     ulid::Ulid::from_parts(1_700_000_000_000, u128::from(n)).to_string()
 }
 fn brush() -> Brush {
-    Brush {
-        family: BrushFamily::Pen,
-        size: BrushSize::Medium,
-        colour: InkColour::Blue,
-    }
+    Brush::plain(BrushFamily::Pen, BrushSize::Medium, InkColour::Blue)
 }
 /// `n` samples starting at logical index `start`; time advances 2 ms per sample.
 fn chans(start: u32, n: u32, extra: bool) -> SampleChannels {
@@ -100,6 +96,38 @@ fn is_limit(e: &CoreError) -> bool {
 
 // ------------------------------------------------------------------ codec
 
+/// Link vector: the Begin body for a Ballpoint stroke with a stored feel. The brush is
+/// `[0x12, size, colour, pressure, smoothing, taper]`; a plain brush stays three bytes.
+#[test]
+fn begin_carries_the_look_and_feel_after_the_original_three_bytes() {
+    let id = S1.to_string();
+    let plain = enc(&begin(&id, 0));
+    let mut b = brush();
+    b.look = Some(PenLook::Ballpoint);
+    b.feel = Some(PenFeel {
+        pressure: 50,
+        smoothing: 20,
+        taper: false,
+    });
+    let extended = enc(&frame(
+        Some(id.clone()),
+        0,
+        PreviewBody::Begin {
+            brush: b.clone(),
+            viewport_revision: 3,
+            space: CoordinateSpace::Canvas,
+        },
+    ));
+    assert_eq!(extended.len(), plain.len() + 3);
+    assert_eq!(&extended[68..74], &[0x12, 1, 3, 50, 20, 0]);
+    let PreviewBody::Begin { brush: got, .. } = decode_preview_frame(extended).unwrap().body else {
+        panic!("not a Begin")
+    };
+    assert_eq!(got, b);
+    // A plain brush is exactly the original encoding.
+    assert_eq!(&plain[68..71], &[0, 1, 3]);
+}
+
 #[test]
 fn every_body_round_trips() {
     let id = S1.to_string();
@@ -109,11 +137,11 @@ fn every_body_round_trips() {
             Some(id.clone()),
             1,
             PreviewBody::Begin {
-                brush: Brush {
-                    family: BrushFamily::Highlighter,
-                    size: BrushSize::Large,
-                    colour: InkColour::Orange,
-                },
+                brush: Brush::plain(
+                    BrushFamily::Highlighter,
+                    BrushSize::Large,
+                    InkColour::Orange,
+                ),
                 viewport_revision: u32::MAX,
                 space: CoordinateSpace::ViewRelative,
             },
@@ -149,11 +177,11 @@ fn golden_vectors_do_not_drift() {
                 Some(id.clone()),
                 0,
                 PreviewBody::Begin {
-                    brush: Brush {
-                        family: BrushFamily::Highlighter,
-                        size: BrushSize::Large,
-                        colour: InkColour::Orange,
-                    },
+                    brush: Brush::plain(
+                        BrushFamily::Highlighter,
+                        BrushSize::Large,
+                        InkColour::Orange,
+                    ),
                     viewport_revision: 258,
                     space: CoordinateSpace::ViewRelative,
                 },
@@ -313,7 +341,7 @@ fn malformed_input_is_rejected_with_typed_errors() {
     assert!(is_invalid(&decode_preview_frame(v).unwrap_err()));
     // Unknown brush and space values.
     let b = enc(&begin(&id, 0));
-    for (at, val) in [(68, 2u8), (69, 3), (70, 5), (71, 2)] {
+    for (at, val) in [(68, 4u8), (69, 3), (70, 6), (71, 2)] {
         let mut v = b.clone();
         v[at] = val;
         assert!(

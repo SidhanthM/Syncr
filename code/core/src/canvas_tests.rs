@@ -105,11 +105,7 @@ fn without_cursor(mut s: NoteSnapshot) -> NoteSnapshot {
     s
 }
 fn pen() -> Brush {
-    Brush {
-        family: BrushFamily::Pen,
-        size: BrushSize::Medium,
-        colour: InkColour::Ink,
-    }
+    Brush::plain(BrushFamily::Pen, BrushSize::Medium, InkColour::Ink)
 }
 fn stroke_at(x: f32, y: f32) -> Vec<u8> {
     encode_samples(SampleChannels {

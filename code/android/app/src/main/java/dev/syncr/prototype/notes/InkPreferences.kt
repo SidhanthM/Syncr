@@ -2,16 +2,18 @@ package dev.syncr.prototype.notes
 
 import android.content.Context
 import androidx.core.content.edit
+import dev.syncr.core.Brush
+import dev.syncr.core.BrushFamily
+import dev.syncr.core.PenFeel
+import dev.syncr.core.PenLook
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/** How the Pen family is drawn on this device. A local rendering choice: stored samples never change. */
-enum class PenLook { FOUNTAIN, BALLPOINT, FINELINER }
-
 /**
- * Local ink-rendering preferences. They change only how strokes are drawn here, never a note's data.
- * [pressure] and [smoothing] are 0..1, where 0.5 is the tuned default.
+ * Local ink preferences. A stroke stores the look and feel it was drawn with ([drawn]), so nothing here ever
+ * restyles a stroke that exists: these values apply to the *next* stroke only. [pressure] and [smoothing] are
+ * 0..1, where 0.5 is the tuned default.
  */
 data class InkPreferences(
     val penLook: PenLook = PenLook.FOUNTAIN,
@@ -20,7 +22,20 @@ data class InkPreferences(
     val taper: Boolean = true,
     /** Draw a short predicted tail ahead of the pen on the wet layer. Never stored, saved or exported. */
     val predictPenMotion: Boolean = true,
-)
+) {
+    /** The device feel to store with the next stroke. */
+    fun feel(): PenFeel = PenFeel(
+        pressure = Math.round(pressure.coerceIn(0f, 1f) * 100f).toUByte(),
+        smoothing = Math.round(smoothing.coerceIn(0f, 1f) * 100f).toUByte(),
+        taper = taper,
+    )
+
+    /** What a stroke is stored with: [brush]'s family, size and ink, plus this pen look (Pen only) and the feel. */
+    fun drawn(brush: Brush): Brush = brush.copy(
+        look = if (brush.family == BrushFamily.PEN) penLook.takeIf { it != PenLook.FOUNTAIN } else null,
+        feel = feel(),
+    )
+}
 
 /** Process-wide store over the shared "syncr-settings" preferences, observable by views and Compose. */
 object InkPreferencesStore {

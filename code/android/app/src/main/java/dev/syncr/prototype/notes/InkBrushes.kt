@@ -17,6 +17,7 @@ import dev.syncr.core.BrushFamily
 import dev.syncr.core.BrushSize
 import dev.syncr.core.InkColour
 import dev.syncr.core.SampleChannels
+import dev.syncr.core.strokeStyleMinSize
 import dev.syncr.prototype.ui.theme.NotePalette
 import java.util.concurrent.ConcurrentHashMap
 import androidx.ink.brush.Brush as InkBrush
@@ -45,9 +46,10 @@ fun inkColour(brush: Brush, dark: Boolean = false): Int {
 }
 
 /**
- * Pure description of how one stored [Brush] is drawn under the local [InkPreferences]. Sizes and
- * lengths are in page units unless named "sizes" (multiples of [size]). Wet and dry ink, and library
- * thumbnails, all draw from the same style, so a stroke keeps its shape when the pen lifts.
+ * Pure description of how one stored [Brush] is drawn. Sizes and lengths are in page units unless named
+ * "sizes" (multiples of [size]). Wet and dry ink, library thumbnails and the Mac all draw from the same
+ * style, which the core derives from the brush alone, so a stroke keeps its shape when the pen lifts and
+ * never changes with a later setting.
  */
 data class StrokeStyle(
     val size: Float,
@@ -86,7 +88,7 @@ data class StrokeStyle(
         if (!pressureSensitive) size else size * (pressureLow + (pressureHigh - pressureLow) * InkStyles.pressureCurve(pressure))
 }
 
-/** Pure mapping from a stored brush and the local preferences to a [StrokeStyle]. */
+/** The mapping from a stored brush to a [StrokeStyle] is the core's (`default_stroke_style`); this adds the Ink-side constants. */
 object InkStyles {
     /**
      * Mesh tolerance in page units. Pages are 1600 units wide and the deepest zoom is about 4 px per
@@ -114,73 +116,31 @@ object InkStyles {
         return bezier(y1, y2, (lo + hi) / 2)
     }
 
-    /** 0 → off, 0.5 → 1 (the tuned default), 1 → 1.7. */
-    fun pressureGain(pressure: Float): Float {
-        val p = pressure.coerceIn(0f, 1f)
-        return if (p <= 0.5f) p * 2f else 1f + (p - 0.5f) * 1.4f
-    }
-
-    /**
-     * Centre-line smoothing window. Every millisecond of window is lag the pen feels, and prediction
-     * now hides the rest, so the default is short: 0 → 1 ms (raw; Ink wants a positive window, and
-     * 1 ms is below one 180 Hz upsampling step), 0.5 → 8 ms (default), 1 → 24 ms (very smooth).
-     * Was 6 / 20 / 40 ms.
-     */
-    fun smoothingWindowMs(smoothing: Float): Long {
-        val s = smoothing.coerceIn(0f, 1f)
-        return Math.round(if (s <= 0.5f) 1f + s * 14f else 8f + (s - 0.5f) * 32f).toLong()
-    }
-
-    /** Width follows pressure with this lag: 4 ms (raw), 9 ms (default), 14 ms. Was 6 / 18 / 30 ms. */
-    fun pressureDampingSeconds(smoothing: Float): Float = 0.004f + 0.010f * smoothing.coerceIn(0f, 1f)
-
     /** Speed thinning lag: enough to stop width flicker on jittery speed, short enough to follow. Was 30 ms. */
     const val SPEED_DAMPING_SECONDS = 0.018f
 
-    private const val UPSAMPLING_HZ = 180
-    private const val SPEED_START_UNITS = 900f
-    private const val SPEED_END_UNITS = 4500f
+    private val styles = ConcurrentHashMap<Pair<Brush, Float>, StrokeStyle>()
 
-    /** [minSize] lets tiny thumbnails keep hairlines visible. */
-    fun style(brush: Brush, prefs: InkPreferences, minSize: Float = 0f): StrokeStyle {
-        val size = maxOf(brushWidth(brush), minSize)
-        val window = smoothingWindowMs(prefs.smoothing)
-        if (brush.family == BrushFamily.HIGHLIGHTER) {
-            // Flat translucent chisel held upright: full height on horizontal passes, narrow on vertical ones.
-            return StrokeStyle(size, EPSILON, 1f, 1f, 0f, 1f, 0f, 1f, 1f, 0f, 1f, 0f, window, UPSAMPLING_HZ,
-                tipScaleX = 0.4f, tipScaleY = 1f, cornerRounding = 0.3f, discardSelfOverlap = true)
+    /** The style a stored [brush] is drawn with. [minSize] lets tiny thumbnails keep hairlines visible. */
+    fun style(brush: Brush, minSize: Float = 0f): StrokeStyle {
+        if (styles.size > MAX_CACHED_STYLES) styles.clear()
+        return styles.getOrPut(brush.copy() to minSize) {
+            val core = strokeStyleMinSize(brush, minSize)
+            StrokeStyle(
+                size = core.size, epsilon = core.epsilon,
+                pressureLow = core.pressureLow, pressureHigh = core.pressureHigh,
+                pressureDampingSeconds = core.pressureDampingSeconds, speedThinning = core.speedThinning,
+                speedStartSizesPerSecond = core.speedStartSizesPerSecond, speedEndSizesPerSecond = core.speedEndSizesPerSecond,
+                taperStart = core.taperStart, taperStartSizes = core.taperStartSizes,
+                taperEnd = core.taperEnd, taperEndSizes = core.taperEndSizes,
+                smoothingWindowMs = core.smoothingWindowMs.toLong(), upsamplingHz = core.upsamplingHz.toInt(),
+                tipScaleX = core.tipScaleX, tipScaleY = core.tipScaleY, cornerRounding = core.cornerRounding,
+                tipRotationDegrees = core.tipRotationDegrees, discardSelfOverlap = core.discardSelfOverlap,
+            )
         }
-        val look = LOOKS.getValue(prefs.penLook)
-        val amount = look.pressure * pressureGain(prefs.pressure)
-        val low = (1f - amount).coerceAtLeast(0.12f)
-        val high = (1f + amount).coerceAtMost(2f)
-        val taper = prefs.taper && look.taperStart < 1f
-        return StrokeStyle(
-            size = size, epsilon = EPSILON,
-            pressureLow = if (amount > 0f) low else 1f, pressureHigh = if (amount > 0f) high else 1f,
-            pressureDampingSeconds = pressureDampingSeconds(prefs.smoothing),
-            speedThinning = look.speedThinning,
-            speedStartSizesPerSecond = SPEED_START_UNITS / size, speedEndSizesPerSecond = SPEED_END_UNITS / size,
-            taperStart = if (taper) look.taperStart else 1f,
-            taperStartSizes = (look.taperStartUnits + look.taperPerSize * size) / size,
-            taperEnd = if (taper) look.taperEnd else 1f,
-            taperEndSizes = (look.taperEndUnits + look.taperPerSize * size) / size,
-            smoothingWindowMs = window, upsamplingHz = UPSAMPLING_HZ,
-        )
     }
 
-    /** Per-look constants. Taper lengths are page units plus a share of the size, so they read at every size. */
-    internal class Look(val pressure: Float, val speedThinning: Float, val taperStart: Float, val taperEnd: Float,
-        val taperStartUnits: Float, val taperEndUnits: Float, val taperPerSize: Float)
-
-    internal val LOOKS = mapOf(
-        PenLook.FOUNTAIN to Look(pressure = 0.6f, speedThinning = 0.82f, taperStart = 0.22f, taperEnd = 0.18f,
-            taperStartUnits = 18f, taperEndUnits = 16f, taperPerSize = 2f),
-        PenLook.BALLPOINT to Look(pressure = 0.15f, speedThinning = 0.93f, taperStart = 0.6f, taperEnd = 0.6f,
-            taperStartUnits = 8f, taperEndUnits = 8f, taperPerSize = 1f),
-        PenLook.FINELINER to Look(pressure = 0f, speedThinning = 1f, taperStart = 1f, taperEnd = 1f,
-            taperStartUnits = 0f, taperEndUnits = 0f, taperPerSize = 1f),
-    )
+    private const val MAX_CACHED_STYLES = 512
 }
 
 /**
@@ -194,8 +154,8 @@ object InkStyles {
 object InkBrushes {
     private val families = ConcurrentHashMap<StrokeStyle, InkFamily>()
 
-    fun brush(brush: Brush, dark: Boolean, prefs: InkPreferences, minSize: Float = 0f): InkBrush {
-        val style = InkStyles.style(brush, prefs, minSize)
+    fun brush(brush: Brush, dark: Boolean, minSize: Float = 0f): InkBrush {
+        val style = InkStyles.style(brush, minSize)
         return InkBrush.createWithColorIntArgb(family(style), inkColour(brush, dark), style.size, style.epsilon)
     }
 

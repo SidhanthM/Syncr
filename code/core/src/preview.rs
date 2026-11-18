@@ -20,7 +20,8 @@
 //! 52  [16] stroke id         all zero for Hover
 //! ```
 //!
-//! Bodies: Begin = family u8, size u8, colour u8, coordinate space u8 (0 canvas, 1 view-relative),
+//! Bodies: Begin = brush (`brush.rs`: family u8, size u8, colour u8, plus optional custom ink and
+//! feel bytes), coordinate space u8 (0 canvas, 1 view-relative),
 //! viewport revision u32. Samples = first index u32, count u16 (1 or more), channel mask u8
 //! (bit 0 tilt, bit 1 orientation), then x, y, pressure (f32), elapsed ms (u32), tilt, orientation
 //! as `count` values each. End = total sample count u32. Cancel = empty. Hover = x f32, y f32.
@@ -29,7 +30,7 @@
 //! hostile: every length is checked before it is used, every float must be finite, and trailing
 //! bytes are an error.
 use crate::{
-    Brush, BrushFamily, BrushSize, CoreError, CoreResult, Id, InkColour, SampleChannels,
+    Brush, CoreError, CoreResult, Id, SampleChannels,
     error::{invalid, limit, unsupported},
     samples, validation,
 };
@@ -207,7 +208,7 @@ impl<'a> Reader<'a> {
         raw.copy_from_slice(b);
         Ok(u64::from_le_bytes(raw))
     }
-    fn f32(&mut self) -> CoreResult<f32> {
+    pub(crate) fn f32(&mut self) -> CoreResult<f32> {
         let v = f32::from_bits(self.u32()?);
         if v.is_finite() {
             Ok(v)
@@ -227,52 +228,14 @@ impl<'a> Reader<'a> {
     }
 }
 
-pub(crate) fn brush_bytes(b: &Brush) -> [u8; 3] {
-    [
-        match b.family {
-            BrushFamily::Pen => 0,
-            BrushFamily::Highlighter => 1,
-        },
-        match b.size {
-            BrushSize::Small => 0,
-            BrushSize::Medium => 1,
-            BrushSize::Large => 2,
-        },
-        match b.colour {
-            InkColour::Ink => 0,
-            InkColour::Red => 1,
-            InkColour::Green => 2,
-            InkColour::Blue => 3,
-            InkColour::Orange => 4,
-        },
-    ]
+pub(crate) fn brush_bytes(b: &Brush) -> Vec<u8> {
+    let mut out = Vec::with_capacity(crate::brush::MAX_BRUSH_BYTES);
+    crate::brush::encode(b, &mut out);
+    out
 }
 
 pub(crate) fn read_brush(r: &mut Reader) -> CoreResult<Brush> {
-    let family = match r.u8()? {
-        0 => BrushFamily::Pen,
-        1 => BrushFamily::Highlighter,
-        _ => return Err(invalid("Unknown brush family")),
-    };
-    let size = match r.u8()? {
-        0 => BrushSize::Small,
-        1 => BrushSize::Medium,
-        2 => BrushSize::Large,
-        _ => return Err(invalid("Unknown brush size")),
-    };
-    let colour = match r.u8()? {
-        0 => InkColour::Ink,
-        1 => InkColour::Red,
-        2 => InkColour::Green,
-        3 => InkColour::Blue,
-        4 => InkColour::Orange,
-        _ => return Err(invalid("Unknown brush colour")),
-    };
-    Ok(Brush {
-        family,
-        size,
-        colour,
-    })
+    crate::brush::decode(r)
 }
 
 pub(crate) fn space_byte(s: CoordinateSpace) -> u8 {
@@ -307,7 +270,7 @@ fn samples_len(channels: &SampleChannels) -> usize {
 /// Exact encoded length of a frame, without allocating it.
 fn body_len(body: &PreviewBody) -> usize {
     match body {
-        PreviewBody::Begin { .. } => 8,
+        PreviewBody::Begin { brush, .. } => 5 + brush_bytes(brush).len(),
         PreviewBody::Samples { channels, .. } => SAMPLES_FIXED + samples_len(channels),
         PreviewBody::End { .. } => 4,
         PreviewBody::Cancel => 0,

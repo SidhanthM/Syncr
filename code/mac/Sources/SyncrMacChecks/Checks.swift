@@ -171,6 +171,7 @@ func viewportAndOffscreenMeshPixels() throws {
             if CommandLine.arguments.contains("--link") { try linkChecks(); print("Phone link checks: OK"); return }
             if CommandLine.arguments.contains("--pointer") { try pointerScrollChecks(); print("Pointer scroll checks: OK (phases, remainders, direction, idle end, event fields, wire)"); return }
             if CommandLine.arguments.contains("--editor") { try editorRuleChecks(); return }
+            if CommandLine.arguments.contains("--ink") { try inkChecks(); return }
             try notebookLogicChecks()
             try markdownMappingChecks()
             try notebookCoreN1Checks()
@@ -182,6 +183,7 @@ func viewportAndOffscreenMeshPixels() throws {
             try companionV2Checks()
             try notebookRound2Checks()
             try editorRuleChecks()
+            try inkChecks()
             try importMigratesOnlyLocalCopy()
             try asyncImportKeepsMainThreadFree()
             try viewportAndOffscreenMeshPixels()

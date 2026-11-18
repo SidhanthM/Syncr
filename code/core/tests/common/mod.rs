@@ -14,11 +14,7 @@ pub fn base(id: &str) -> Base {
     }
 }
 pub fn brush() -> Brush {
-    Brush {
-        family: BrushFamily::Pen,
-        size: BrushSize::Medium,
-        colour: InkColour::Ink,
-    }
+    Brush::plain(BrushFamily::Pen, BrushSize::Medium, InkColour::Ink)
 }
 /// A reviewed two-sample SYNS blob from the offline-v1 fixtures.
 pub fn blob() -> Vec<u8> {

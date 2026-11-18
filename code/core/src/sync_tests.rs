@@ -20,11 +20,7 @@ fn blob(x: f32) -> Vec<u8> {
     .unwrap()
 }
 fn brush() -> Brush {
-    Brush {
-        family: BrushFamily::Pen,
-        size: BrushSize::Medium,
-        colour: InkColour::Ink,
-    }
+    Brush::plain(BrushFamily::Pen, BrushSize::Medium, InkColour::Ink)
 }
 fn base(op: &str) -> Base {
     Base::Operation {
@@ -1011,7 +1007,10 @@ fn a_delta_that_skips_an_independent_operation_is_reported_incomplete() {
     let receipt = a.note.export_delta(vec![claim], path(&file)).unwrap();
     assert_eq!(receipt.operations, 1);
     let merged = b.note.merge_delta(path(&file)).unwrap();
-    assert_eq!((merged.report.applied, merged.report.rejected.len()), (1, 0));
+    assert_eq!(
+        (merged.report.applied, merged.report.rejected.len()),
+        (1, 0)
+    );
     assert!(!merged.complete);
     converge(&a, &b);
 }
@@ -1187,7 +1186,10 @@ fn big_merges_and_deltas_mid_stroke_neither_panic_nor_lose_operations() {
     assert!(sent.anchored);
     let merged = b.note.merge_delta(path(&file)).unwrap();
     assert_eq!(merged.report.rejected.len(), 0);
-    let _ = (b.note.sync_digest().unwrap(), b.lib.note_sync_heads(r.note_id.clone()).unwrap());
+    let _ = (
+        b.note.sync_digest().unwrap(),
+        b.lib.note_sync_heads(r.note_id.clone()).unwrap(),
+    );
     pen.join().expect("the pen thread must not panic");
     assert_eq!(b.note.snapshot().unwrap().strokes.len(), 6 + 1 + 150);
     merge(&b, &a);

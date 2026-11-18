@@ -37,11 +37,7 @@ fn history_snapshot_has_exact_sorted_1024_current_heads_without_truncation() {
                             mark_id: id.clone(),
                             sheet_id: request.first_sheet_id.clone(),
                             samples: samples.clone(),
-                            brush: Brush {
-                                family: BrushFamily::Pen,
-                                size: BrushSize::Small,
-                                colour: InkColour::Ink,
-                            },
+                            brush: Brush::plain(BrushFamily::Pen, BrushSize::Small, InkColour::Ink),
                         })
                         .collect(),
                 },

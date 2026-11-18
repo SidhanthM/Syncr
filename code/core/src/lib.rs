@@ -1,5 +1,6 @@
 //! Syncr core: transactional offline notes behind a UniFFI boundary. Nothing here
 //! fabricates sequencer-confirmed state. See README.md for the module map.
+mod brush;
 mod canonical;
 #[cfg(test)]
 mod canvas_tests;
@@ -53,7 +54,7 @@ pub use layout::*;
 pub use library::{Note, SyncrLibrary, open_library};
 pub use mesh::{
     MAX_MESH_VERTICES, MESH_RENDERER_VERSION, StrokeMesh, StrokeStyle, default_stroke_style,
-    mesh_renderer_version, tessellate_stroke,
+    mesh_renderer_version, stroke_style_min_size, tessellate_stroke,
 };
 pub use picture::{filter_picture, picture_display_list};
 pub use picture_types::*;

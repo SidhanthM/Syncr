@@ -37,7 +37,7 @@ UniFFI emits metadata in symbol order per codegen unit. Moving an `#[uniffi::exp
 
 Every fallible call returns `CoreResult<T>`, which is `CoreException` in Kotlin. IDs are canonical uppercase ULID strings.
 
-**Free functions**: `new_id()`, `canvas_size()`, `open_library(root_path)`, `encode_samples(channels)`, `decode_samples(blob)`, `default_stroke_style(brush)`, `tessellate_stroke(samples, style, transform)`, `mesh_renderer_version()`.
+**Free functions**: `new_id()`, `canvas_size()`, `open_library(root_path)`, `encode_samples(channels)`, `decode_samples(blob)`, `default_stroke_style(brush)`, `stroke_style_min_size(brush, min_size)`, `tessellate_stroke(samples, style, transform)`, `mesh_renderer_version()`.
 
 **`SyncrLibrary`** (one writer per root; calls are serialized)
 
@@ -88,7 +88,7 @@ Published note files are authoritative. The `notes` table is a cache rebuilt on 
 - Creation writes a DELETE-journal database at `.syncr-create-<ULID>`, fsyncs it, and publishes it with a **no-overwrite rename**: `renameat2(RENAME_NOREPLACE)` as a raw syscall on Linux/Android, `renamex_np(RENAME_EXCL)` on macOS. It then fsyncs the directory. It never uses hard links, which Android's SELinux denies in app data, and never falls back to check-then-rename. An unsupported filesystem gives non-retryable `StorageIo`.
 - Export and the pre-upgrade backup use SQLite online backup and `integrity_check`, then the same publication.
 - Delete folds the WAL into the main file, then does one no-overwrite rename into `.trash/`, syncing both directories. Restore is the reverse rename. Purge records the IDs in `purged` before removing the file.
-- Older note and library versions are readable. v1/v2 notes upgrade to v3 on `open_note`, after a backup. v3/v4 opens never migrate or back up. Only a committed text mutation raises v3 to v4, transactionally; undo never downgrades it. A version above 4 gives `UnsupportedVersion` before anything is written.
+- Older note and library versions are readable. v1/v2 notes upgrade to v3 on `open_note`, after a backup. v3/v4 opens never migrate or back up. Only a committed text mutation raises v3 to v4, transactionally; undo never downgrades it. Likewise the first stroke with a pen look other than Fountain or a stored feel raises the note to v8 (with the v5-v7 markers and `brush_format`); plain strokes never do. A version above 8 gives `UnsupportedVersion` before anything is written.
 
 ## SYNO v1 canonical bytes
 
@@ -98,7 +98,7 @@ Integers are little-endian. Strings are a `u32` byte length plus UTF-8. Lists ar
 - **Command**: tag `1`, then the strings `note_id, author_id, operation_id`, then the sorted, deduplicated dependency list, then the body.
 - **Body**: Marks `0` + mutation list; AddSheet `1` + sheet ID + base; ReorderSheets `2` + ID list + base; RenameNote `3` + title + base; Undo `4` / Redo `5` + target ID; SetNotebook `6` + optional + base; SetArchived `7` + `u8` + base.
 - **Mutation**: Add `0` + mark ID + sheet ID + `u32` length + SYNS bytes + brush; Delete `1` / Restore `2` + mark ID + base; Transform `3` + mark ID + base + six `f64` bit patterns `[a,b,c,d,tx,ty]`; Restyle `4` + mark ID + base + brush.
-- **Optional**: `0` for none, or `1` + string. **Base**: Absent `0`, Operation `1` + ID, Confirmed `2` + `u64`. **Brush**: family (Pen `0`, Highlighter `1`), size (Small `0`, Medium `1`, Large `2`), colour (Ink `0`, Red `1`, Green `2`, Blue `3`, Orange `4`).
+- **Optional**: `0` for none, or `1` + string. **Base**: Absent `0`, Operation `1` + ID, Confirmed `2` + `u64`. **Brush** (`brush.rs`, also the preview Begin and stroke-commit wire): family byte (Pen/Fountain `0`, Highlighter `1`, Pen/Ballpoint `2`, Pen/Fineliner `3`; `|0x10` = a feel block follows), size (Small `0`, Medium `1`, Large `2`), colour (Ink `0`, Red `1`, Green `2`, Blue `3`, Orange `4`), then the optional feel block (pressure u8, smoothing u8, taper u8). A plain brush is the original three bytes.
 - **Text mutation tags**: AddText `5`, SpliceText `6`, SetTextWidth `7`, DeleteText `8`, RestoreText `9`, TransformText `10`, RestyleText `11`. Full byte layouts and errors: `tasks/contracts/text-v1.md` §3. Existing tags are unchanged.
 - **Budgets**: 64 KiB for everything except sample/text payload bytes, 16 MiB of sample bytes and independently 16 MiB of text bytes per gesture. Each text block/result/insertion is at most 1 MiB; at most 10,000 blocks including tombstones. `-0.0` and `0.0` are different operations.
 

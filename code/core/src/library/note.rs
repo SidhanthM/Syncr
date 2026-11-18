@@ -149,7 +149,23 @@ fn write_commit(
                 .map_err(storage)?;
             }
         }
-        tx.pragma_update(None, "user_version", store::IMAGE_NOTE_VERSION)
+        if store::check_version(tx)? < store::IMAGE_NOTE_VERSION {
+            tx.pragma_update(None, "user_version", store::IMAGE_NOTE_VERSION)
+                .map_err(storage)?;
+        }
+    }
+    if let CommandBody::Marks { mutations } = &command.body
+        && mutations.iter().any(|m| match m {
+            MarkMutation::AddStroke { brush, .. } | MarkMutation::RestyleStroke { brush, .. } => {
+                brush.is_extended()
+            }
+            _ => false,
+        })
+        && store::check_version(tx)? < store::BRUSH_NOTE_VERSION
+    {
+        // The chain below v8 is marker-checked, so a lower note gets every marker at once.
+        tx.execute_batch("CREATE TABLE IF NOT EXISTS companion_format(singleton INTEGER PRIMARY KEY CHECK(singleton=1)); INSERT OR IGNORE INTO companion_format VALUES (1); CREATE TABLE IF NOT EXISTS picture_format(singleton INTEGER PRIMARY KEY CHECK(singleton=1)); INSERT OR IGNORE INTO picture_format VALUES (1); CREATE TABLE IF NOT EXISTS images(image_id TEXT PRIMARY KEY, bytes BLOB NOT NULL); CREATE TABLE IF NOT EXISTS brush_format(singleton INTEGER PRIMARY KEY CHECK(singleton=1)); INSERT OR IGNORE INTO brush_format VALUES (1);").map_err(storage)?;
+        tx.pragma_update(None, "user_version", store::BRUSH_NOTE_VERSION)
             .map_err(storage)?;
     }
     store::save(tx, candidate)?;

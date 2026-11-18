@@ -27,8 +27,8 @@ import androidx.ink.brush.Brush as InkBrush
  */
 internal class WetInkBridge(
     context: Context,
-    /** Hands a finished stroke to dry ink, with the theme and preferences it was drawn under. */
-    private val onFinished: (InkPreview, Boolean, InkPreferences, Stroke) -> Unit,
+    /** Hands a finished stroke to dry ink, with the theme it was drawn under. */
+    private val onFinished: (InkPreview, Boolean, Stroke) -> Unit,
     private val invalidate: () -> Unit,
 ) {
     private class Live(
@@ -153,7 +153,7 @@ internal class WetInkBridge(
         strokes.forEach { (id, stroke) ->
             val live = finished.remove(id) ?: return@forEach
             val preview = live.preview ?: return@forEach
-            onFinished(preview, live.dark, live.prefs, stroke)
+            onFinished(preview, live.dark, stroke)
         }
         invalidate()
         view.removeFinishedStrokes(strokes.keys)

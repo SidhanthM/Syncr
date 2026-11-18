@@ -36,11 +36,7 @@ fn command() -> Command {
                     orientation: None,
                 })
                 .unwrap(),
-                brush: Brush {
-                    family: BrushFamily::Pen,
-                    size: BrushSize::Medium,
-                    colour: InkColour::Ink,
-                },
+                brush: Brush::plain(BrushFamily::Pen, BrushSize::Medium, InkColour::Ink),
             }],
         },
     }

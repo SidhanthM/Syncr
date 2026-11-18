@@ -15,7 +15,7 @@ class CanvasThumbnailTest {
         val brush = Brush(BrushFamily.PEN, BrushSize.MEDIUM, InkColour.INK)
         val thumbnail = Thumbnail(1u, CanvasLayout.WIDTH, CanvasLayout.VIEW_HEIGHT,
             listOf(ThumbStroke(floatArrayOf(4000f, 200f, 4100f, 240f), brush)))
-        val bitmap = renderThumbnail(thumbnail, false, InkPreferences())
+        val bitmap = renderThumbnail(thumbnail, false)
         try {
             // 400px card, 16px margin, scale=368/4800. Unscaled ink would be outside the bitmap.
             assertTrue((300..350).any { x -> (20..50).any { y -> Color.alpha(bitmap.getPixel(x, y)) > 0 } })

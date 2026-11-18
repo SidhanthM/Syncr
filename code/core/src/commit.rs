@@ -3,7 +3,7 @@
 //! from preview (first byte 0x43 'C', preview is 0x50 'P') and is never dropped by the sender
 //! queue. It carries the stroke; the sequencer's operation is what makes it durable.
 //!
-//! Payload (what is chunked): note id [16], sheet id [16], brush (family, size, colour) [3],
+//! Payload (what is chunked): note id [16], sheet id [16], brush (`brush.rs`: 3 bytes, up to 18 with a custom ink and feel),
 //! coordinate space u8, sample blob length u32, then the SYNS sample blob (at most 16 MiB).
 //!
 //! Chunk frame (little-endian), 36-byte header then data:
@@ -43,7 +43,8 @@ const MSG_STROKE_CHUNK: u8 = 1;
 const HEADER: usize = 36;
 const PAYLOAD_META: usize = 40;
 pub(crate) const CHUNK_DATA: usize = 64 * 1024 - HEADER;
-pub(crate) const MAX_PAYLOAD: usize = samples::MAX_SAMPLE_BYTES + PAYLOAD_META;
+pub(crate) const MAX_PAYLOAD: usize =
+    samples::MAX_SAMPLE_BYTES + PAYLOAD_META + crate::brush::MAX_BRUSH_BYTES - 3;
 pub(crate) const MAX_REASSEMBLY_BYTES: usize = 20 * 1024 * 1024;
 pub const REASSEMBLY_IDLE_MS: u64 = 30_000;
 

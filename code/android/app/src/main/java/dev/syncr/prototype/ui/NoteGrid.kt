@@ -49,8 +49,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.createBitmap
 import dev.syncr.core.NoteSummary
-import dev.syncr.prototype.notes.InkPreferences
-import dev.syncr.prototype.notes.InkPreferencesStore
 import dev.syncr.prototype.notes.LibraryFilter
 import dev.syncr.prototype.notes.NotesState
 import dev.syncr.prototype.notes.Thumbnail
@@ -192,16 +190,14 @@ private const val THUMB_H = 500
 /** Renders the decoded top-left canvas ink into a small bitmap off the main thread (no FFI here). */
 @Composable
 private fun rememberThumbnail(thumbnail: Thumbnail?, dark: Boolean): ImageBitmap? {
-    val context = LocalContext.current
-    val ink by remember(context) { InkPreferencesStore.state(context) }.collectAsState()
-    return produceState<ImageBitmap?>(null, thumbnail, dark, ink) {
+    return produceState<ImageBitmap?>(null, thumbnail, dark) {
         value = thumbnail?.takeIf { it.strokes.isNotEmpty() }?.let { t ->
-            withContext(Dispatchers.Default) { renderThumbnail(t, dark, ink).asImageBitmap() }
+            withContext(Dispatchers.Default) { renderThumbnail(t, dark).asImageBitmap() }
         }
     }.value
 }
 
-internal fun renderThumbnail(t: Thumbnail, dark: Boolean, ink: InkPreferences): Bitmap {
+internal fun renderThumbnail(t: Thumbnail, dark: Boolean): Bitmap {
     val bitmap = createBitmap(THUMB_W, THUMB_H)
     val canvas = android.graphics.Canvas(bitmap)
     // Width-fit with a small margin, top-aligned: the top-left of the canvas.
@@ -210,6 +206,6 @@ internal fun renderThumbnail(t: Thumbnail, dark: Boolean, ink: InkPreferences): 
     canvas.translate(margin, margin)
     canvas.scale(scale, scale)
     // CanvasStrokeRenderer expects the Canvas already transformed; its matrix is for screen-space rendering quality.
-    drawThumbnail(canvas, t, dark, scale, ink)
+    drawThumbnail(canvas, t, dark, scale)
     return bitmap
 }

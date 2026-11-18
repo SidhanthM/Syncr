@@ -44,6 +44,7 @@ import dev.syncr.prototype.link.StreamPen
 import dev.syncr.prototype.link.StreamTarget
 import dev.syncr.prototype.link.PointerInput
 import dev.syncr.prototype.link.PointerStatus
+import dev.syncr.prototype.notes.InkPreferencesStore
 import dev.syncr.prototype.notes.NotesRepository
 import dev.syncr.prototype.notes.NotesState
 import java.io.File
@@ -127,9 +128,11 @@ class LinkController private constructor(private val app: Application) {
     private val decoder = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "syncr-pad-picture").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } }
     @Volatile private var padWish: PadWish? = null
 
-    /** The pen the phone last used in a note; Stream strokes are written with it. */
-    @Volatile var penBrush: Brush = readBrush()
-        private set
+    /** The tool-bar pen the phone last used in a note (family, size, ink); Stream strokes are written with it. */
+    @Volatile private var chosenBrush: Brush = readBrush()
+
+    /** [chosenBrush] as a stroke is stored: with the pen look and feel in the current ink preferences. */
+    val penBrush: Brush get() = InkPreferencesStore.state(app).value.drawn(chosenBrush)
 
     private var client: LinkClient? = null
     private var foreground = 0
@@ -216,8 +219,8 @@ class LinkController private constructor(private val app: Application) {
 
     /** Remember the pen the notes are using, for Stream. */
     fun usePen(brush: Brush) {
-        if (brush == penBrush) return
-        penBrush = brush
+        if (brush == chosenBrush) return
+        chosenBrush = brush
         prefs.edit {
             putString(BRUSH_FAMILY, brush.family.name)
             putString(BRUSH_SIZE, brush.size.name)

@@ -23,6 +23,23 @@ pub enum InkColour {
     Blue,
     Orange,
 }
+/// How a Pen stroke is drawn, stored with the stroke so a later choice of pen never restyles it.
+/// A stroke without a look is a Fountain stroke. The highlighter has no look.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize, uniffi::Enum)]
+pub enum PenLook {
+    Fountain,
+    Ballpoint,
+    Fineliner,
+}
+/// The device feel a stroke was drawn with, resolved at draw time and stored so changing a
+/// setting later cannot change an existing stroke. Pressure response and smoothing are whole
+/// percents of the 0..1 setting (50 is the tuned default); taper switches both tapers.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize, uniffi::Record)]
+pub struct PenFeel {
+    pub pressure: u8,
+    pub smoothing: u8,
+    pub taper: bool,
+}
 /// A note is one canvas, `width` note units wide, growing downward without pages.
 /// `view_height` is the Mac's 16:10 window over the full width; `phone_column` is the
 /// part of the width an upright phone shows at its default zoom.
@@ -45,6 +62,14 @@ pub struct Brush {
     pub family: BrushFamily,
     pub size: BrushSize,
     pub colour: InkColour,
+    /// None = Fountain. Only Pen strokes may carry another look.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[uniffi(default = None)]
+    pub look: Option<PenLook>,
+    /// None = the feel the Mac has always drawn with (see `mesh.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[uniffi(default = None)]
+    pub feel: Option<PenFeel>,
 }
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, uniffi::Record)]
 pub struct Affine {

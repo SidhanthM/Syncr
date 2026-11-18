@@ -38,7 +38,7 @@ fun buildThumbnail(snapshot: NoteSnapshot, samples: (String) -> SampleChannels?,
 
 /** Optional on-disk cache so library cards don't reopen every note on each launch. Failures are ignored. */
 internal object ThumbnailCache {
-    private const val MAGIC = 0x53544844 // STHD: canvas origins/dimensions; old page caches are ignored
+    private const val MAGIC = 0x53544845 // STHE: strokes keep their look and feel; STHD and older caches are ignored
     private fun file(dir: File, noteId: String) =
         if (noteId.isNotEmpty() && noteId.all { it.isLetterOrDigit() }) File(dir, "$noteId.thumb") else null
 
@@ -51,11 +51,12 @@ internal object ThumbnailCache {
                 val width = input.readFloat()
                 val height = input.readFloat()
                 val strokes = List(input.readInt()) {
-                    val brush = Brush(
-                        BrushFamily.entries[input.readByte().toInt()],
-                        BrushSize.entries[input.readByte().toInt()],
-                        InkColour.entries[input.readByte().toInt()],
-                    )
+                    val family = BrushFamily.entries[input.readByte().toInt()]
+                    val size = BrushSize.entries[input.readByte().toInt()]
+                    val colour = InkColour.entries[input.readByte().toInt()]
+                    val look = input.readByte().toInt().takeIf { it > 0 }?.let { PenLook.entries[it - 1] }
+                    val feel = if (input.readBoolean()) PenFeel(input.readByte().toUByte(), input.readByte().toUByte(), input.readBoolean()) else null
+                    val brush = Brush(family, size, colour, look, feel = feel)
                     val points = FloatArray(input.readInt()) { input.readFloat() }
                     val pressure = FloatArray(points.size / 2) { input.readFloat() }
                     val elapsed = IntArray(points.size / 2) { input.readInt() }
@@ -97,6 +98,9 @@ internal object ThumbnailCache {
                     out.writeByte(s.brush.family.ordinal)
                     out.writeByte(s.brush.size.ordinal)
                     out.writeByte(s.brush.colour.ordinal)
+                    out.writeByte((s.brush.look?.ordinal ?: -1) + 1)
+                    out.writeBoolean(s.brush.feel != null)
+                    s.brush.feel?.let { out.writeByte(it.pressure.toInt()); out.writeByte(it.smoothing.toInt()); out.writeBoolean(it.taper) }
                     out.writeInt(s.points.size)
                     s.points.forEach(out::writeFloat)
                     s.pressure.forEach(out::writeFloat)
@@ -113,8 +117,7 @@ internal object ThumbnailCache {
  * Draws a thumbnail with the page's own Ink brushes, so cards match the note. [canvas] must already map
  * page units to pixels at [scale]; hairlines are kept at least [minPixels] wide. Safe off the UI thread.
  */
-fun drawThumbnail(canvas: Canvas, thumbnail: Thumbnail, dark: Boolean, scale: Float,
-    prefs: InkPreferences = InkPreferences(), minPixels: Float = 1.2f) {
+fun drawThumbnail(canvas: Canvas, thumbnail: Thumbnail, dark: Boolean, scale: Float, minPixels: Float = 1.2f) {
     val renderer = CanvasStrokeRenderer.create()
     val toScreen = Matrix().apply { setScale(scale, scale) }
     thumbnail.strokes.forEach { s ->
@@ -122,6 +125,6 @@ fun drawThumbnail(canvas: Canvas, thumbnail: Thumbnail, dark: Boolean, scale: Fl
         if (n == 0) return@forEach
         val channels = SampleChannels(List(n) { s.points[2 * it] }, List(n) { s.points[2 * it + 1] }, s.pressure.toList(),
             s.elapsedMs.map { it.toUInt() }, null, null)
-        renderer.draw(canvas, InkBrushes.stroke(channels, InkBrushes.brush(s.brush, dark, prefs, minSize = minPixels / scale)), toScreen)
+        renderer.draw(canvas, InkBrushes.stroke(channels, InkBrushes.brush(s.brush, dark, minSize = minPixels / scale)), toScreen)
     }
 }

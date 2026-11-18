@@ -713,11 +713,7 @@ fn restore_stacking_independent_heads_and_exact_inverse_state() {
             mutations: vec![MarkMutation::RestyleStroke {
                 mark_id: b.clone(),
                 base: base(&add.operation_id),
-                brush: Brush {
-                    family: BrushFamily::Highlighter,
-                    size: BrushSize::Large,
-                    colour: InkColour::Blue,
-                },
+                brush: Brush::plain(BrushFamily::Highlighter, BrushSize::Large, InkColour::Blue),
             }],
         },
         &[&add.operation_id],

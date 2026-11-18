@@ -107,22 +107,9 @@ impl Encoder {
         Ok(())
     }
     fn brush(&mut self, brush: &Brush) {
-        self.tag(match brush.family {
-            BrushFamily::Pen => 0,
-            BrushFamily::Highlighter => 1,
-        });
-        self.tag(match brush.size {
-            BrushSize::Small => 0,
-            BrushSize::Medium => 1,
-            BrushSize::Large => 2,
-        });
-        self.tag(match brush.colour {
-            InkColour::Ink => 0,
-            InkColour::Red => 1,
-            InkColour::Green => 2,
-            InkColour::Blue => 3,
-            InkColour::Orange => 4,
-        });
+        let mut bytes = Vec::with_capacity(crate::brush::MAX_BRUSH_BYTES);
+        crate::brush::encode(brush, &mut bytes);
+        self.raw(&bytes);
     }
     fn mutation(&mut self, m: &MarkMutation) -> CoreResult<()> {
         match m {
@@ -656,11 +643,11 @@ mod tests {
             mark_id: id.into(),
             sheet_id: id.into(),
             samples: vec![1, 2, 3],
-            brush: Brush {
-                family: BrushFamily::Highlighter,
-                size: BrushSize::Large,
-                colour: InkColour::Orange,
-            },
+            brush: Brush::plain(
+                BrushFamily::Highlighter,
+                BrushSize::Large,
+                InkColour::Orange,
+            ),
         };
         let n = MarkMutation::DeleteStroke {
             mark_id: id.into(),

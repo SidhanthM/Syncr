@@ -2185,13 +2185,29 @@ public struct Brush: Equatable, Hashable {
     public var family: BrushFamily
     public var size: BrushSize
     public var colour: InkColour
+    /**
+     * None = Fountain. Only Pen strokes may carry another look.
+     */
+    public var look: PenLook?
+    /**
+     * None = the feel the Mac has always drawn with (see `mesh.rs`).
+     */
+    public var feel: PenFeel?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(family: BrushFamily, size: BrushSize, colour: InkColour) {
+    public init(family: BrushFamily, size: BrushSize, colour: InkColour, 
+        /**
+         * None = Fountain. Only Pen strokes may carry another look.
+         */look: PenLook? = nil, 
+        /**
+         * None = the feel the Mac has always drawn with (see `mesh.rs`).
+         */feel: PenFeel? = nil) {
         self.family = family
         self.size = size
         self.colour = colour
+        self.look = look
+        self.feel = feel
     }
 
     
@@ -2212,7 +2228,9 @@ public struct FfiConverterTypeBrush: FfiConverterRustBuffer {
             try Brush(
                 family: FfiConverterTypeBrushFamily.read(from: &buf), 
                 size: FfiConverterTypeBrushSize.read(from: &buf), 
-                colour: FfiConverterTypeInkColour.read(from: &buf)
+                colour: FfiConverterTypeInkColour.read(from: &buf), 
+                look: FfiConverterOptionTypePenLook.read(from: &buf), 
+                feel: FfiConverterOptionTypePenFeel.read(from: &buf)
         )
     }
 
@@ -2220,6 +2238,8 @@ public struct FfiConverterTypeBrush: FfiConverterRustBuffer {
         FfiConverterTypeBrushFamily.write(value.family, into: &buf)
         FfiConverterTypeBrushSize.write(value.size, into: &buf)
         FfiConverterTypeInkColour.write(value.colour, into: &buf)
+        FfiConverterOptionTypePenLook.write(value.look, into: &buf)
+        FfiConverterOptionTypePenFeel.write(value.feel, into: &buf)
     }
 }
 
@@ -4057,6 +4077,69 @@ public func FfiConverterTypeNotebookSummary_lift(_ buf: RustBuffer) throws -> No
 #endif
 public func FfiConverterTypeNotebookSummary_lower(_ value: NotebookSummary) -> RustBuffer {
     return FfiConverterTypeNotebookSummary.lower(value)
+}
+
+
+/**
+ * The device feel a stroke was drawn with, resolved at draw time and stored so changing a
+ * setting later cannot change an existing stroke. Pressure response and smoothing are whole
+ * percents of the 0..1 setting (50 is the tuned default); taper switches both tapers.
+ */
+public struct PenFeel: Equatable, Hashable {
+    public var pressure: UInt8
+    public var smoothing: UInt8
+    public var taper: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(pressure: UInt8, smoothing: UInt8, taper: Bool) {
+        self.pressure = pressure
+        self.smoothing = smoothing
+        self.taper = taper
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PenFeel: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePenFeel: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PenFeel {
+        return
+            try PenFeel(
+                pressure: FfiConverterUInt8.read(from: &buf), 
+                smoothing: FfiConverterUInt8.read(from: &buf), 
+                taper: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PenFeel, into buf: inout [UInt8]) {
+        FfiConverterUInt8.write(value.pressure, into: &buf)
+        FfiConverterUInt8.write(value.smoothing, into: &buf)
+        FfiConverterBool.write(value.taper, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePenFeel_lift(_ buf: RustBuffer) throws -> PenFeel {
+    return try FfiConverterTypePenFeel.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePenFeel_lower(_ value: PenFeel) -> RustBuffer {
+    return FfiConverterTypePenFeel.lower(value)
 }
 
 
@@ -7802,6 +7885,83 @@ public func FfiConverterTypeOperationLookup_lower(_ value: OperationLookup) -> R
 
 
 
+/**
+ * How a Pen stroke is drawn, stored with the stroke so a later choice of pen never restyles it.
+ * A stroke without a look is a Fountain stroke. The highlighter has no look.
+ */
+
+public enum PenLook: Equatable, Hashable {
+    
+    case fountain
+    case ballpoint
+    case fineliner
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension PenLook: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePenLook: FfiConverterRustBuffer {
+    typealias SwiftType = PenLook
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PenLook {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .fountain
+        
+        case 2: return .ballpoint
+        
+        case 3: return .fineliner
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: PenLook, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .fountain:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .ballpoint:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .fineliner:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePenLook_lift(_ buf: RustBuffer) throws -> PenLook {
+    return try FfiConverterTypePenLook.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePenLook_lower(_ value: PenLook) -> RustBuffer {
+    return FfiConverterTypePenLook.lower(value)
+}
+
+
+
 public 
 enum PictureError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
@@ -8517,6 +8677,30 @@ fileprivate struct FfiConverterOptionTypeCompanionSettingsView: FfiConverterRust
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypePenFeel: FfiConverterRustBuffer {
+    typealias SwiftType = PenFeel?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypePenFeel.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypePenFeel.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeStrokeCommit: FfiConverterRustBuffer {
     typealias SwiftType = StrokeCommit?
 
@@ -8533,6 +8717,30 @@ fileprivate struct FfiConverterOptionTypeStrokeCommit: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeStrokeCommit.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypePenLook: FfiConverterRustBuffer {
+    typealias SwiftType = PenLook?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypePenLook.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypePenLook.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -9338,7 +9546,9 @@ public func openLibrary(rootPath: String)throws  -> SyncrLibrary  {
 })
 }
 /**
- * The phone's default look for a brush: `InkStyles.style(brush, InkPreferences())`.
+ * How a stored brush is drawn: its look and stored feel, nothing from any current setting, so a
+ * stroke looks the same every time and on every device. Strokes without a look are Fountain and
+ * without a feel use the historical Mac feel.
  */
 public func defaultStrokeStyle(brush: Brush) -> StrokeStyle  {
     return try!  FfiConverterTypeStrokeStyle_lift(try! rustCall() {
@@ -9352,6 +9562,18 @@ public func meshRendererVersion() -> UInt32  {
     return try!  FfiConverterUInt32.lift(try! rustCall() {
         uniffiCallStatus in
     uniffi_syncr_core_fn_func_mesh_renderer_version(uniffiCallStatus
+    )
+})
+}
+/**
+ * [`default_stroke_style`] with a floor on the width, so tiny thumbnails keep hairlines visible.
+ */
+public func strokeStyleMinSize(brush: Brush, minSize: Float) -> StrokeStyle  {
+    return try!  FfiConverterTypeStrokeStyle_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_syncr_core_fn_func_stroke_style_min_size(
+        FfiConverterTypeBrush_lower(brush),
+        FfiConverterFloat.lower(minSize),uniffiCallStatus
     )
 })
 }
@@ -9472,10 +9694,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_syncr_core_checksum_func_open_library() != 18191) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_syncr_core_checksum_func_default_stroke_style() != 63611) {
+    if (uniffi_syncr_core_checksum_func_default_stroke_style() != 4604) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_syncr_core_checksum_func_mesh_renderer_version() != 12135) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_syncr_core_checksum_func_stroke_style_min_size() != 65208) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_syncr_core_checksum_func_tessellate_stroke() != 44957) {

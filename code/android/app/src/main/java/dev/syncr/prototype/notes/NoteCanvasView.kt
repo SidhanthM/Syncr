@@ -222,8 +222,8 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         )
     }
     private var scope = mainScope()
+    private var prefs = InkPreferencesStore.state(context).value
     private val dry = DryInkLayer(
-        InkPreferencesStore.state(context).value,
         scope = { scope },
         isHandedOff = scene::hasStrokeHandoff,
         invalidate = ::invalidate,
@@ -393,7 +393,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
             scope = mainScope()
             dry.forgetPreviews()
         }
-        scope.launch { InkPreferencesStore.state(context).collect(dry::setPreferences) }
+        scope.launch { InkPreferencesStore.state(context).collect { prefs = it } }
         post { wet.eagerInit() } // children attach after this callback
     }
 
@@ -644,7 +644,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
             sideButtonHeld = (event.buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0,
             sideButtonErases = sideButtonErases,
         )
-        pen.begin(brush)
+        pen.begin(prefs.drawn(brush)) // the stroke is stored with this look and feel; later settings never restyle it
         if (mode == PenMode.LASSO && selection.beginGesture(x, y, viewport.mapping)) {
             pen.startSelectionGesture()
             return
@@ -667,8 +667,8 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         }
         sample(event, index, CURRENT)
         if (mode == PenMode.INK && !pen.rejected) {
-            val inkBrush = InkBrushes.brush(pen.brush, dark, dry.prefs)
-            wet.start(event, event.getPointerId(index), pen.frozen, width, height, inkBrush, dark, dry.prefs)
+            val inkBrush = InkBrushes.brush(pen.brush, dark)
+            wet.start(event, event.getPointerId(index), pen.frozen, width, height, inkBrush, dark, prefs)
             startMirror(event, index)
         }
     }

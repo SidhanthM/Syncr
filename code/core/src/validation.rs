@@ -133,9 +133,10 @@ pub(crate) fn command(command: &Command) -> CoreResult<()> {
                         mark_id,
                         sheet_id,
                         samples: blob,
-                        ..
+                        brush,
                     } => {
                         id(sheet_id)?;
+                        crate::brush::validate(brush)?;
                         sample_bytes = sample_bytes
                             .checked_add(blob.len())
                             .ok_or_else(|| limit("Gesture samples exceed size limit"))?;
@@ -187,11 +188,17 @@ pub(crate) fn command(command: &Command) -> CoreResult<()> {
                         mark_id, base: b, ..
                     }
                     | MarkMutation::DeleteStroke { mark_id, base: b }
-                    | MarkMutation::RestoreStroke { mark_id, base: b }
-                    | MarkMutation::RestyleStroke {
-                        mark_id, base: b, ..
+                    | MarkMutation::RestoreStroke { mark_id, base: b } => {
+                        base(b, &dependencies)?;
+                        mark_id
+                    }
+                    MarkMutation::RestyleStroke {
+                        mark_id,
+                        base: b,
+                        brush,
                     } => {
                         base(b, &dependencies)?;
+                        crate::brush::validate(brush)?;
                         mark_id
                     }
                     MarkMutation::TransformText {

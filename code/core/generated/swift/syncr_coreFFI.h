@@ -598,6 +598,11 @@ uint32_t uniffi_syncr_core_fn_func_mesh_renderer_version(RustCallStatus *_Nonnul
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_STROKE_STYLE_MIN_SIZE
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_STROKE_STYLE_MIN_SIZE
+RustBuffer uniffi_syncr_core_fn_func_stroke_style_min_size(RustBuffer brush, float min_size, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_TESSELLATE_STROKE
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_TESSELLATE_STROKE
 RustBuffer uniffi_syncr_core_fn_func_tessellate_stroke(RustBuffer samples, RustBuffer style, RustBuffer transform, RustCallStatus *_Nonnull out_status
@@ -943,6 +948,12 @@ uint16_t uniffi_syncr_core_checksum_func_default_stroke_style(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_MESH_RENDERER_VERSION
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_MESH_RENDERER_VERSION
 uint16_t uniffi_syncr_core_checksum_func_mesh_renderer_version(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_STROKE_STYLE_MIN_SIZE
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_STROKE_STYLE_MIN_SIZE
+uint16_t uniffi_syncr_core_checksum_func_stroke_style_min_size(void
     
 );
 #endif

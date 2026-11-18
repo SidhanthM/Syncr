@@ -635,11 +635,7 @@ fn stroke(request: &CreateNoteRequest, id: &str) -> MarkMutation {
             orientation: None,
         })
         .unwrap(),
-        brush: Brush {
-            family: BrushFamily::Pen,
-            size: BrushSize::Small,
-            colour: InkColour::Ink,
-        },
+        brush: Brush::plain(BrushFamily::Pen, BrushSize::Small, InkColour::Ink),
     }
 }
 #[test]

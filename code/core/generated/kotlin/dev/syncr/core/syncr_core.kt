@@ -689,6 +689,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_syncr_core_checksum_func_mesh_renderer_version(
     ): Int
+    external fun uniffi_syncr_core_checksum_func_stroke_style_min_size(
+    ): Int
     external fun uniffi_syncr_core_checksum_func_tessellate_stroke(
     ): Int
     external fun uniffi_syncr_core_checksum_func_filter_picture(
@@ -973,6 +975,8 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_func_mesh_renderer_version(uniffi_out_err: UniffiRustCallStatus, 
     ): Int
+    external fun uniffi_syncr_core_fn_func_stroke_style_min_size(`brush`: RustBuffer.ByValue,`minSize`: Float,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_func_tessellate_stroke(`samples`: RustBuffer.ByValue,`style`: RustBuffer.ByValue,`transform`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_func_filter_picture(`svg`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1125,10 +1129,13 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_syncr_core_checksum_func_open_library() and 0xFFFF) != 18191) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if ((lib.uniffi_syncr_core_checksum_func_default_stroke_style() and 0xFFFF) != 63611) {
+    if ((lib.uniffi_syncr_core_checksum_func_default_stroke_style() and 0xFFFF) != 4604) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_syncr_core_checksum_func_mesh_renderer_version() and 0xFFFF) != 12135) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_func_stroke_style_min_size() and 0xFFFF) != 65208) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_syncr_core_checksum_func_tessellate_stroke() and 0xFFFF) != 44957) {
@@ -4136,6 +4143,16 @@ data class Brush (
     var `size`: BrushSize
     , 
     var `colour`: InkColour
+    , 
+    /**
+     * None = Fountain. Only Pen strokes may carry another look.
+     */
+    var `look`: PenLook? = null 
+    , 
+    /**
+     * None = the feel the Mac has always drawn with (see `mesh.rs`).
+     */
+    var `feel`: PenFeel? = null 
     
 ){
     
@@ -4155,19 +4172,25 @@ public object FfiConverterTypeBrush: FfiConverterRustBuffer<Brush> {
             FfiConverterTypeBrushFamily.read(buf),
             FfiConverterTypeBrushSize.read(buf),
             FfiConverterTypeInkColour.read(buf),
+            FfiConverterOptionalTypePenLook.read(buf),
+            FfiConverterOptionalTypePenFeel.read(buf),
         )
     }
 
     override fun allocationSize(value: Brush) = (
             FfiConverterTypeBrushFamily.allocationSize(value.`family`) +
             FfiConverterTypeBrushSize.allocationSize(value.`size`) +
-            FfiConverterTypeInkColour.allocationSize(value.`colour`)
+            FfiConverterTypeInkColour.allocationSize(value.`colour`) +
+            FfiConverterOptionalTypePenLook.allocationSize(value.`look`) +
+            FfiConverterOptionalTypePenFeel.allocationSize(value.`feel`)
     )
 
     override fun write(value: Brush, buf: ByteBuffer) {
             FfiConverterTypeBrushFamily.write(value.`family`, buf)
             FfiConverterTypeBrushSize.write(value.`size`, buf)
             FfiConverterTypeInkColour.write(value.`colour`, buf)
+            FfiConverterOptionalTypePenLook.write(value.`look`, buf)
+            FfiConverterOptionalTypePenFeel.write(value.`feel`, buf)
     }
 }
 
@@ -5574,6 +5597,54 @@ public object FfiConverterTypeNotebookSummary: FfiConverterRustBuffer<NotebookSu
     override fun write(value: NotebookSummary, buf: ByteBuffer) {
             FfiConverterString.write(value.`name`, buf)
             FfiConverterULong.write(value.`noteCount`, buf)
+    }
+}
+
+
+
+/**
+ * The device feel a stroke was drawn with, resolved at draw time and stored so changing a
+ * setting later cannot change an existing stroke. Pressure response and smoothing are whole
+ * percents of the 0..1 setting (50 is the tuned default); taper switches both tapers.
+ */
+data class PenFeel (
+    var `pressure`: kotlin.UByte
+    , 
+    var `smoothing`: kotlin.UByte
+    , 
+    var `taper`: kotlin.Boolean
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePenFeel: FfiConverterRustBuffer<PenFeel> {
+    override fun read(buf: ByteBuffer): PenFeel {
+        return PenFeel(
+            FfiConverterUByte.read(buf),
+            FfiConverterUByte.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PenFeel) = (
+            FfiConverterUByte.allocationSize(value.`pressure`) +
+            FfiConverterUByte.allocationSize(value.`smoothing`) +
+            FfiConverterBoolean.allocationSize(value.`taper`)
+    )
+
+    override fun write(value: PenFeel, buf: ByteBuffer) {
+            FfiConverterUByte.write(value.`pressure`, buf)
+            FfiConverterUByte.write(value.`smoothing`, buf)
+            FfiConverterBoolean.write(value.`taper`, buf)
     }
 }
 
@@ -9622,6 +9693,45 @@ public object FfiConverterTypeOperationLookup : FfiConverterRustBuffer<Operation
 
 
 
+/**
+ * How a Pen stroke is drawn, stored with the stroke so a later choice of pen never restyles it.
+ * A stroke without a look is a Fountain stroke. The highlighter has no look.
+ */
+
+enum class PenLook {
+    
+    FOUNTAIN,
+    BALLPOINT,
+    FINELINER;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePenLook: FfiConverterRustBuffer<PenLook> {
+    override fun read(buf: ByteBuffer) = try {
+        PenLook.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: PenLook) = 4UL
+
+    override fun write(value: PenLook, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
 
 
 sealed class PictureException: kotlin.Exception() {
@@ -10507,6 +10617,38 @@ public object FfiConverterOptionalTypeCompanionSettingsView: FfiConverterRustBuf
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypePenFeel: FfiConverterRustBuffer<PenFeel?> {
+    override fun read(buf: ByteBuffer): PenFeel? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypePenFeel.read(buf)
+    }
+
+    override fun allocationSize(value: PenFeel?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypePenFeel.allocationSize(value)
+        }
+    }
+
+    override fun write(value: PenFeel?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypePenFeel.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypeStrokeCommit: FfiConverterRustBuffer<StrokeCommit?> {
     override fun read(buf: ByteBuffer): StrokeCommit? {
         if (buf.get().toInt() == 0) {
@@ -10529,6 +10671,38 @@ public object FfiConverterOptionalTypeStrokeCommit: FfiConverterRustBuffer<Strok
         } else {
             buf.put(1)
             FfiConverterTypeStrokeCommit.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypePenLook: FfiConverterRustBuffer<PenLook?> {
+    override fun read(buf: ByteBuffer): PenLook? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypePenLook.read(buf)
+    }
+
+    override fun allocationSize(value: PenLook?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypePenLook.allocationSize(value)
+        }
+    }
+
+    override fun write(value: PenLook?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypePenLook.write(value, buf)
         }
     }
 }
@@ -11445,7 +11619,9 @@ public object FfiConverterSequenceTypePreviewEvent: FfiConverterRustBuffer<List<
     
 
         /**
-         * The phone's default look for a brush: `InkStyles.style(brush, InkPreferences())`.
+         * How a stored brush is drawn: its look and stored feel, nothing from any current setting, so a
+         * stroke looks the same every time and on every device. Strokes without a look are Fountain and
+         * without a feel use the historical Mac feel.
          */ fun `defaultStrokeStyle`(`brush`: Brush): StrokeStyle {
             return FfiConverterTypeStrokeStyle.lift(
     uniffiRustCall() { _status ->
@@ -11463,6 +11639,21 @@ public object FfiConverterSequenceTypePreviewEvent: FfiConverterRustBuffer<List<
     UniffiLib.uniffi_syncr_core_fn_func_mesh_renderer_version(
     
         _status)
+}
+    )
+    }
+    
+
+        /**
+         * [`default_stroke_style`] with a floor on the width, so tiny thumbnails keep hairlines visible.
+         */ fun `strokeStyleMinSize`(`brush`: Brush, `minSize`: kotlin.Float): StrokeStyle {
+            return FfiConverterTypeStrokeStyle.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_func_stroke_style_min_size(
+    
+        
+        FfiConverterTypeBrush.lower(`brush`),
+        FfiConverterFloat.lower(`minSize`),_status)
 }
     )
     }

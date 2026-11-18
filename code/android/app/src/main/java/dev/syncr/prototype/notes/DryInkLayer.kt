@@ -24,17 +24,16 @@ import kotlinx.coroutines.withContext
  * drawn as a plain measured path until the background build catches up.
  */
 internal class DryInkLayer(
-    initialPreferences: InkPreferences,
     private val scope: () -> CoroutineScope,
     /** Whether a preview is a stroke handoff still waiting for the next state. */
     private val isHandedOff: (String) -> Boolean,
     private val invalidate: () -> Unit,
 ) {
     /**
-     * One cache entry, valid for one preview under one theme and one set of preferences. [bounds] are
+     * One cache entry, valid for one preview under one theme. [bounds] are
      * the stroke-local extents, computed when the entry is built so drawing can cull cheaply.
      */
-    private class CachedInk(val preview: InkPreview, val dark: Boolean, val prefs: InkPreferences, val stroke: Stroke) {
+    private class CachedInk(val preview: InkPreview, val dark: Boolean, val stroke: Stroke) {
         val bounds = StrokeBounds.of(preview.channels, brushWidth(preview.brush))
     }
 
@@ -43,9 +42,6 @@ internal class DryInkLayer(
         private set
 
     var dark = false
-        private set
-
-    var prefs = initialPreferences
         private set
 
     private var cache = emptyMap<String, CachedInk>()
@@ -76,13 +72,6 @@ internal class DryInkLayer(
         }
     }
 
-    fun setPreferences(next: InkPreferences) {
-        if (next == prefs) return
-        prefs = next
-        rebuild()
-        invalidate()
-    }
-
     /** After re-attaching, the next [show] rebuilds everything. */
     fun forgetPreviews() {
         previews = emptyList()
@@ -98,9 +87,9 @@ internal class DryInkLayer(
     }
 
     /** Keeps a finished wet stroke as this preview's dry ink until the cache has it. */
-    fun adoptWetStroke(preview: InkPreview, dark: Boolean, prefs: InkPreferences, stroke: Stroke) {
+    fun adoptWetStroke(preview: InkPreview, dark: Boolean, stroke: Stroke) {
         val wanted = previews.any { it.id == preview.id } || isHandedOff(preview.id)
-        if (cache[preview.id]?.preview != preview && wanted) extra[preview.id] = CachedInk(preview, dark, prefs, stroke)
+        if (cache[preview.id]?.preview != preview && wanted) extra[preview.id] = CachedInk(preview, dark, stroke)
     }
 
     /**
@@ -145,23 +134,22 @@ internal class DryInkLayer(
     /** Draws an in-progress stroke directly, for when the wet layer is not attached. */
     fun drawLive(canvas: Canvas, channels: SampleChannels, brush: Brush, scale: Float) {
         strokeToScreen.setScale(scale, scale)
-        renderer.draw(canvas, InkBrushes.stroke(channels, InkBrushes.brush(brush, dark, prefs)), strokeToScreen)
+        renderer.draw(canvas, InkBrushes.stroke(channels, InkBrushes.brush(brush, dark)), strokeToScreen)
     }
 
     private fun rebuild() {
         val wanted = previews
         val night = dark
-        val style = prefs
         val reusable = cache.values + extra.values
         job?.cancel()
         job = scope().launch {
             val built = withContext(Dispatchers.Default) {
                 // By ID, then a preview comparison that is usually by identity: hashing whole previews would
                 // walk every stroke's samples on each rebuild.
-                val old = reusable.filter { it.dark == night && it.prefs == style }.associateBy { it.preview.id }
+                val old = reusable.filter { it.dark == night }.associateBy { it.preview.id }
                 wanted.associate { preview ->
                     ensureActive()
-                    preview.id to (old[preview.id]?.takeIf { it.preview == preview } ?: makeInk(preview, night, style))
+                    preview.id to (old[preview.id]?.takeIf { it.preview == preview } ?: makeInk(preview, night))
                 }
             }
             cache = built
@@ -176,11 +164,11 @@ internal class DryInkLayer(
     private fun inkFor(preview: InkPreview): Stroke? {
         entryFor(preview)?.let { return it.stroke }
         if (System.nanoTime() > frameBudgetEnd) return null
-        return makeInk(preview, dark, prefs).also { extra[preview.id] = it }.stroke
+        return makeInk(preview, dark).also { extra[preview.id] = it }.stroke
     }
 
-    private fun makeInk(preview: InkPreview, night: Boolean, style: InkPreferences) =
-        CachedInk(preview, night, style, InkBrushes.stroke(preview.channels, InkBrushes.brush(preview.brush, night, style)))
+    private fun makeInk(preview: InkPreview, night: Boolean) =
+        CachedInk(preview, night, InkBrushes.stroke(preview.channels, InkBrushes.brush(preview.brush, night)))
 
     /** Cold-load placeholder only, while a large note's dry ink is still being built. */
     private fun drawMeasured(canvas: Canvas, samples: SampleChannels, brush: Brush) {
