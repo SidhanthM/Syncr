@@ -10,6 +10,18 @@ enum TypingThrottle {
     }
 }
 
+/// A main-queue timer the system does not coalesce or stretch (a typing deadline is 150 ms, so a late timer is felt). Runs
+/// `work` on the main queue after `seconds` unless it was cancelled; at zero it just hops to the next turn.
+enum StrictTimer {
+    static func run(after seconds: Double, _ work: DispatchWorkItem) {
+        guard seconds > 0 else { DispatchQueue.main.async(execute: work); return }
+        let timer = DispatchSource.makeTimerSource(flags: .strict, queue: .main)
+        timer.schedule(deadline: .now() + seconds, leeway: .nanoseconds(0))
+        timer.setEventHandler { if !work.isCancelled { work.perform() }; timer.cancel() }
+        timer.resume()
+    }
+}
+
 /// Retained across tabs: a failed write cannot discard what the user typed. Saving is asynchronous;
 /// the callback is main-thread only. A pause coalesces to one changed-middle splice in the adapter.
 @MainActor final class TextSession: TextDocument {

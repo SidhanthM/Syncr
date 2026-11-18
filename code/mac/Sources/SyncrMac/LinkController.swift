@@ -541,7 +541,7 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
 
     /// A commit on the Mac (typing, ink, companion, pad strokes, renames, merges): tell v1 phones within `announceCoalesceMs`.
     /// Commits inside that window ride along, and none pushes it back, so continuous typing is announced as often as it commits.
-    static let announceCoalesceMs = 30.0
+    static let announceCoalesceMs = 10.0
 
     private func noteCommitted(_ id: String) {
         if id == workspace.active { pictureChanged() }
@@ -550,7 +550,7 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
         guard announceWork == nil else { return }
         let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.flushAnnouncements() } }
         announceWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.announceCoalesceMs / 1000, execute: work)
+        StrictTimer.run(after: Self.announceCoalesceMs / 1000, work)
     }
 
     /// Tells each v1 phone what changed. A phone known to hold everything older gets just the new operations pushed (small ones

@@ -236,7 +236,7 @@ import AppKit
         if pending == nil {
             let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.flush() } }
             pending = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + TypingThrottle.delay(now: now, dirtySince: dirtySince, lastCommit: lastCommit), execute: work)
+            StrictTimer.run(after: TypingThrottle.delay(now: now, dirtySince: dirtySince, lastCommit: lastCommit), work)
         }
         style(); updateMenu(typing: true)
     }

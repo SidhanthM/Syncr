@@ -8,6 +8,9 @@ struct DrawStroke: Sendable {
     let originY: Float
     let colour: InkColour
     let highlighter: Bool
+    /// The stroke this was built from and the operation it was built at, when known: a reload keeps the mesh while both match.
+    var markId: String? = nil
+    var head: String? = nil
 }
 
 /// Mutated only on the main thread; stable ID allows progressive GPU uploads.
@@ -404,7 +407,7 @@ private final class LoadToken: @unchecked Sendable {
             style: defaultStrokeStyle(brush: mark.brush), transform: mark.transform)
         guard mesh.rendererVersion == meshRendererVersion() else { throw ViewerError.invalidSource }
         return DrawStroke(mesh: mesh, originX: sheet.originX, originY: sheet.originY,
-                          colour: mark.brush.colour, highlighter: mesh.discardSelfOverlap)
+                          colour: mark.brush.colour, highlighter: mesh.discardSelfOverlap, markId: mark.id, head: mark.head.operationId)
     }
 
     /// Synchronous path for disposable fixture checks only; the GUI uses openAsync.
@@ -482,6 +485,8 @@ private final class LoadToken: @unchecked Sendable {
         cancelLoad()
         let started = generation
         let token = LoadToken(); loadToken = token
+        // A merge of text (or anything but ink) leaves the strokes as they were: their meshes are kept, not rebuilt from samples.
+        let kept = Dictionary((drawing?.strokes ?? []).compactMap { s in s.markId.map { ($0, s) } }, uniquingKeysWith: { a, _ in a })
         worker.async { [weak self] in
             let built = Result { () -> (strokes: [DrawStroke], title: String, sheet: String?, ids: Set<String>, text: [TextBlockView]) in
                 let note = try library.openNote(noteId: id)
@@ -491,7 +496,10 @@ private final class LoadToken: @unchecked Sendable {
                 let marks = snapshot.strokes.filter { !$0.tombstone }
                 // Every stroke the copy knows, deleted ones included: a stroke the phone wrote and then erased
                 // before this copy is tombstoned here, and its live preview must go too.
-                return (try marks.map { try Self.stroke($0, note: note, sheets: sheets) }, snapshot.title,
+                return (try marks.map { mark in
+                    if let old = kept[mark.id], old.head == mark.head.operationId { return old }
+                    return try Self.stroke(mark, note: note, sheets: sheets)
+                }, snapshot.title,
                         snapshot.sheets.first?.id, Set(snapshot.strokes.map(\.id)), snapshot.textBlocks)
             }
             DispatchQueue.main.async { MainActor.assumeIsolated {

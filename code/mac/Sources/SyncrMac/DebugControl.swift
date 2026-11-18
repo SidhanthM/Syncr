@@ -60,7 +60,8 @@ import SyncrCore
             guard i <= count else { say("ack type-burst"); return }
             view.insertText("k", replacementRange: view.selectedRange())
             say("typed i=\(i) epoch=\(Self.epochMs())")
-            DispatchQueue.main.asyncAfter(deadline: start + .milliseconds(i * intervalMs)) { MainActor.assumeIsolated { letter(i + 1) } }
+            let next = DispatchWorkItem { MainActor.assumeIsolated { letter(i + 1) } }
+            StrictTimer.run(after: max(0.0005, Double(start.uptimeNanoseconds) / 1e9 + Double(i * intervalMs) / 1000 - Double(DispatchTime.now().uptimeNanoseconds) / 1e9), next)
         }
         letter(1)
     }
