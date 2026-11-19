@@ -45,17 +45,19 @@ class PenHeadsUiTest {
                 Column(Modifier.background(Syncr.colors.paper).padding(16.dp)) {
                     ToolOptions(prefs.brushFor(InkTool.of(prefs.penLook)), {}, {}, penLook = prefs.penLook,
                         onPenLook = { prefs = prefs.copy(penLook = it) },
-                        inkOf = { prefs.headInk(it, dark) },
-                        customInk = (prefs.inkFor(InkTool.of(prefs.penLook)) as? Ink.Custom)?.tipColour(dark),
+                        recentInks = prefs.recentInks,
                         onOpenPicker = { opened = prefs.penLook })
-                    PenHead(Head.FOUNTAIN, blue.tipColour(dark), height = 80.dp, freeze = .42f)
+                    PenHead(Head.FOUNTAIN, height = 80.dp, freeze = .42f)
                 }
             }
         }
         compose.onNodeWithContentDescription("Ballpoint pen").performClick()
         compose.runOnIdle { assertEquals(rose, prefs.inkFor(InkTool.of(prefs.penLook))) }
+        compose.onNodeWithContentDescription("Ballpoint pen, selected").assertExists()
         compose.onNodeWithContentDescription("Fountain pen").performClick()
         compose.runOnIdle { assertEquals(blue, prefs.inkFor(InkTool.of(prefs.penLook))) }
+        compose.onNodeWithContentDescription("Medium size").assertExists()
+        compose.onNodeWithContentDescription("Ink: soft blue, recent").assertExists()
         // A long press on a different head edits that head, not the previously active pen.
         compose.onNodeWithContentDescription("Ballpoint pen").performTouchInput { longClick() }
         compose.runOnIdle { assertEquals(PenLook.BALLPOINT, opened) }

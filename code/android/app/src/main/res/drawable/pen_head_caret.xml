@@ -6,21 +6,21 @@
     android:viewportWidth="32"
     android:viewportHeight="48">
     <path
-        android:pathData="M16.15,7.39C16.04,8.83 15.52,12.88 15.48,16.01C15.45,19.14 15.88,22.11 15.96,26.17C16.04,30.23 15.96,38 15.96,40.36"
+        android:pathData="M16,8C16,18.67 16,29.33 16,40"
         android:strokeColor="#FF000000"
-        android:strokeWidth="1.35"
+        android:strokeWidth="2.0"
         android:strokeLineCap="round"
         android:strokeLineJoin="round" />
     <path
-        android:pathData="M10.73,7.72C11.17,7.62 12.51,7.1 13.36,7.12C14.2,7.14 14.88,7.77 15.81,7.84C16.75,7.91 17.99,7.48 18.97,7.53C19.94,7.58 21.22,8.03 21.67,8.13"
+        android:pathData="M11,8C14.33,8 17.67,8 21,8"
         android:strokeColor="#FF000000"
-        android:strokeWidth="1.95"
+        android:strokeWidth="2.0"
         android:strokeLineCap="round"
         android:strokeLineJoin="round" />
     <path
-        android:pathData="M10.22,40.81C10.74,40.72 12.41,40.33 13.38,40.25C14.36,40.17 15.15,40.34 16.07,40.34C16.99,40.35 18.01,40.27 18.88,40.29C19.76,40.3 20.92,40.4 21.33,40.43"
+        android:pathData="M11,40C14.33,40 17.67,40 21,40"
         android:strokeColor="#FF000000"
-        android:strokeWidth="1.75"
+        android:strokeWidth="2.0"
         android:strokeLineCap="round"
         android:strokeLineJoin="round" />
 </vector>

@@ -31,7 +31,6 @@ import dev.syncr.prototype.notes.InkPreferencesStore
 import dev.syncr.prototype.notes.InkTool
 import dev.syncr.prototype.ui.BubbleHead
 import dev.syncr.prototype.ui.Head
-import dev.syncr.prototype.ui.headInk
 import dev.syncr.prototype.ui.BubbleBarScope
 import dev.syncr.prototype.ui.BubbleChip
 import dev.syncr.prototype.ui.BubbleRing
@@ -87,7 +86,7 @@ fun TabletBubble(state: TabletUiState, open: Boolean, actions: TabletBubbleActio
             description = "Tablet mode options. ${state.caption}", stateDescription = state.caption,
             onOpen = actions.open,
             ring = { BubbleRing(state.link.ring()) },
-            glyph = { if (state.trackpad) SyncrIcon(SyncrIcons.Trackpad, Syncr.colors.ink, size = 22.dp) else PenGlyph(head, ink.headInk(head, Syncr.colors.dark) ?: Syncr.colors.ink) },
+            glyph = { if (state.trackpad) SyncrIcon(SyncrIcons.Trackpad, Syncr.colors.ink, size = 22.dp) else PenGlyph(head) },
             bar = { TabletBar(state, actions) })
     }
 }
@@ -103,7 +102,7 @@ private fun BubbleBarScope.TabletBar(state: TabletUiState, actions: TabletBubble
         // The pad writes with the same heads as the note: choosing one restores that head's remembered ink and size.
         if (pen) PenLook.entries.forEachIndexed { i, look ->
             val head = Head.valueOf(look.name)
-            BubbleHead(head, i, count, ink.penLook == look, ink.headInk(head, Syncr.colors.dark)) {
+            BubbleHead(head, i, count, ink.penLook == look) {
                 InkPreferencesStore.update(context) { it.copy(penLook = look) }
                 LinkController.get(context).usePen(ink.brushFor(InkTool.of(look)))
             }

@@ -97,7 +97,7 @@ private fun RingsPreview() = PreviewSurface {
         RingKind.entries.forEach { kind ->
             Box(contentAlignment = Alignment.Center) {
                 Box(Modifier.size(BubbleDisc).background(Syncr.colors.surface2, androidx.compose.foundation.shape.CircleShape))
-                BubbleRing(kind, if (kind == RingKind.GREY) Syncr.colors.ink else null)
+                BubbleRing(kind, if (kind == RingKind.GREY) Syncr.colors.accent else null)
                 PenGlyph()
             }
         }
@@ -111,7 +111,7 @@ private fun ToolBarPreview() = SyncrTheme(dark = isPreviewDark()) {
         MorphingBubble(expanded = true, center = Offset(60f, 400f), description = "", stateDescription = "", onOpen = {},
             ring = {}, glyph = { PenGlyph() }, optionsOpen = true,
             bar = { NoteToolBar(Brush(BrushFamily.PEN, BrushSize.MEDIUM, InkColour.INK), eraser = false, typing = false,
-                canUndo = true, canRedo = false, penHead = Head.FOUNTAIN, inkOf = { null }, onPen = {}, onHighlighter = {}, onEraser = {}, onUndo = {}, onRedo = {},
+                canUndo = true, canRedo = false, penHead = Head.FOUNTAIN, onPen = {}, onHighlighter = {}, onEraser = {}, onUndo = {}, onRedo = {},
                 onMore = {}, lasso = false, onLasso = {}, onTyping = {}, onPenOptions = {}, onHighlighterOptions = {},
                 onDrag = {}, onRelease = {}) },
             options = { ToolOptions(Brush(BrushFamily.PEN, BrushSize.MEDIUM, InkColour.INK), {}, {}) })

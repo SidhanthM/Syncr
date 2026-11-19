@@ -151,18 +151,6 @@ private suspend fun fieldImage(h: Float, size: Int, dp: Float, paper: Int, dotCo
     return android.graphics.Bitmap.createBitmap(px, size, size, android.graphics.Bitmap.Config.ARGB_8888).asImageBitmap()
 }
 
-/** An irregular, hand-drawn blob around (cx, cy): the same eight points on every draw, so it never shimmers. */
-fun blobPath(cx: Float, cy: Float, r: Float): Path {
-    val wobble = floatArrayOf(1.0f, 0.93f, 1.06f, 0.96f, 1.04f, 0.92f, 1.07f, 0.97f)
-    val n = wobble.size
-    val pts = List(n) { i -> val a = 2 * PI * i / n + 0.2; Offset(cx + (r * wobble[i] * cos(a)).toFloat(), cy + (r * wobble[i] * sin(a)).toFloat()) }
-    return Path().apply {
-        moveTo((pts[0].x + pts[n - 1].x) / 2, (pts[0].y + pts[n - 1].y) / 2)
-        for (i in 0 until n) { val p = pts[i]; val q = pts[(i + 1) % n]; quadraticTo(p.x, p.y, (p.x + q.x) / 2, (p.y + q.y) / 2) }
-        close()
-    }
-}
-
 /**
  * The OKLCH picker: a hue ring around a lightness-by-chroma field for that hue. The field's out-of-gamut part is a quiet
  * dither; a touch there snaps to the gamut boundary by reducing chroma. Five named inks stay as one-tap presets, with the
@@ -283,8 +271,8 @@ fun InkPicker(current: Oklch, recents: List<Oklch>, named: InkColour?, onChange:
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Canvas(Modifier.size(36.dp).pointerInput(Unit) { detectTapGestures(onLongPress = { showValues = !showValues }) }
                 .semantics { contentDescription = "Current ink"; onLongClick("Show or hide the values") { showValues = !showValues; true } }) {
-                drawPath(blobPath(size.width / 2, size.height / 2, size.minDimension / 2 - 2.dp.toPx()), swatch)
-                drawPath(blobPath(size.width / 2, size.height / 2, size.minDimension / 2 - 2.dp.toPx()), c.ink, style = Stroke(1.4.dp.toPx()))
+                // The current ink is a ring, as in the tray and on the bubble.
+                drawCircle(swatch, size.minDimension / 2 - 4.dp.toPx(), style = Stroke(3.dp.toPx()))
             }
             if (showValues) Text(preset?.label() ?: "L ${"%.2f".format(ink.l)}  C ${"%.2f".format(ink.c)}  H ${ink.h.toInt()}", style = Syncr.type.label, color = c.muted)
             Box(Modifier.size(TouchTarget).selectable(false, role = Role.Button, onClick = { close() }).semantics { contentDescription = "Done" },
@@ -302,7 +290,7 @@ fun InkPicker(current: Oklch, recents: List<Oklch>, named: InkColour?, onChange:
             recents.take(8).forEach { r ->
                 Box(Modifier.size(TouchTarget).selectable(false, role = Role.Button, onClick = { ink = r; commit(r) })
                     .semantics { contentDescription = "Recent ink, lightness ${"%.2f".format(r.l)}, hue ${r.h.toInt()}" }, contentAlignment = Alignment.Center) {
-                    Canvas(Modifier.size(24.dp)) { drawPath(blobPath(size.width / 2, size.height / 2, size.minDimension / 2 - 1.dp.toPx()), Color(PickerMath.argb(r.l, r.c, r.h))) }
+                    Canvas(Modifier.size(24.dp)) { drawCircle(Color(PickerMath.argb(r.l, r.c, r.h)), size.minDimension / 2 - 1.dp.toPx()) }
                 }
             }
         }

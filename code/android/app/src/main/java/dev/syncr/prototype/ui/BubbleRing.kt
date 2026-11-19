@@ -1,11 +1,10 @@
 package dev.syncr.prototype.ui
 
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
@@ -40,10 +39,17 @@ fun SaveRing.kind() = when (this) {
     SaveRing.ATTENTION -> RingKind.ATTENTION
 }
 
-/** The bubble's ring, plus an optional ink-colour pip under the glyph. The disc itself is the morph shape. */
+/**
+ * The bubble's ring. With an [ink] (the note's bubble) the ring is a full circle in the current tool's ink, crossfading when
+ * the ink changes; the eraser, lasso and caret pass the neutral line colour. The save state then rides on that ring: a
+ * resting note ("saved on this phone") is the plain full ring, work pending turns it dotted and slowly pulsing, and
+ * attention swaps it for the amber ring with its "!" badge. With no [ink] (the Tablet bubble) the ring is the link's own:
+ * the four states below. The disc itself is the morph shape.
+ */
 @Composable
-fun BubbleRing(kind: RingKind, pip: Color? = null) {
+fun BubbleRing(kind: RingKind, ink: Color? = null) {
     val c = Syncr.colors
+    val shown by animateColorAsState(ink ?: Color.Transparent, Motion.fade<Color>(Syncr.reducedMotion), label = "ring ink")
     // The design's pulse: 2.4 s a cycle, 6 s with reduced motion. The dots carry the meaning either way.
     val pulse = if (kind == RingKind.ACCENT_DOTTED) {
         val half = if (Syncr.reducedMotion) 3000 else 1200
@@ -53,13 +59,16 @@ fun BubbleRing(kind: RingKind, pip: Color? = null) {
     Canvas(Modifier.size(BubbleRingSize)) {
         val ringWidth = 2.dp.toPx()
         val r = size.minDimension / 2 - ringWidth / 2 - 1.dp.toPx()
-        when (kind) {
-            RingKind.ACCENT -> drawCircle(c.accent, r, style = Stroke(ringWidth))
-            RingKind.ACCENT_DOTTED -> drawCircle(c.accent, r, alpha = pulse, style = Stroke(ringWidth * 1.25f, cap = StrokeCap.Round,
+        when {
+            ink != null && (kind == RingKind.GREY || kind == RingKind.ACCENT) -> drawCircle(shown, r, style = Stroke(ringWidth))
+            ink != null && kind == RingKind.ACCENT_DOTTED -> drawCircle(shown, r, alpha = pulse, style = Stroke(ringWidth * 1.25f, cap = StrokeCap.Round,
                 pathEffect = PathEffect.dashPathEffect(floatArrayOf(0.01f, 5.dp.toPx()))))
-            RingKind.GREY -> drawArc(c.faint, -60f, 300f, useCenter = false, topLeft = center - Offset(r, r), size = Size(r * 2, r * 2),
+            kind == RingKind.ACCENT -> drawCircle(c.accent, r, style = Stroke(ringWidth))
+            kind == RingKind.ACCENT_DOTTED -> drawCircle(c.accent, r, alpha = pulse, style = Stroke(ringWidth * 1.25f, cap = StrokeCap.Round,
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(0.01f, 5.dp.toPx()))))
+            kind == RingKind.GREY -> drawArc(c.faint, -60f, 300f, useCenter = false, topLeft = center - Offset(r, r), size = Size(r * 2, r * 2),
                 style = Stroke(ringWidth, cap = StrokeCap.Round))
-            RingKind.ATTENTION -> {
+            else -> {
                 drawCircle(c.attention, r, style = Stroke(ringWidth * 1.25f))
                 val badge = Offset(size.width - 7.dp.toPx(), 7.dp.toPx())
                 drawCircle(c.surface2, 7.dp.toPx(), badge)
@@ -67,11 +76,6 @@ fun BubbleRing(kind: RingKind, pip: Color? = null) {
                 drawLine(c.surface2, badge - Offset(0f, 3.dp.toPx()), badge + Offset(0f, 0.6f.dp.toPx()), 1.6f.dp.toPx(), StrokeCap.Round)
                 drawCircle(c.surface2, 0.9f.dp.toPx(), badge + Offset(0f, 2.7f.dp.toPx()))
             }
-        }
-        if (pip != null) {
-            val at = Offset(center.x, size.height - 12.dp.toPx())
-            drawCircle(c.surface2, 3.6f.dp.toPx(), at)
-            drawCircle(pip, 2.6f.dp.toPx(), at)
         }
     }
 }

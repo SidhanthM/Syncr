@@ -42,6 +42,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -251,6 +252,9 @@ private fun NoteCanvas(vm: NotesViewModel, state: NotesState, dark: Boolean, too
         })
 }
 
+/** The ring is a signal, so a highlighter's ring is stronger than its stroke (still translucent) to read against the surface. */
+private const val RING_HIGHLIGHTER_ALPHA = 0.9f
+
 /** The draggable tool bubble and its bar. Choosing a tool folds the bar; tapping the active tool (or a long press) opens its options. */
 @Composable
 private fun NoteBubble(state: NotesState, tools: ToolState, actions: NoteActions, temporaryEraser: Boolean, onType: () -> Unit) {
@@ -276,15 +280,16 @@ private fun NoteBubble(state: NotesState, tools: ToolState, actions: NoteActions
         onTools(tools.copy(brush = tools.brush.copy(colour = InkColour.INK, customInk = oklch)))
     }
     val displayed = if (temporaryEraser) tools.copy(eraser = true, lasso = false, typing = false) else tools
-    val pip = if (displayed.eraser || displayed.lasso || displayed.typing) null else Color(inkColour(tools.brush, c.dark))
+    // The ring wears the tool's ink (a highlighter at its own alpha over the surface); tools without ink get the neutral line colour.
+    val ringInk = if (displayed.eraser || displayed.lasso || displayed.typing) c.lineStrong
+        else Color(inkColour(displayed.brush, c.dark)).let { if (displayed.brush.family == BrushFamily.HIGHLIGHTER) it.copy(alpha = RING_HIGHLIGHTER_ALPHA) else it }.compositeOver(c.surface2)
     FloatingChrome(open = tools.barOpen, optionsOpen = tools.optionsOpen && !displayed.eraser && !displayed.lasso,
         description = bubbleDescription(displayed.brush, displayed.eraser, displayed.lasso, status, displayed.typing), stateDescription = status.headline,
         onOpen = { onTools(tools.copy(barOpen = true, optionsOpen = false)) },
-        ring = { BubbleRing(status.ring.kind(), pip) },
+        ring = { BubbleRing(status.ring.kind(), ringInk) },
         glyph = { TemporaryEraserGlyph(tools, temporaryEraser) },
         bar = { drag, release -> NoteToolBar(displayed.brush, displayed.eraser, displayed.typing,
             canUndo = canUndo, canRedo = canRedo, penHead = penTool.head(),
-            inkOf = { head -> ink.headInk(head, c.dark) },
             onPen = { if (tools.pen) onTools(tools.copy(optionsOpen = !tools.optionsOpen))
                 else choose(tools.copy(eraser = false, lasso = false, typing = false, brush = ink.brushFor(penTool))) },
             onHighlighter = { if (tools.highlighter) onTools(tools.copy(optionsOpen = !tools.optionsOpen))
@@ -303,13 +308,11 @@ private fun NoteBubble(state: NotesState, tools: ToolState, actions: NoteActions
                     InkPreferencesStore.update(context) { it.withInk(activeTool, Ink.Named(colour)) }
                     onTools(tools.copy(brush = tools.brush.copy(colour = colour, customInk = null)))
                 }, onClose = { pickerOpen = false })
-            else ToolOptions(tools.brush, penLook = if (tools.pen) ink.penLook else null,
+            else ToolOptions(tools.brush, penLook = ink.penLook, recentInks = ink.recentInks, onCustomInk = ::pickCustom,
                 onPenLook = { look ->
                     InkPreferencesStore.update(context) { it.copy(penLook = look) }
                     onTools(tools.copy(brush = ink.brushFor(InkTool.of(look))))
                 },
-                inkOf = { head -> ink.headInk(head, c.dark) },
-                customInk = (ink.inkFor(activeTool) as? Ink.Custom)?.let { Color(it.oklch.strokeArgb(c.dark)) },
                 onOpenPicker = { pickerOpen = true },
                 onSize = { size ->
                     InkPreferencesStore.update(context) { it.withSize(activeTool, size) }
