@@ -681,6 +681,10 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_syncr_core_checksum_func_encode_stroke_commit(
     ): Int
+    external fun uniffi_syncr_core_checksum_func_highlight_code(
+    ): Int
+    external fun uniffi_syncr_core_checksum_func_highlight_languages(
+    ): Int
     external fun uniffi_syncr_core_checksum_func_layout_margins(
     ): Int
     external fun uniffi_syncr_core_checksum_func_open_library(
@@ -977,6 +981,10 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_func_encode_stroke_commit(`commit`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_func_highlight_code(`language`: RustBuffer.ByValue,`code`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_func_highlight_languages(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_func_layout_margins(`input`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_func_open_library(`rootPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1141,6 +1149,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_syncr_core_checksum_func_encode_stroke_commit() and 0xFFFF) != 44624) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_func_highlight_code() and 0xFFFF) != 44673) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_func_highlight_languages() and 0xFFFF) != 36342) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_syncr_core_checksum_func_layout_margins() and 0xFFFF) != 51277) {
@@ -4331,6 +4345,52 @@ public object FfiConverterTypeChangeEvent: FfiConverterRustBuffer<ChangeEvent> {
 
 
 
+/**
+ * A coloured run of `code`, in UTF-16 code units.
+ */
+data class CodeSpan (
+    var `start`: kotlin.UInt
+    , 
+    var `end`: kotlin.UInt
+    , 
+    var `token`: CodeToken
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCodeSpan: FfiConverterRustBuffer<CodeSpan> {
+    override fun read(buf: ByteBuffer): CodeSpan {
+        return CodeSpan(
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterTypeCodeToken.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: CodeSpan) = (
+            FfiConverterUInt.allocationSize(value.`start`) +
+            FfiConverterUInt.allocationSize(value.`end`) +
+            FfiConverterTypeCodeToken.allocationSize(value.`token`)
+    )
+
+    override fun write(value: CodeSpan, buf: ByteBuffer) {
+            FfiConverterUInt.write(value.`start`, buf)
+            FfiConverterUInt.write(value.`end`, buf)
+            FfiConverterTypeCodeToken.write(value.`token`, buf)
+    }
+}
+
+
+
 data class Command (
     var `operationId`: kotlin.String
     , 
@@ -7223,6 +7283,50 @@ public object FfiConverterTypeChangePage : FfiConverterRustBuffer<ChangePage>{
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
+
+enum class CodeToken {
+    
+    KEYWORD,
+    STRING,
+    COMMENT,
+    NUMBER,
+    FUNCTION,
+    TYPE,
+    CONSTANT,
+    VARIABLE,
+    OPERATOR,
+    PUNCTUATION,
+    TAG,
+    ATTRIBUTE;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCodeToken: FfiConverterRustBuffer<CodeToken> {
+    override fun read(buf: ByteBuffer) = try {
+        CodeToken.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: CodeToken) = 4UL
+
+    override fun write(value: CodeToken, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
     }
 }
 
@@ -11083,6 +11187,34 @@ public object FfiConverterSequenceTypeChangeEvent: FfiConverterRustBuffer<List<C
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypeCodeSpan: FfiConverterRustBuffer<List<CodeSpan>> {
+    override fun read(buf: ByteBuffer): List<CodeSpan> {
+        val len = buf.getInt()
+        return List<CodeSpan>(len) {
+            FfiConverterTypeCodeSpan.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<CodeSpan>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeCodeSpan.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<CodeSpan>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeCodeSpan.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypeCompanionDrawingStep: FfiConverterRustBuffer<List<CompanionDrawingStep>> {
     override fun read(buf: ByteBuffer): List<CompanionDrawingStep> {
         val len = buf.getInt()
@@ -11755,6 +11887,32 @@ public object FfiConverterSequenceTypePreviewEvent: FfiConverterRustBuffer<List<
     
         
         FfiConverterTypeStrokeCommit.lower(`commit`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Sorted, non-overlapping spans for `code` in `language` (a fence info string); an unknown or empty
+         * language gives no spans.
+         */ fun `highlightCode`(`language`: kotlin.String, `code`: kotlin.String): List<CodeSpan> {
+            return FfiConverterSequenceTypeCodeSpan.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_func_highlight_code(
+    
+        
+        FfiConverterString.lower(`language`),
+        FfiConverterString.lower(`code`),_status)
+}
+    )
+    }
+    
+ fun `highlightLanguages`(): List<kotlin.String> {
+            return FfiConverterSequenceString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_func_highlight_languages(
+    
+        _status)
 }
     )
     }

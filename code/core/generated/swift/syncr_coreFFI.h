@@ -577,6 +577,17 @@ RustBuffer uniffi_syncr_core_fn_func_new_id(RustCallStatus *_Nonnull out_status
 RustBuffer uniffi_syncr_core_fn_func_encode_stroke_commit(RustBuffer commit, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_HIGHLIGHT_CODE
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_HIGHLIGHT_CODE
+RustBuffer uniffi_syncr_core_fn_func_highlight_code(RustBuffer language, RustBuffer code, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_HIGHLIGHT_LANGUAGES
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_HIGHLIGHT_LANGUAGES
+RustBuffer uniffi_syncr_core_fn_func_highlight_languages(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_LAYOUT_MARGINS
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_LAYOUT_MARGINS
 RustBuffer uniffi_syncr_core_fn_func_layout_margins(RustBuffer input, RustCallStatus *_Nonnull out_status
@@ -949,6 +960,18 @@ uint16_t uniffi_syncr_core_checksum_func_new_id(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_ENCODE_STROKE_COMMIT
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_ENCODE_STROKE_COMMIT
 uint16_t uniffi_syncr_core_checksum_func_encode_stroke_commit(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_HIGHLIGHT_CODE
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_HIGHLIGHT_CODE
+uint16_t uniffi_syncr_core_checksum_func_highlight_code(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_HIGHLIGHT_LANGUAGES
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_HIGHLIGHT_LANGUAGES
+uint16_t uniffi_syncr_core_checksum_func_highlight_languages(void
     
 );
 #endif

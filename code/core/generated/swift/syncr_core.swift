@@ -2392,6 +2392,67 @@ public func FfiConverterTypeChangeEvent_lower(_ value: ChangeEvent) -> RustBuffe
 }
 
 
+/**
+ * A coloured run of `code`, in UTF-16 code units.
+ */
+public struct CodeSpan: Equatable, Hashable {
+    public var start: UInt32
+    public var end: UInt32
+    public var token: CodeToken
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(start: UInt32, end: UInt32, token: CodeToken) {
+        self.start = start
+        self.end = end
+        self.token = token
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension CodeSpan: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCodeSpan: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CodeSpan {
+        return
+            try CodeSpan(
+                start: FfiConverterUInt32.read(from: &buf), 
+                end: FfiConverterUInt32.read(from: &buf), 
+                token: FfiConverterTypeCodeToken.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CodeSpan, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.start, into: &buf)
+        FfiConverterUInt32.write(value.end, into: &buf)
+        FfiConverterTypeCodeToken.write(value.token, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCodeSpan_lift(_ buf: RustBuffer) throws -> CodeSpan {
+    return try FfiConverterTypeCodeSpan.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCodeSpan_lower(_ value: CodeSpan) -> RustBuffer {
+    return FfiConverterTypeCodeSpan.lower(value)
+}
+
+
 public struct Command: Equatable, Hashable {
     public var operationId: String
     public var dependencies: [String]
@@ -5996,6 +6057,142 @@ public func FfiConverterTypeChangePage_lower(_ value: ChangePage) -> RustBuffer 
 
 
 
+public enum CodeToken: Equatable, Hashable {
+    
+    case keyword
+    case string
+    case comment
+    case number
+    case function
+    case type
+    case constant
+    case variable
+    case `operator`
+    case punctuation
+    case tag
+    case attribute
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension CodeToken: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCodeToken: FfiConverterRustBuffer {
+    typealias SwiftType = CodeToken
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CodeToken {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .keyword
+        
+        case 2: return .string
+        
+        case 3: return .comment
+        
+        case 4: return .number
+        
+        case 5: return .function
+        
+        case 6: return .type
+        
+        case 7: return .constant
+        
+        case 8: return .variable
+        
+        case 9: return .`operator`
+        
+        case 10: return .punctuation
+        
+        case 11: return .tag
+        
+        case 12: return .attribute
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: CodeToken, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .keyword:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .string:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .comment:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .number:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .function:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .type:
+            writeInt(&buf, Int32(6))
+        
+        
+        case .constant:
+            writeInt(&buf, Int32(7))
+        
+        
+        case .variable:
+            writeInt(&buf, Int32(8))
+        
+        
+        case .`operator`:
+            writeInt(&buf, Int32(9))
+        
+        
+        case .punctuation:
+            writeInt(&buf, Int32(10))
+        
+        
+        case .tag:
+            writeInt(&buf, Int32(11))
+        
+        
+        case .attribute:
+            writeInt(&buf, Int32(12))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCodeToken_lift(_ buf: RustBuffer) throws -> CodeToken {
+    return try FfiConverterTypeCodeToken.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCodeToken_lower(_ value: CodeToken) -> RustBuffer {
+    return FfiConverterTypeCodeToken.lower(value)
+}
+
+
+
+
 public enum CommandBody: Equatable, Hashable {
     
     case imageMarks(mutations: [ImageMutation]
@@ -9090,6 +9287,31 @@ fileprivate struct FfiConverterSequenceTypeChangeEvent: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeCodeSpan: FfiConverterRustBuffer {
+    typealias SwiftType = [CodeSpan]
+
+    public static func write(_ value: [CodeSpan], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeCodeSpan.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [CodeSpan] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [CodeSpan]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeCodeSpan.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeCompanionDrawingStep: FfiConverterRustBuffer {
     typealias SwiftType = [CompanionDrawingStep]
 
@@ -9692,6 +9914,26 @@ public func encodeStrokeCommit(commit: StrokeCommit)throws  -> [Data]  {
 })
 }
 /**
+ * Sorted, non-overlapping spans for `code` in `language` (a fence info string); an unknown or empty
+ * language gives no spans.
+ */
+public func highlightCode(language: String, code: String) -> [CodeSpan]  {
+    return try!  FfiConverterSequenceTypeCodeSpan.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_syncr_core_fn_func_highlight_code(
+        FfiConverterString.lower(language),
+        FfiConverterString.lower(code),uniffiCallStatus
+    )
+})
+}
+public func highlightLanguages() -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_syncr_core_fn_func_highlight_languages(uniffiCallStatus
+    )
+})
+}
+/**
  * Places every item in one pass. Each card goes in the lane whose last card ends higher
  * (ties go left) so it stays closest to its passage, at its passage's top or `spacing` under
  * the lane's last card, whichever is lower. Same input, same output on every platform.
@@ -9912,6 +10154,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_syncr_core_checksum_func_encode_stroke_commit() != 44624) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_syncr_core_checksum_func_highlight_code() != 44673) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_syncr_core_checksum_func_highlight_languages() != 36342) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_syncr_core_checksum_func_layout_margins() != 51277) {
