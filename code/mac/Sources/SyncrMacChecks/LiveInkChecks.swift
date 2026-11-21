@@ -654,3 +654,55 @@ private func compare(_ a: [UInt8], _ b: [UInt8]) -> (max: Int, over: Int) {
     try check(readBack(cached) == reference && off.lastPassCount == 1, "dry cache: switched off, cacheDry changes nothing (one pass, same bytes)")
     try check(off.dryCacheBuilds == 0, "dry cache: switched off, no cache is ever built")
 }
+
+/// `swift run -c release SyncrMacChecks --dry-bench`: wet-frame GPU time, CPU encode time and received-to-GPU-complete time
+/// on a light (about 50 strokes) and a heavy (about 5,000 strokes) note, dry cache on and off. About 2,000 pen samples per
+/// run go through the real engine (ingest, tessellation, publish) and are drawn offscreen at the drawable's size, still view.
+@MainActor func dryCacheBench() throws {
+    let width = Int(ProcessInfo.processInfo.environment["BENCH_WIDTH"] ?? "") ?? 2880, height = Int(ProcessInfo.processInfo.environment["BENCH_HEIGHT"] ?? "") ?? 1800
+    let rig = try LiveRig()
+    let device = rig.renderer.device
+    let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: width, height: height, mipmapped: false)
+    desc.usage = [.renderTarget, .shaderRead]; desc.storageMode = .shared
+    guard let target = device.makeTexture(descriptor: desc) else { throw CheckFailure(description: "Metal texture unavailable") }
+    final class Samples: @unchecked Sendable {
+        private let lock = NSLock(); private var gpu: [Double] = [], encode: [Double] = []
+        func add(_ e: Double, _ g: Double) { lock.lock(); encode.append(e); gpu.append(g); lock.unlock() }
+        var values: (gpu: [Double], encode: [Double]) { lock.lock(); defer { lock.unlock() }; return (gpu, encode) }
+    }
+    func pct(_ v: [Double], _ p: Double) -> Double { let s = v.sorted(); return s.isEmpty ? 0 : s[min(s.count - 1, Int((Double(s.count - 1) * p).rounded()))] }
+    print("dry cache bench: target \(width)x\(height)")
+    print("| note | strokes | cache | wet frames | GPU p50 ms | GPU p95 ms | encode p50 ms | encode p95 ms | input-to-presented p50 ms | input-to-presented p95 ms |")
+    print("|---|---|---|---|---|---|---|---|---|---|")
+    for (name, count) in [("light", 50), ("heavy", 5000)] {
+        let drawing = try dryDrawing(count: count, samples: 40, scale: count > 500 ? 0.09 : 0.2)
+        for cache in [false, true] {
+            let renderer = try MeshRenderer(device: device, dryCache: cache)
+            let samples = Samples()
+            renderer.frameTimes = { e, g, _ in samples.add(e, g) }
+            rig.engine.reset(); rig.engine.waitIdle(); rig.engine.resetLatency()
+            var frames = 0, penSamples = 0
+            // One warm-up stroke (not counted), then five strokes of about 430 samples.
+            for round in 0..<6 {
+                let plan = try rig.plan(.pen)
+                if round == 1 { rig.engine.resetLatency(); _ = samples.values }
+                for step in plan.steps where step.preview != nil {
+                    try rig.driver.feed(step, at: monotonicNs()); rig.engine.waitIdle()
+                    let taken = rig.engine.take()
+                    guard !taken.times.isEmpty else { continue }
+                    try renderer.render(drawing, wet: taken.frame, viewport: rig.viewport, dark: false, target: target,
+                                        stage: rig.engine.stageSink(taken.times), cacheDry: true)
+                    if round > 0 { frames += 1; penSamples += 4 }
+                }
+                rig.engine.reset(); rig.engine.waitIdle()
+                if round == 0 { rig.engine.resetLatency() }
+            }
+            let v = samples.values
+            let skip = max(0, v.gpu.count - frames)
+            let gpu = Array(v.gpu[skip...]), enc = Array(v.encode[skip...])
+            let lat = rig.engine.latency.summary()
+            print(String(format: "| %@ | %d | %@ | %d (%d samples) | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f |", name, count, cache ? "on" : "off", frames, penSamples,
+                         pct(gpu, 0.5), pct(gpu, 0.95), pct(enc, 0.5), pct(enc, 0.95), lat.p50, lat.p95))
+        }
+    }
+}
