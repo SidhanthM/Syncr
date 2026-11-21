@@ -537,4 +537,120 @@ private final class DoneFlag: @unchecked Sendable {
     try liveInkIncrementalBounded()
     try liveInkHover()
     try liveInkRealtimeReplay()
+    try dryCachePixelChecks()
+}
+
+
+// MARK: - Dry-ink cache (contract mac-dry-cache-v1)
+
+/// A drawing of `count` small pen scribbles (every 11th a highlighter) spread over the canvas, as a loaded note would hold them.
+@MainActor private func dryDrawing(count: Int, samples: Int, scale: Float) throws -> Drawing {
+    var strokes: [DrawStroke] = []
+    var lowest: Float = 0
+    for i in 0..<count {
+        let highlighter = i % 11 == 10
+        let brush = Brush(family: highlighter ? .highlighter : .pen, size: highlighter ? .large : .medium,
+                          colour: [.ink, .blue, .red, .green][i % 4])
+        let x = Float((i * 977) % 4300), y = Float((i * 613) % 2700)
+        let c = try ReplayGenerator.channels(kind: highlighter ? .highlighter : .pen, origin: (x, y), scale: scale, samples: samples)
+        let mesh = try tessellateStroke(samples: encodeSamples(channels: c), style: defaultStrokeStyle(brush: brush),
+                                        transform: Affine(a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0))
+        strokes.append(DrawStroke(mesh: mesh, originX: 0, originY: 0, colour: brush.colour, highlighter: highlighter))
+        lowest = max(lowest, mesh.maxY)
+    }
+    return Drawing(title: "Dry cache", strokes: strokes, lowestInk: lowest)
+}
+
+private func readBack(_ texture: MTLTexture) -> [UInt8] {
+    var bytes = [UInt8](repeating: 0, count: texture.width * texture.height * 4)
+    texture.getBytes(&bytes, bytesPerRow: texture.width * 4, from: MTLRegionMake2D(0, 0, texture.width, texture.height), mipmapLevel: 0)
+    return bytes
+}
+
+/// Largest per-channel difference, and how many pixels differ by more than 8/255 (about 3%).
+private func compare(_ a: [UInt8], _ b: [UInt8]) -> (max: Int, over: Int) {
+    var m = 0, over = 0
+    for i in stride(from: 0, to: a.count, by: 4) {
+        var d = 0
+        for k in 0..<4 { d = max(d, abs(Int(a[i + k]) - Int(b[i + k]))) }
+        m = max(m, d); if d > 8 { over += 1 }
+    }
+    return (m, over)
+}
+
+@MainActor func dryCachePixelChecks() throws {
+    let rig = try LiveRig()
+    let on = try MeshRenderer(device: rig.renderer.device, dryCache: true)
+    let off = try MeshRenderer(device: rig.renderer.device, dryCache: false)
+    try check(!off.dryCacheEnabled && on.dryCacheEnabled, "dry cache: kill switch is a renderer setting")
+    try check(rig.renderer.dryCacheEnabled == (ProcessInfo.processInfo.environment["SYNCR_MAC_DRY_CACHE"] != "0"), "dry cache: SYNCR_MAC_DRY_CACHE=0 switches it off")
+    let drawing = try dryDrawing(count: 60, samples: 60, scale: 0.2)
+    let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: rigWidth, height: rigHeight, mipmapped: false)
+    desc.usage = [.renderTarget, .shaderRead]; desc.storageMode = .shared
+    guard let cached = rig.renderer.device.makeTexture(descriptor: desc), let plain = rig.renderer.device.makeTexture(descriptor: desc) else {
+        throw CheckFailure(description: "Metal texture unavailable")
+    }
+    func pair(_ drawing: Drawing, wet: WetFrame?, dark: Bool = false, _ label: String) throws -> [UInt8] {
+        try off.render(drawing, wet: wet, viewport: rig.viewport, dark: dark, target: plain)
+        try on.render(drawing, wet: wet, viewport: rig.viewport, dark: dark, target: cached, cacheDry: true)
+        let (m, over) = compare(readBack(cached), readBack(plain))
+        print("dry cache pixels, \(label): max channel diff \(m), pixels over 8/255: \(over)")
+        try check(over <= 200 && m <= 128, "dry cache: \(label) matches the uncached render (max \(m), \(over) pixels over 8/255)")
+        return readBack(cached)
+    }
+    // Committed ink only, light and dark.
+    let still = try pair(drawing, wet: nil, "committed only")
+    try check(inkPixels(still) > 3000, "dry cache: the drawing has ink")
+    _ = try pair(drawing, wet: nil, dark: true, "committed only, dark")
+    // Wet pen, then a wet highlighter that crosses committed ink, mid-stroke so pieces are frozen and a tail is live.
+    let pen = try rig.plan(.pen)
+    try rig.feed(previewSteps(pen).prefix(60))
+    let wetPen = rig.engine.currentFrame
+    try check(wetPen.strokes.count == 1 && !wetPen.strokes[0].highlighter, "dry cache: a wet pen stroke is live")
+    _ = try pair(drawing, wet: wetPen, "wet pen")
+    let builds = on.dryCacheBuilds, hits = on.dryCacheHits
+    rig.engine.reset(); rig.engine.waitIdle()
+    let marker = try rig.plan(.highlighter)
+    try rig.feed(previewSteps(marker).prefix(90))
+    let wetMarker = rig.engine.currentFrame
+    try check(wetMarker.strokes.count == 1 && wetMarker.strokes[0].highlighter, "dry cache: a wet highlighter is live")
+    _ = try pair(drawing, wet: wetMarker, "wet highlighter over committed ink")
+    try check(on.dryCacheHits > hits && on.dryCacheBuilds == builds, "dry cache: wet frames on a still view reuse the cache (builds \(on.dryCacheBuilds), hits \(on.dryCacheHits))")
+    try check(on.lastPassCount == 2 && off.lastPassCount == 1, "dry cache: cached frame is build-free copy + wet pass; the switch keeps one pass")
+    // Hover dot.
+    rig.engine.reset(); rig.engine.waitIdle()
+    try rig.feed(rig.plan(.pen).steps.prefix(3))
+    _ = try pair(drawing, wet: rig.engine.currentFrame, "hover dot")
+
+    // Pen-up: the stroke's mesh joins the drawing and the wet layer drops it, in the same frame. The very next frame must
+    // show the stroke exactly once: equal to the uncached render, different from the frame before it.
+    rig.engine.reset(); rig.engine.waitIdle()
+    let up = try rig.plan(.pen)
+    try rig.feed(previewSteps(up))
+    let beforeUp = try pair(drawing, wet: rig.engine.currentFrame, "pen-up, last wet frame")
+    let c = up.channels
+    let mesh = try tessellateStroke(samples: encodeSamples(channels: c), style: defaultStrokeStyle(brush: Brush(family: .pen, size: .medium, colour: .blue)),
+                                    transform: Affine(a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0))
+    drawing.strokes.append(DrawStroke(mesh: mesh, originX: 0, originY: 0, colour: .blue, highlighter: false))
+    let rebuilds = on.dryCacheBuilds
+    let afterUp = try pair(drawing, wet: nil, "pen-up, first frame without the wet stroke")
+    try check(on.dryCacheBuilds == rebuilds + 1, "dry cache: pen-up rebuilds the cache once")
+    try check(inkPixels(afterUp) >= inkPixels(beforeUp) * 95 / 100, "dry cache: the stroke does not vanish at pen-up (\(inkPixels(afterUp)) vs \(inkPixels(beforeUp)) ink pixels)")
+    _ = try pair(drawing, wet: nil, "pen-up, second frame")
+    try check(on.dryCacheBuilds == rebuilds + 1, "dry cache: and then it is reused")
+
+    // A moving view takes today's path and leaves the cache stale; the next still frame rebuilds it.
+    let moved = Viewport(left: 40, top: 30, zoom: 1)
+    try on.render(drawing, wet: nil, viewport: moved, dark: false, target: cached, cacheDry: false)
+    try off.render(drawing, wet: nil, viewport: moved, dark: false, target: plain)
+    try check(readBack(cached) == readBack(plain) && on.lastPassCount == 1, "dry cache: a moving frame is the uncached render, byte for byte")
+    let stale = on.dryCacheBuilds
+    _ = try pair(drawing, wet: nil, "first still frame after moving")
+    try check(on.dryCacheBuilds == stale + 1, "dry cache: it is rebuilt once the view settles")
+    // Kill switch: with the cache off, `cacheDry: true` changes nothing at all.
+    try off.render(drawing, wet: nil, viewport: rig.viewport, dark: false, target: plain)
+    let reference = readBack(plain)
+    try off.render(drawing, wet: nil, viewport: rig.viewport, dark: false, target: cached, cacheDry: true)
+    try check(readBack(cached) == reference && off.lastPassCount == 1, "dry cache: switched off, cacheDry changes nothing (one pass, same bytes)")
+    try check(off.dryCacheBuilds == 0, "dry cache: switched off, no cache is ever built")
 }

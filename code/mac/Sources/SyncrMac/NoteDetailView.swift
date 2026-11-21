@@ -886,6 +886,8 @@ import SyncrCore
     /// `SYNCR_MAC_DRAWABLES` (2 or 3) and `SYNCR_MAC_FRAME_LATENCY` (link only) tune them.
     private let mode = PresentMode.current
     private var presentPolicy = PresentPolicy()
+    /// Same rule as `presentPolicy`, kept for every mode: the dry-ink cache is used only on frames where the view is still.
+    private var motionPolicy = PresentPolicy()
     private var inFlight = false
     private var again = false
     private var cold = false
@@ -972,6 +974,7 @@ import SyncrCore
             // Same settings as the fixed modes, chosen for this frame only.
             if layer.presentsWithTransaction != transaction { layer.presentsWithTransaction = transaction; layer.displaySyncEnabled = transaction }
         }
+        let moving = motionPolicy.transaction(viewport: frameViewport, size: canvas.bounds.size, animating: slide != nil || canvas.inLiveResize)
         // Present the drawable and move the AppKit overlays in one CA commit.
         // In particular, never show new text coordinates over an older ink frame.
         CATransaction.begin()
@@ -991,7 +994,7 @@ import SyncrCore
         do {
             try renderer.render(model.drawing, wet: wet, viewport: frameViewport, dark: dark, target: drawable.texture,
                                 presenting: drawable, completion: failed, stage: stage,
-                                afterScheduled: transaction)
+                                afterScheduled: transaction, cacheDry: !moving)
             displayedViewport = frameViewport
             positionText()
             if panTrace != nil { tracePan(ink: frameViewport, transaction: transaction) }
