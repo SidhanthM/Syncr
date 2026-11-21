@@ -18,6 +18,9 @@ mod error;
 mod failure_tests;
 mod fault;
 mod files;
+mod highlight;
+#[cfg(test)]
+mod highlight_tests;
 mod image;
 #[cfg(test)]
 mod image_tests;
@@ -50,6 +53,7 @@ mod validation;
 pub use commit::{StrokeCommit, StrokeReassembler, encode_stroke_commit};
 pub use companion_types::*;
 pub use error::{CoreError, CoreResult};
+pub use highlight::{CodeSpan, CodeToken, highlight_code, highlight_languages};
 pub use image_types::*;
 pub use layout::*;
 pub use library::{Note, SyncrLibrary, open_library};

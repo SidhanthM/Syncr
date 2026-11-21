@@ -15,8 +15,30 @@ path = "src/bin/uniffi-bindgen.rs"
 required-features = ["bindgen"]
 
 [features]
-default = []
+default = ["main-languages"]
 bindgen = ["uniffi/cli"]
+# Language sets (code-highlight-v1). Python is always built; the default `main-languages` adds c, cpp, c# and java, on both
+# platforms (every build script takes the default). `all-languages` adds the rest. The API is the same either way;
+# `highlight_languages()` reports what is compiled in.
+lang-javascript = ["dep:tree-sitter-javascript"]
+lang-typescript = ["dep:tree-sitter-typescript"]
+lang-rust = ["dep:tree-sitter-rust"]
+lang-swift = ["dep:tree-sitter-swift"]
+lang-kotlin = ["dep:tree-sitter-kotlin-ng"]
+lang-json = ["dep:tree-sitter-json"]
+lang-bash = ["dep:tree-sitter-bash"]
+lang-c = ["dep:tree-sitter-c"]
+lang-cpp = ["dep:tree-sitter-cpp"]
+lang-go = ["dep:tree-sitter-go"]
+lang-html = ["dep:tree-sitter-html"]
+lang-css = ["dep:tree-sitter-css"]
+lang-yaml = ["dep:tree-sitter-yaml"]
+lang-toml = ["dep:tree-sitter-toml-ng"]
+lang-sql = ["dep:tree-sitter-sequel"]
+lang-java = ["dep:tree-sitter-java"]
+lang-c-sharp = ["dep:tree-sitter-c-sharp"]
+main-languages = ["lang-c", "lang-cpp", "lang-c-sharp", "lang-java"]
+all-languages = ["lang-javascript", "lang-typescript", "lang-rust", "lang-swift", "lang-kotlin", "lang-json", "lang-bash", "lang-c", "lang-cpp", "lang-go", "lang-html", "lang-css", "lang-yaml", "lang-toml", "lang-sql", "lang-java", "lang-c-sharp"]
 
 [dependencies]
 uniffi = { version = "=0.32.2", default-features = false }
@@ -27,6 +49,26 @@ fs2 = "=0.4.3"
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = { version = "=1.0.149", features = ["float_roundtrip"] }
 libc = "=0.2.191"
+tree-sitter = "=0.26.13"
+tree-sitter-highlight = "=0.26.13"
+tree-sitter-python = "=0.25.0"
+tree-sitter-javascript = { optional = true, version = "=0.25.0" }
+tree-sitter-typescript = { optional = true, version = "=0.23.2" }
+tree-sitter-rust = { optional = true, version = "=0.24.2" }
+tree-sitter-swift = { optional = true, version = "=0.7.4" }
+tree-sitter-kotlin-ng = { optional = true, version = "=1.1.0" }
+tree-sitter-json = { optional = true, version = "=0.24.8" }
+tree-sitter-bash = { optional = true, version = "=0.25.1" }
+tree-sitter-c = { optional = true, version = "=0.24.2" }
+tree-sitter-cpp = { optional = true, version = "=0.23.4" }
+tree-sitter-go = { optional = true, version = "=0.25.0" }
+tree-sitter-html = { optional = true, version = "=0.23.2" }
+tree-sitter-css = { optional = true, version = "=0.25.0" }
+tree-sitter-yaml = { optional = true, version = "=0.7.2" }
+tree-sitter-toml-ng = { optional = true, version = "=0.7.0" }
+tree-sitter-sequel = { optional = true, version = "=0.3.13" }
+tree-sitter-java = { optional = true, version = "=0.23.5" }
+tree-sitter-c-sharp = { optional = true, version = "=0.24.0" }
 
 [dev-dependencies]
 base64 = "=0.22.1"
