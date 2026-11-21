@@ -147,6 +147,15 @@ class FrontInkHandoverTest {
         assertEquals(FrontInkHandover.Phase.IDLE, fresh.phase)
     }
 
+    // ---- stats ----
+    @Test fun statsLogEveryTwoHundredSamples() {
+        val s = FlushLatencyStats()
+        for (i in 1..199) assertNull(s.record(i * 1_000_000L))
+        val line = s.record(200_000_000L)
+        assertEquals("p50=101.0 p95=191.0 max=200.0 n=200", line)
+        assertNull(s.record(1_000_000L)) // a new window
+    }
+
     // ---- geometry helpers ----
     @Test fun clipIsTheCanvasColumnWithNoBottomEdge() {
         val clip = FrontInkPad.canvasClip(SheetMapping(2f, 40f, -100f), 1000, 1800)

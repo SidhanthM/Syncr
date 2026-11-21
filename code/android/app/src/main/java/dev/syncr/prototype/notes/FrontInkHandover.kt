@@ -179,3 +179,30 @@ class FrontInkHandover {
         generation++
     }
 }
+
+/**
+ * Input-to-flush latencies (not input-to-photon): the time from a pen sample's event to the `glFlush`
+ * that put it into the front buffer. [record] returns the log line every [WINDOW] samples.
+ */
+class FlushLatencyStats(private val window: Int = WINDOW) {
+    private val ms = FloatArray(window)
+    private var n = 0
+
+    fun record(nanos: Long): String? {
+        ms[n++] = max(nanos, 0L) / 1_000_000f
+        if (n < window) return null
+        val sorted = ms.copyOf().also { it.sort() }
+        val line = String.format(
+            java.util.Locale.ROOT, "p50=%.1f p95=%.1f max=%.1f n=%d",
+            sorted[(window * 50 / 100).coerceAtMost(window - 1)],
+            sorted[(window * 95 / 100).coerceAtMost(window - 1)],
+            sorted[window - 1], window,
+        )
+        n = 0
+        return line
+    }
+
+    companion object {
+        const val WINDOW = 200
+    }
+}

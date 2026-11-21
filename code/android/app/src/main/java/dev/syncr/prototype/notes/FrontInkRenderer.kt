@@ -23,6 +23,9 @@ internal class SampleBatch(val count: Int) {
     val tilt = FloatArray(count)
     val orientation = FloatArray(count)
     val eventMs = LongArray(count)
+
+    /** `uptimeNanos` timebase, for input-to-flush; the same instants as [eventMs] but finer where the OS allows. */
+    val eventNanos = LongArray(count)
 }
 
 /**

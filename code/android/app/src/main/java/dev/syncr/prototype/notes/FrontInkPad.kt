@@ -11,6 +11,7 @@ import android.opengl.GLES30
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.SystemClock
 import android.util.Log
 import android.view.Choreographer
 import android.view.MotionEvent
@@ -48,6 +49,7 @@ internal class FrontInkPad(
     private val handover = FrontInkHandover()
     private val mainHandler = Handler(context.mainLooper)
     private val renderer = FrontInkRenderer()
+    private val stats = FlushLatencyStats()
 
     private var thread: HandlerThread? = null
     private var handler: Handler? = null
@@ -84,6 +86,8 @@ internal class FrontInkPad(
     private var eglSurface: EGLSurface = EGL14.EGL_NO_SURFACE
     private var single = false
     private var presentPosted = false
+    private var pendingNanos = LongArray(64)
+    private var pendingCount = 0
 
     /** Whether the setting is on. Off is no pad at all: the view goes away, and with it the surface and its thread. */
     var settingOn = false
@@ -216,7 +220,7 @@ internal class FrontInkPad(
     }
 
     /** The waiting strokes go to the dry layer now; the pad is wiped once the canvas frame carrying them is committed. */
-    private fun release() {
+    private fun release() = trace(TraceNames.FRONT_HANDOFF) {
         val ids = handover.releasingIds()
         val gen = handover.generation
         for (id in ids) {
@@ -277,6 +281,9 @@ internal class FrontInkPad(
             b.orientation[i] = if (!hasOrientation) StrokeInput.NO_ORIENTATION
             else inkOrientation(if (hs) event.getHistoricalAxisValue(MotionEvent.AXIS_ORIENTATION, index, hist) else event.getAxisValue(MotionEvent.AXIS_ORIENTATION, index))
             b.eventMs[i] = if (hs) event.getHistoricalEventTime(hist) else event.eventTime
+            b.eventNanos[i] = if (Build.VERSION.SDK_INT >= 34) {
+                if (hs) event.getHistoricalEventTimeNanos(hist) else event.eventTimeNanos
+            } else b.eventMs[i] * 1_000_000L
         }
         return b
     }
@@ -295,15 +302,23 @@ internal class FrontInkPad(
 
     private fun collect(b: SampleBatch) {
         renderer.addSamples(b)
+        if (pendingCount + b.count > pendingNanos.size) pendingNanos = pendingNanos.copyOf((pendingCount + b.count) * 2)
+        System.arraycopy(b.eventNanos, 0, pendingNanos, pendingCount, b.count)
+        pendingCount += b.count
     }
 
-    /** One present: draw what changed and flush. */
+    /** One present: draw what changed, flush, and record each sample's input-to-flush time. */
     private fun presentNow() {
         presentPosted = false
-        if (!ready) return
+        if (!ready) { pendingCount = 0; return }
         try {
-            if (renderer.present(surfaceW, surfaceH)) GLES30.glFlush()
+            val drew = trace(TraceNames.FRONT_PRESENT) { renderer.present(surfaceW, surfaceH) }
+            if (drew) trace(TraceNames.FRONT_FLUSH) { GLES30.glFlush() }
+            val done = SystemClock.uptimeNanos()
+            for (i in 0 until pendingCount) stats.record(done - pendingNanos[i])?.let { Log.i(STATS_TAG, "$it ms (input-to-flush)") }
+            pendingCount = 0
         } catch (e: Throwable) {
+            pendingCount = 0
             fail("present: $e")
         }
     }
@@ -521,8 +536,9 @@ internal class FrontInkPad(
     private fun fail(what: String) = unavailable(what)
 
     companion object {
-        /** Log tag for the probe and failures. */
+        /** Log tag for the probe, failures and the input-to-flush line. */
         const val TAG = "SyncrFrontInk"
+        private const val STATS_TAG = "SyncrFrontInk"
 
         /** null until the first probe has run; false for the rest of the process after any failure. */
         @Volatile

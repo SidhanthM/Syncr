@@ -65,6 +65,34 @@ What to look for in the Perfetto UI:
 - Prediction and smoothing feel can only be judged on the device; compare against Samsung Notes
   side by side at Raw and Default smoothing.
 
+## Direct ink
+
+An experimental second wet-ink path (`FrontInkPad`, adapted from xnotes, see `THIRD_PARTY_NOTICES.md`). It
+draws the stroke under the pen straight into the buffer the panel is scanning out
+(`EGL_KHR_mutable_render_buffer`, `EGL_SINGLE_BUFFER`) and publishes with a `glFlush`, with no buffer
+queue. Off by default; the Ink overlay (`WetInkBridge`) stays the fallback.
+
+- **Turn it on:** Settings, Ink, "Direct ink (experimental)". Off, or a phone that cannot do it, behaves
+  exactly as before. Pen-down picks the path per stroke; highlighters always use the overlay.
+- **Prediction** is off on the pad (v0), whatever "Predict pen motion" says.
+- **Did it start?** `adb logcat -s SyncrFrontInk` prints one probe line (`probe ok: ...` or
+  `pad unavailable: <why>`; the full EGL extension list is at debug level). While writing it prints every
+  200 samples `p50=... p95=... max=... n=200 ms (input-to-flush)`: pen event to the `glFlush` that put it in
+  the front buffer. That is **not** input-to-photon; the panel's scanout is not in it.
+- **Slices:** `syncr.front.present`, `syncr.front.flush`, `syncr.front.handoff` (pad), next to the existing
+  `syncr.wet.*` (overlay). One Perfetto capture shows both paths:
+
+```sh
+adb shell perfetto -o /data/misc/perfetto-traces/front.pftrace -t 15s \
+  -a dev.syncr.prototype sched gfx view input am wm
+adb pull /data/misc/perfetto-traces/front.pftrace   # ui.perfetto.dev; search "syncr.front" and "syncr.wet"
+```
+
+- **Camera test (owner):** film the pen tip and the ink with a second device's slow-motion camera (240 fps)
+  and count the frames between the tip and the ink's leading edge. Do it for the old path (Direct ink off)
+  with prediction on and off, then Direct ink on. Also watch pen-up: a one-frame blink or a doubled edge
+  where the stroke moves from the pad to dry ink.
+
 ## Map
 
 | Path | What |

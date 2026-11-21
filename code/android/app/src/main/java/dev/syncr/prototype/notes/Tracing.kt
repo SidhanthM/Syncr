@@ -23,5 +23,8 @@ internal object TraceNames {
     const val WET_ADD = "syncr.wet.add"
     const val WET_FINISH = "syncr.wet.finish"
     const val WET_HANDOFF = "syncr.wet.handoff"
+    const val FRONT_PRESENT = "syncr.front.present"
+    const val FRONT_FLUSH = "syncr.front.flush"
+    const val FRONT_HANDOFF = "syncr.front.handoff"
     const val DRY_DRAW = "syncr.dry.draw"
 }
