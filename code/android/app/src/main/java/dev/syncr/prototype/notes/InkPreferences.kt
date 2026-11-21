@@ -62,6 +62,8 @@ data class InkPreferences(
     val taper: Boolean = true,
     /** Draw a short predicted tail ahead of the pen on the wet layer. Never stored, saved or exported. */
     val predictPenMotion: Boolean = true,
+    /** Draw the stroke under the pen straight into the front buffer (experimental; the Ink overlay stays the fallback). */
+    val frontBufferInk: Boolean = false,
     val toolInks: Map<InkTool, Ink> = emptyMap(),
     val toolSizes: Map<InkTool, BrushSize> = emptyMap(),
     val recentInks: List<Oklch> = emptyList(),
@@ -175,6 +177,7 @@ object InkPreferencesStore {
             putFloat("ink-smoothing", next.smoothing)
             putBoolean("ink-taper", next.taper)
             putBoolean("ink-predict", next.predictPenMotion)
+            putBoolean("ink-front-buffer", next.frontBufferInk)
             InkTool.entries.forEach { tool ->
                 next.toolInks[tool]?.let { putString("ink-tool-${tool.name}-ink", InkCodec.encode(it)) }
                 next.toolSizes[tool]?.let { putString("ink-tool-${tool.name}-size", it.name) }
@@ -193,6 +196,7 @@ object InkPreferencesStore {
             smoothing = prefs.getFloat("ink-smoothing", defaults.smoothing),
             taper = prefs.getBoolean("ink-taper", defaults.taper),
             predictPenMotion = prefs.getBoolean("ink-predict", defaults.predictPenMotion),
+            frontBufferInk = prefs.getBoolean("ink-front-buffer", defaults.frontBufferInk),
             toolInks = InkTool.entries.mapNotNull { tool ->
                 InkCodec.decodeInk(prefs.getString("ink-tool-${tool.name}-ink", null))?.let { tool to it }
             }.toMap(),

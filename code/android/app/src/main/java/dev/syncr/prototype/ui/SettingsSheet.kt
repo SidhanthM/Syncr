@@ -140,6 +140,7 @@ private fun SettingsPageBody(page: SettingsPage, appearance: Appearance, locatio
             SettingsSlider("Smoothing", ink.smoothing, "Raw", "Smooth") { v -> ink { it.copy(smoothing = v) } }
             SettingsSwitch("Tapered ends", null, ink.taper) { on -> ink { it.copy(taper = on) } }
             SettingsSwitch("Predict pen motion", "The guess ahead of the pen is never saved.", ink.predictPenMotion) { on -> ink { it.copy(predictPenMotion = on) } }
+            SettingsSwitch("Direct ink (experimental)", "Draws the pen's stroke straight onto the screen. Falls back on its own where the phone can't.", ink.frontBufferInk) { on -> ink { it.copy(frontBufferInk = on) } }
         }
         SettingsPage.PEN -> {
             SettingsChoices("Side button", listOf(SideButtonAction.ERASE, SideButtonAction.OFF), app.sideButton, label = {

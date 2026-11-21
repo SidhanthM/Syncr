@@ -40,6 +40,7 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     implementation("androidx.ink:ink-brush:1.0.0")
     implementation("androidx.ink:ink-strokes:1.0.0")
+    implementation("androidx.ink:ink-geometry:1.0.0") // already resolved transitively; named here for the pad's outline reads
     implementation("androidx.ink:ink-rendering:1.0.0")
     implementation("androidx.ink:ink-authoring:1.0.0")
     // Pen-motion prediction for the wet layer only (never stored). Pinned exactly; 1.0.1 is the latest stable.

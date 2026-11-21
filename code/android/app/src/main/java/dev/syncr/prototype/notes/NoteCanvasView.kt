@@ -238,7 +238,11 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         isHandedOff = scene::hasStrokeHandoff,
         invalidate = ::invalidate,
     )
-    private val wet = WetInkBridge(context, onFinished = dry::adoptWetStroke, invalidate = ::invalidate)
+    private val wetBridge = WetInkBridge(context, onFinished = dry::adoptWetStroke, invalidate = ::invalidate)
+    private val pad = FrontInkPad(context, onFinished = dry::adoptWetStroke, invalidate = ::invalidate)
+
+    /** The layer drawing the stroke under the pen: chosen at each pen-down, the bridge until the first one. */
+    private var wet: WetInk = wetBridge
     private val hoverIcon = StylusHoverIcon(density)
 
     // Touch routing
@@ -296,7 +300,9 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
 
     init {
         setWillNotDraw(false)
-        addView(wet.view, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        addView(wetBridge.view, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        // Hidden until the setting is on, so with it off there is no second surface at all.
+        addView(pad.view, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         contentDescription = "Note canvas. Stylus draws; one finger scrolls, pinch zooms. " +
             "Two-finger tap undoes, three-finger tap redoes, double-tap empty paper to fit the page, long-press selects a stroke."
         isFocusable = true
@@ -345,7 +351,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         setTemporaryEraser(false)
         if (pen.mode == PenMode.ERASE && !pen.rejected) commitErase(android.os.SystemClock.uptimeMillis(), force = true)
         eraseGesture = null
-        wet.cancel()
+        cancelWet()
         pen.cancel()
         cancelMirror()
         penContact(false)
@@ -383,7 +389,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
 
     private fun startNote(noteId: String?) {
         cancelGesture()
-        wet.clear()
+        clearWet()
         scene.clearHandoffs()
         dry.clearHandoffInk()
         deselect()
@@ -404,15 +410,15 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
             scope = mainScope()
             dry.forgetPreviews()
         }
-        scope.launch { InkPreferencesStore.state(context).collect { prefs = it } }
-        post { wet.eagerInit() } // children attach after this callback
+        scope.launch { InkPreferencesStore.state(context).collect { prefs = it; pad.settingOn = it.frontBufferInk } }
+        post { wetBridge.eagerInit() } // children attach after this callback
     }
 
     override fun onDetachedFromWindow() {
         removeCallbacks(startTypingNow)
         text.clear()
         cancelGesture()
-        wet.clear()
+        clearWet()
         dry.cancel()
         scope.cancel()
         super.onDetachedFromWindow()
@@ -431,6 +437,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         canvas.drawColor(PaperPalette.desk(dark))
         val m = viewport.mapping ?: return
         scene.noteId?.let { onViewportChanged(it, m) }
+        pad.viewMayHaveChanged(m, width, height) // a moved canvas hands the pad's strokes to dry ink first
         // The page's own title (canvas y 70 to about 165) hides the floating title chip while any of it is on screen.
         val titleShown = m.toScreen(0f, MacMetrics.TITLE_Y + 100f).second > 24f * density
         if (titleShown != titleVisible) { titleVisible = titleShown; post { onTitleVisible(titleShown) } }
@@ -464,7 +471,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
                     if (dry.previews.none { it.id == handoff.id }) drawStroke(this, handoff, m.scale)
                 }
             }
-            if (pen.mode == PenMode.INK && !wet.isDrawing && !wet.isAttached) {
+            if (pen.mode == PenMode.INK && !wet.isDrawing && !wetBridge.isAttached) {
                 pen.inkChannels()?.let { dry.drawLive(this, it, pen.brush, m.scale) }
             }
         }
@@ -474,7 +481,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     private fun drawStroke(canvas: Canvas, preview: InkPreview, scale: Float) {
         val id = preview.id
         // Erased (staged, handed off or under the eraser now), or still on the wet layer.
-        if (scene.isHidden(id) || id in pen.erased || wet.isFinishing(id)) return
+        if (scene.isHidden(id) || id in pen.erased || wetBridge.isFinishing(id) || pad.isFinishing(id)) return
         var affine = scene.canvasTransformOf(id, preview.sheetId)
         selection.gesture?.let { gesture -> if (id in selection.ids) affine = compose(gesture, affine) }
         if (!dry.isVisible(preview, affine, viewRect)) return
@@ -632,6 +639,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
                 lastPenUp = event.eventTime
             }
         } else if (!palmBlocked && (0 until event.pointerCount).all { event.getToolType(it) == MotionEvent.TOOL_TYPE_FINGER }) {
+            pad.forceHandover() // a pan, zoom or selection move is coming: the pad's strokes go to dry ink first
             finger(event)
         }
         if (down || up) panZoom.reanchor()
@@ -685,6 +693,9 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         sample(event, index, CURRENT)
         if (mode == PenMode.INK && !pen.rejected) {
             val inkBrush = InkBrushes.brush(pen.brush, dark)
+            val solid = pen.brush.family != BrushFamily.HIGHLIGHTER && (inkBrush.colorIntArgb ushr 24) == 0xff
+            pad.viewMayHaveChanged(pen.frozen, width, height)
+            wet = if (chooseWetPath(prefs.frontBufferInk, FrontInkPad.available != false, rotation == 0f, solid, pad.canStart(pen.frozen, width, height)) == WetPath.PAD) pad else wetBridge
             wet.start(event, event.getPointerId(index), pen.frozen, width, height, inkBrush, dark, prefs)
             startMirror(event, index)
         }
@@ -720,6 +731,16 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         )
     }
 
+    private fun cancelWet() {
+        wetBridge.cancel()
+        pad.cancel()
+    }
+
+    private fun clearWet() {
+        wetBridge.clear()
+        pad.clear()
+    }
+
     private fun cancelMirror() {
         if (mirroring) mirror?.cancel()
         mirroring = false
@@ -746,7 +767,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         }
         mirroredStrokeId = null
         eraseGesture = null
-        wet.cancel()
+        cancelWet()
         pen.finish()
         activePointer = -1
         selection.cancelGesture()
@@ -799,7 +820,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         }
         if (rejection != null) {
             cancelMirror()
-            wet.cancel()
+            cancelWet()
             selection.cancelGesture()
             onError(rejection)
         }

@@ -30,7 +30,7 @@ internal class WetInkBridge(
     /** Hands a finished stroke to dry ink, with the theme it was drawn under. */
     private val onFinished: (InkPreview, Boolean, Stroke) -> Unit,
     private val invalidate: () -> Unit,
-) {
+) : WetInk {
     private class Live(
         val id: InProgressStrokeId,
         val pointerId: Int,
@@ -40,7 +40,7 @@ internal class WetInkBridge(
     )
 
     /** The overlay; it only draws, the canvas view handles all input. */
-    val view = InProgressStrokesView(context)
+    override val view = InProgressStrokesView(context)
 
     private var active: Live? = null
     private val finished = mutableMapOf<InProgressStrokeId, Live>()
@@ -55,15 +55,15 @@ internal class WetInkBridge(
     }
 
     /** Without a window there is no front buffer; the canvas then draws the live stroke itself. */
-    val isAttached: Boolean get() = view.isAttachedToWindow
+    override val isAttached: Boolean get() = view.isAttachedToWindow
 
-    val isDrawing: Boolean get() = active != null
+    override val isDrawing: Boolean get() = active != null
 
     /** Finished on this layer but not yet handed to dry ink, which skips it meanwhile. */
-    fun isFinishing(previewId: String): Boolean = finished.values.any { it.preview?.id == previewId }
+    override fun isFinishing(previewId: String): Boolean = finished.values.any { it.preview?.id == previewId }
 
     /** Pen-down. [frozen] maps canvas units to the view; the stroke is recorded in canvas units. */
-    fun start(event: MotionEvent, pointerId: Int, frozen: SheetMapping, width: Int, height: Int, brush: InkBrush, dark: Boolean, prefs: InkPreferences) {
+    override fun start(event: MotionEvent, pointerId: Int, frozen: SheetMapping, width: Int, height: Int, brush: InkBrush, dark: Boolean, prefs: InkPreferences) {
         if (!isAttached) return
         trace(TraceNames.WET_START) {
             val canvasRight = frozen.tx + CanvasLayout.WIDTH * frozen.scale
@@ -88,7 +88,7 @@ internal class WetInkBridge(
     }
 
     /** A pen move. Every event (history included) is consumed oldest-first by Ink and the predictor. */
-    fun add(event: MotionEvent) {
+    override fun add(event: MotionEvent) {
         val live = active ?: return
         trace(TraceNames.WET_ADD) {
             val predicted = predictionFor(live, event)
@@ -101,7 +101,7 @@ internal class WetInkBridge(
     }
 
     /** Pen-up: the stroke stays on screen until Ink hands it over. A null [preview] was not staged. */
-    fun finish(event: MotionEvent, preview: InkPreview?) {
+    override fun finish(event: MotionEvent, preview: InkPreview?) {
         val live = active ?: return
         active = null
         trace(TraceNames.WET_FINISH) {
@@ -127,14 +127,14 @@ internal class WetInkBridge(
         return p.predict()
     }
 
-    fun cancel() {
+    override fun cancel() {
         // Once the overlay has left the window there is nothing on screen to cancel.
         active?.let { if (isAttached) view.cancelStroke(it.id, null) }
         active = null
     }
 
     /** Drops everything, finished strokes included (a different note, or leaving the window). */
-    fun clear() {
+    override fun clear() {
         cancel()
         finished.clear()
         if (isAttached) {
@@ -144,7 +144,7 @@ internal class WetInkBridge(
     }
 
     /** Warms up the front-buffer renderer; call after the overlay is attached. */
-    fun eagerInit() {
+    override fun eagerInit() {
         if (isAttached) view.eagerInit()
     }
 
