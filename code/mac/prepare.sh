@@ -7,7 +7,8 @@ core=../core/generated
 # SYNCR_CORE_PROFILE=debug copies the generated host library instead. Only writes to the core's target/.
 profile=${SYNCR_CORE_PROFILE:-release}
 if [ "$profile" = release ]; then
-    (cd ../core && cargo build --release --locked)
+    # ld-prime pads nothing after an odd indirect symbol table and the dylib is rejected; a 14.0 target makes it use chained fixups.
+    (cd ../core && MACOSX_DEPLOYMENT_TARGET=14.0 cargo build --release --locked)
     lib=../core/target/release/libsyncr_core.dylib
 else
     lib="$core/host/libsyncr_core.dylib"
@@ -24,3 +25,8 @@ cp "$lib" Native/
 # The core's host artifact carries its Rust build-directory install name. Rewrite only
 # this private copy so the executable resolves it from the package-local rpath.
 install_name_tool -id @rpath/libsyncr_core.dylib Native/libsyncr_core.dylib
+stroff=$(otool -l Native/libsyncr_core.dylib | awk '/LC_SYMTAB/ {f=1} f && $1=="stroff" {print $2; exit}')
+if [ $((stroff % 8)) -ne 0 ]; then
+    echo "prepare.sh: Native/libsyncr_core.dylib has a mis-aligned string pool (LC_SYMTAB stroff $stroff is not 8-aligned): the ld-prime legacy LC_DYLD_INFO bug. Build the core with MACOSX_DEPLOYMENT_TARGET=14.0." >&2
+    exit 1
+fi

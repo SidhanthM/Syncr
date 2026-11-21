@@ -210,7 +210,7 @@ import AppKit
         guard !styling, !textView.hasMarkedText() else { return }
         styling = true
         let selection = textView.selectedRange()
-        textView.textStorage?.setAttributedString(DocumentLayout.attributed(textView.string, selection: document?.writable == true ? selection : nil, resolving: resolve, drawingHeights: drawingHeights, imageGaps: imageGaps))
+        textView.textStorage?.setAttributedString(DocumentLayout.attributed(textView.string, selection: document?.writable == true ? selection : nil, resolving: resolve, drawingHeights: drawingHeights, imageGaps: imageGaps, onCodeReady: { [weak self] in self?.style() }))
         textView.setSelectedRange(selection)
         textView.typingAttributes = [.font: NSFont.systemFont(ofSize: DocumentLayout.bodySize), .foregroundColor: Theme.ink]
         styling = false

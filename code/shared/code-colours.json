@@ -1,0 +1,11 @@
+{
+  "_comment": "Syntax colours for fenced code (code-highlight-v1 H2). Values are ARGB. Every colour keeps 4.5:1 on the page, the paper and the code fill of both platforms (generate-colours.py checks it).",
+  "keyword":   {"light": "ff964040", "dark": "ffd39999"},
+  "string":    {"light": "ff4f641a", "dark": "ffa8b878"},
+  "comment":   {"light": "ff5f5c55", "dark": "ffa09d96"},
+  "number":    {"light": "ff835000", "dark": "ffd9a65a"},
+  "function":  {"light": "ff2a5c8c", "dark": "ff8fb4dc"},
+  "type":      {"light": "ff1b6259", "dark": "ff7fc0b4"},
+  "attribute": {"light": "ff6c4b9a", "dark": "ffb9a2dc"},
+  "plain":     {"light": "ff1c1b19", "dark": "ffe9e6df"}
+}

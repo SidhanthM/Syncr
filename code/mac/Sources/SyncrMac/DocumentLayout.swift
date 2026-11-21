@@ -63,7 +63,7 @@ struct DocumentLayoutLine: Equatable {
         if let from = openAt, (from..<lines.count).contains(where: { active.contains($0) }) { (from..<lines.count).forEach { active.insert($0) } }
         return active
     }
-    static func attributed(_ text: String, caret: Int? = nil, selection: NSRange? = nil, resolving: ((String) -> Bool)? = nil, drawingHeights: [String: CGFloat] = [:], imageGaps: [Int: CGFloat] = [:]) -> NSAttributedString {
+    static func attributed(_ text: String, caret: Int? = nil, selection: NSRange? = nil, resolving: ((String) -> Bool)? = nil, drawingHeights: [String: CGFloat] = [:], imageGaps: [Int: CGFloat] = [:], onCodeReady: (@MainActor () -> Void)? = nil) -> NSAttributedString {
         let out = NSMutableAttributedString(string: text, attributes: [.font: NSFont.systemFont(ofSize: bodySize), .foregroundColor: Theme.ink])
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = bodySize * AppPreferences.shared.values.lineSpacing.multiplier
@@ -108,9 +108,8 @@ struct DocumentLayoutLine: Equatable {
             case .fence:
                 // Hidden fences keep their font (and so the line's height); only the ink goes.
                 out.addAttributes([.font: lineFont, .foregroundColor: active ? Theme.muted : NSColor.clear], range: line.range)
-            case .code(let language):
+            case .code:
                 out.addAttribute(.font, value: NSFont.monospacedSystemFont(ofSize: 42 * AppPreferences.shared.textScale, weight: .regular), range: line.range)
-                colourCode(line, language: language, into: out)
             case .rule: out.addAttribute(.foregroundColor, value: active ? Theme.muted : NSColor.clear, range: line.range)
             default: break
             }
@@ -148,13 +147,9 @@ struct DocumentLayoutLine: Equatable {
                 if !active { span.syntax.forEach(hide) } else { span.syntax.forEach { if $0.length > 0 { out.addAttribute(.foregroundColor, value: Theme.muted, range: $0) } } }
             }
         }
+        if onCodeReady != nil { CodeHighlight.beginPass() }
+        CodeHighlight.colourBlocks(parsed, text: text as NSString, into: out, onReady: onCodeReady)
         return out
-    }
-    private static func colourCode(_ line: MarkdownLine, language: String, into out: NSMutableAttributedString) {
-        guard ["swift", "rust", "rs", "python", "py", "javascript", "js", "typescript", "ts", "json", "sh", "bash", "kotlin"].contains(language.lowercased()) else { return }
-        for (pattern, colour) in [("\\b(let|var|func|fn|class|struct|enum|if|else|return|for|while|in|import|from|def|const|true|false|null|nil|pub|use|val|fun)\\b", NSColor.systemPurple), ("\"[^\"]*\"|'[^']*'", .systemGreen), ("\\b[0-9]+(?:\\.[0-9]+)?\\b", .systemOrange), ("//.*$|#.*$", .secondaryLabelColor)] {
-            for m in Markdown.matches(pattern, line.text) { out.addAttribute(.foregroundColor, value: colour, range: NSRange(location: line.range.location + m.range.location, length: m.range.length)) }
-        }
     }
     static func decorations(text: String, manager: NSLayoutManager, origin: CGPoint = .zero, width: CGFloat, caret: Int? = nil, selection: NSRange? = nil) {
         let parsed = Markdown.lines(text)

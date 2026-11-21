@@ -94,18 +94,30 @@ enum CompanionMarkup {
                 out.append(inline("•\t" + t + (last ? "" : "\n"), [.font: body, .foregroundColor: colour, .paragraphStyle: paragraphStyle(indent: size * 0.2, hanging: size * 1.0, after: gap * 0.45, tabs: true)]))
             case .numbered(let n, let t):
                 out.append(inline("\(n).\t" + t + (last ? "" : "\n"), [.font: body, .foregroundColor: colour, .paragraphStyle: paragraphStyle(indent: size * 0.2, hanging: size * 1.3, after: gap * 0.45, tabs: true)]))
-            case .code(_, let t):
+            case .code(let language, let t):
                 codeID += 1
                 let style = paragraphStyle(indent: size * 0.7, after: 0)
                 style.tailIndent = -size * 0.7; style.lineSpacing = size * 0.12
                 // The lines are one block: the last newline carries the spacing after it.
                 let lines = t.components(separatedBy: "\n")
+                // A reply's block is small, so it is highlighted in place; a huge one stays plain.
+                let spans = t.utf8.count <= 16_384 ? CodeHighlight.spans(language: language, code: t) ?? [] : []
+                var codeOffset = 0
                 for (i, line) in lines.enumerated() {
+                    let lineStart = out.length
                     let end = i == lines.count - 1
                     let p = style.mutableCopy() as! NSMutableParagraphStyle
                     if i == 0 { p.paragraphSpacingBefore = size * 0.5 }
                     if end { p.paragraphSpacing = size * 0.9 }
                     out.append(NSAttributedString(string: (line.isEmpty ? " " : line) + (end && last ? "" : "\n"), attributes: [.font: mono, .foregroundColor: colour, .paragraphStyle: p, codeBlock: codeID]))
+                    let length = (line as NSString).length
+                    for span in spans where Int(span.end) > codeOffset && Int(span.start) < codeOffset + length && !CodeHighlight.isPlain(span.token) {
+                        let from = max(Int(span.start), codeOffset), to = min(Int(span.end), codeOffset + length)
+                        let range = NSRange(location: lineStart + from - codeOffset, length: to - from)
+                        out.addAttribute(.foregroundColor, value: CodeHighlight.colour(span.token), range: range)
+                        if CodeColours.isItalic(span.token) { out.addAttribute(.obliqueness, value: 0.16, range: range) }
+                    }
+                    codeOffset += length + 1
                 }
             }
         }
