@@ -47,11 +47,18 @@ internal class RichText(private val shaper: Shaper) {
                 if (language.isNotEmpty()) {
                     inner += Prim.Text(language, x + width - 16f, y2 + MacMetrics.ascent(codeSize * 0.8f), Attr(size = codeSize * 0.8f, tok = Tok.MUTED, kern = RIGHT_ALIGNED))
                 }
-                for (c in code) {
-                    val attr = Attr(size = codeSize, family = Family.MONO)
-                    val shaped = shaper.shape(c, if (c.isEmpty()) emptyList() else listOf(Run(0, c.length, attr)), width - 32f)
+                // A reply's block is small and this runs off the main thread, so it is highlighted in place.
+                val spans = CodeHighlight.perLine(code.joinToString("\n"), codeLines(code, language))
+                for ((n, c) in code.withIndex()) {
+                    val attrs = Array(c.length) { Attr(size = codeSize, family = Family.MONO) }
+                    CodeHighlight.apply(attrs, spans[n].orEmpty())
+                    val runs = typesetCompress(attrs)
+                    val shaped = shaper.shape(c, runs, width - 32f)
                     for (sl in shaped) {
-                        for (seg in sl.segments) inner += Prim.Text(c.substring(seg.start, seg.end), x + 16f + seg.x, y2 + MacMetrics.ascent(codeSize), attr)
+                        for (seg in sl.segments) {
+                            val attr = runs.firstOrNull { it.start <= seg.start && seg.start < it.end }?.attr ?: continue
+                            inner += Prim.Text(c.substring(seg.start, seg.end), x + 16f + seg.x, y2 + MacMetrics.ascent(codeSize), attr)
+                        }
                         y2 += pitch(codeSize)
                     }
                 }
@@ -100,6 +107,12 @@ internal class RichText(private val shaper: Shaper) {
             for (s in span.syntax) for (k in s) a[k] = a[k].copy(size = MacMetrics.HIDDEN, tok = Tok.CLEAR)
         }
         return a
+    }
+
+    /** The block's lines as the Markdown reader would see them, so [CodeHighlight.perLine] can map spans back onto each. */
+    private fun codeLines(code: List<String>, language: String): List<MdLine> {
+        var at = 0
+        return code.map { c -> MdLine(MdKind.Code(language), at, at + c.length, at, c, emptyList()).also { at += c.length + 1 } }
     }
 
     private fun typesetCompress(attrs: Array<Attr>): List<Run> = Typeset(shaper).compress(attrs)

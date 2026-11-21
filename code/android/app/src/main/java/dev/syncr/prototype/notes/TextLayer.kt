@@ -23,6 +23,7 @@ import dev.syncr.core.PictureDisplayList
 import dev.syncr.core.PictureItem
 import dev.syncr.core.pictureDisplayList
 import dev.syncr.prototype.stipple.Stipple
+import dev.syncr.prototype.ui.theme.CodeColours
 import dev.syncr.prototype.ui.theme.Motion
 import dev.syncr.prototype.ui.theme.PaperPalette
 import java.util.concurrent.Executors
@@ -280,13 +281,19 @@ internal class TextPainter(private val dark: Boolean, private val pictures: Map<
         Tok.INLINE_CODE -> alpha(colour(Tok.INK), 0x1a)
         Tok.HIGHLIGHT -> 0x40ffcc00L
         Tok.CLEAR -> 0L
-        Tok.PURPLE -> if (dark) 0xffbf8bff else 0xff8944ab
         Tok.GREEN -> if (dark) 0xff6cc58a else 0xff2f8f4e
         Tok.ORANGE -> if (dark) 0xffe0a458 else 0xffc77c1e
         Tok.RED -> if (dark) 0xffff6b60 else 0xffc43c32
         Tok.BLUE -> if (dark) 0xff6aa3ff else 0xff2f6fd0
         Tok.PAGE -> PaperPalette.paper(dark).toLong() and 0xffffffffL
         Tok.ACCENT -> 0xffd39999
+        Tok.CODE_KEYWORD -> CodeColours.keyword(dark).toLong()
+        Tok.CODE_STRING -> CodeColours.string(dark).toLong()
+        Tok.CODE_COMMENT -> CodeColours.comment(dark).toLong()
+        Tok.CODE_NUMBER -> CodeColours.number(dark).toLong()
+        Tok.CODE_FUNCTION -> CodeColours.function(dark).toLong()
+        Tok.CODE_TYPE -> CodeColours.type(dark).toLong()
+        Tok.CODE_ATTRIBUTE -> CodeColours.attribute(dark).toLong()
     }.toInt()
 
     private fun alpha(c: Int, a: Int): Long = (c.toLong() and 0x00ffffffL) or (a.toLong() shl 24)

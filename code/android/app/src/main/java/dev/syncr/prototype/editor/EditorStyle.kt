@@ -10,7 +10,9 @@ import android.text.style.LineHeightSpan
 import android.text.style.MetricAffectingSpan
 import android.text.style.ReplacementSpan
 import dev.syncr.prototype.notes.Attr
+import dev.syncr.prototype.notes.CodeHighlight
 import dev.syncr.prototype.notes.Family
+import dev.syncr.prototype.notes.LineSpan
 import dev.syncr.prototype.notes.MacMetrics
 import dev.syncr.prototype.notes.MdKind
 import dev.syncr.prototype.notes.MdLine
@@ -138,6 +140,8 @@ internal class EditorStyler(dark: Boolean, private val columnWidth: Float) {
     })
     private val applied = ArrayList<Applied>()
     var extras = EditorExtras()
+    /** Called on the main thread when a large code block's colours have arrived and the text still asks for them. */
+    var onCodeReady: (() -> Unit)? = null
 
     fun forget(edit: Editable) { applied.forEach { a -> a.spans.forEach(edit::removeSpan) }; applied.clear() }
 
@@ -145,22 +149,24 @@ internal class EditorStyler(dark: Boolean, private val columnWidth: Float) {
         val text = edit.toString()
         val lines = TextMarkdown.lines(text)
         val shown = Reveal.lines(text, selStart, selEnd, lines)
+        val code = CodeHighlight.perLine(text, lines, onCodeReady)
         for ((i, line) in lines.withIndex()) {
             val show = i in shown
             val gap = extras.gaps[i]; val embed = extras.embeds[i]
-            val key = listOf(line.text, show, line.kind, gap, embed, i == lines.lastIndex).hashCode()
+            val spans = code[i].orEmpty()
+            val key = listOf(line.text, show, line.kind, gap, embed, i == lines.lastIndex, spans).hashCode()
             val old = applied.getOrNull(i)
             if (old != null && old.key == key && edit.getSpanStart(old.spans.first()) == line.start) continue
             old?.spans?.forEach(edit::removeSpan)
-            val fresh = Applied(key, build(edit, line, show, gap ?: 0f, embed))
+            val fresh = Applied(key, build(edit, line, show, gap ?: 0f, embed, spans))
             if (i < applied.size) applied[i] = fresh else applied += fresh
         }
         while (applied.size > lines.size) applied.removeAt(applied.lastIndex).spans.forEach(edit::removeSpan)
     }
 
-    private fun build(edit: Editable, line: MdLine, show: Boolean, gap: Float, embed: Float?): List<Any> {
+    private fun build(edit: Editable, line: MdLine, show: Boolean, gap: Float, embed: Float?, code: List<LineSpan>): List<Any> {
         val out = ArrayList<Any>()
-        val attrs = if (embed != null) Array(line.text.length) { Attr(tok = if (show) Tok.MUTED else Tok.CLEAR) } else typeset.attributes(line, show)
+        val attrs = if (embed != null) Array(line.text.length) { Attr(tok = if (show) Tok.MUTED else Tok.CLEAR) } else typeset.attributes(line, show, code)
         // Off the caret a number stays as typed, faint, where the reading layer draws its label over it.
         if (!show && embed == null && line.kind is MdKind.Numbered) for (i in 0 until minOf(line.prefixLength, attrs.size)) attrs[i] = attrs[i].copy(tok = Tok.MUTED)
         val runs = typeset.compress(attrs)

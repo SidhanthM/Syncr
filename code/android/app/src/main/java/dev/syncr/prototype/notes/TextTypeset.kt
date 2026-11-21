@@ -38,7 +38,8 @@ internal object MacMetrics {
 internal enum class Family { SANS, SERIF, MONO }
 
 /** Colour roles; the painter maps them to ARGB for light and dark paper. */
-internal enum class Tok { INK, SOFT, MUTED, HAIRLINE, SEPARATOR, CODE_FILL, CLEAR, PURPLE, GREEN, ORANGE, HIGHLIGHT, INLINE_CODE, PAGE, RED, BLUE, ACCENT }
+internal enum class Tok { INK, SOFT, MUTED, HAIRLINE, SEPARATOR, CODE_FILL, CLEAR, GREEN, ORANGE, HIGHLIGHT, INLINE_CODE, PAGE, RED, BLUE, ACCENT,
+    CODE_KEYWORD, CODE_STRING, CODE_COMMENT, CODE_NUMBER, CODE_FUNCTION, CODE_TYPE, CODE_ATTRIBUTE }
 
 internal data class Attr(
     val size: Float = MacMetrics.BODY,
@@ -119,6 +120,8 @@ internal class Typeset(private val shaper: Shaper) {
         val bottoms = ArrayList<Float>()
         val tasks = ArrayList<TaskSpot>()
         val lines = TextMarkdown.lines(text)
+        // Already off the main thread (the scene renderer), so large blocks are highlighted in place too.
+        val code = CodeHighlight.perLine(text, lines)
         var cursor = y
         var codeBlock: FloatArray? = null // top, bottom of the current code background
         fun flushCode() {
@@ -130,7 +133,7 @@ internal class Typeset(private val shaper: Shaper) {
             val raw = line.text.trim()
             val embedId = if (raw.startsWith("![[syncr-drawing:") && raw.endsWith("]]")) raw.drop(17).dropLast(2) else null
             val embedHeight = embedId?.let { heights[it] }
-            val attrs = attributes(line, index in shown)
+            val attrs = attributes(line, index in shown, code[index].orEmpty())
             val runs = compress(attrs)
             val shaped = if (embedHeight != null) listOf(ShapedLine(0, 0, emptyList())) else shaper.shape(line.text, runs, width)
             var firstFragment: FloatArray? = null
@@ -205,7 +208,7 @@ internal class Typeset(private val shaper: Shaper) {
      * holds the caret or is selected) the syntax keeps its size and takes the faint colour instead, so the line's own
      * glyph sizes, and with them its height, do not change.
      */
-    fun attributes(line: MdLine, shown: Boolean = false): Array<Attr> {
+    fun attributes(line: MdLine, shown: Boolean = false, code: List<LineSpan> = emptyList()): Array<Attr> {
         val n = line.text.length
         val a = Array(n) { Attr() }
         fun set(range: IntRange, f: (Attr) -> Attr) {
@@ -227,7 +230,7 @@ internal class Typeset(private val shaper: Shaper) {
             is MdKind.Fence -> { set(whole) { it.copy(size = 34f, family = Family.MONO, tok = Tok.MUTED) }; hide(whole) }
             is MdKind.Code -> {
                 set(whole) { it.copy(size = 42f, family = Family.MONO) }
-                colourCode(line.text, k.language, a)
+                CodeHighlight.apply(a, code)
             }
             is MdKind.Rule -> set(whole) { it.copy(tok = if (shown) Tok.MUTED else Tok.CLEAR) }
             else -> Unit
@@ -245,19 +248,6 @@ internal class Typeset(private val shaper: Shaper) {
             span.syntax.forEach { hide(rel(it)) }
         }
         return a
-    }
-
-    private val keywords = Regex("\\b(let|var|func|fn|class|struct|enum|if|else|return|for|while|in|import|from|def|const|true|false|null|nil|pub|use|val|fun)\\b")
-    private val strings = Regex("\"[^\"]*\"|'[^']*'")
-    private val numbers = Regex("\\b[0-9]+(?:\\.[0-9]+)?\\b")
-    private val comments = Regex("//.*$|#.*$")
-    private val languages = setOf("swift", "rust", "rs", "python", "py", "javascript", "js", "typescript", "ts", "json", "sh", "bash", "kotlin")
-
-    private fun colourCode(text: String, language: String, a: Array<Attr>) {
-        if (language.lowercase() !in languages) return
-        for ((regex, tok) in listOf(keywords to Tok.PURPLE, strings to Tok.GREEN, numbers to Tok.ORANGE, comments to Tok.MUTED)) {
-            for (m in regex.findAll(text)) for (i in m.range) a[i] = a[i].copy(tok = tok)
-        }
     }
 
     fun compress(attrs: Array<Attr>): List<Run> {

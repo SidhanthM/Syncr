@@ -72,7 +72,7 @@ internal class CanvasTextInput(private val host: FrameLayout) {
         val field = NoteEdit(host.context)
         edit = field
         val painter = TextPainter(night, emptyMap())
-        styler = EditorStyler(night, rect.width()).also { it.extras = extras }
+        styler = newStyler(night, rect.width(), extras)
         field.setBackgroundColor(Color.TRANSPARENT)
         field.setPadding(0, 0, 0, 0)
         field.gravity = Gravity.TOP or Gravity.START
@@ -152,6 +152,12 @@ internal class CanvasTextInput(private val host: FrameLayout) {
         if (restart) (host.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).restartInput(field)
     }
 
+    /** A large code block's colours arrive off the main thread; restyle when they do and the field still shows that text. */
+    private fun newStyler(night: Boolean, width: Float, extras: EditorExtras) = EditorStyler(night, width).also { st ->
+        st.extras = extras
+        st.onCodeReady = { if (styler === st) restyle() }
+    }
+
     private fun restyle() {
         val field = edit ?: return
         val was = internal
@@ -203,7 +209,7 @@ internal class CanvasTextInput(private val host: FrameLayout) {
         val rect = bounds ?: return
         if (night != dark) {
             dark = night
-            styler?.forget(field.text); styler = EditorStyler(night, rect.width()).also { it.extras = lastExtras }
+            styler?.forget(field.text); styler = newStyler(night, rect.width(), lastExtras)
             field.setTextColor(TextPainter(night, emptyMap()).colour(Tok.INK))
             restyle()
         }
