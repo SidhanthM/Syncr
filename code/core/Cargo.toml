@@ -17,7 +17,7 @@ required-features = ["bindgen"]
 [features]
 default = ["main-languages"]
 bindgen = ["uniffi/cli"]
-# Language sets (code-highlight-v1). Python is always built; the default `main-languages` adds c, cpp, c# and java, on both
+# Language sets (code-highlight-v1). Python is always built; the default `main-languages` adds c, cpp and java, on both
 # platforms (every build script takes the default). `all-languages` adds the rest. The API is the same either way;
 # `highlight_languages()` reports what is compiled in.
 lang-javascript = ["dep:tree-sitter-javascript"]
@@ -37,7 +37,7 @@ lang-toml = ["dep:tree-sitter-toml-ng"]
 lang-sql = ["dep:tree-sitter-sequel"]
 lang-java = ["dep:tree-sitter-java"]
 lang-c-sharp = ["dep:tree-sitter-c-sharp"]
-main-languages = ["lang-c", "lang-cpp", "lang-c-sharp", "lang-java"]
+main-languages = ["lang-c", "lang-cpp", "lang-java"]
 all-languages = ["lang-javascript", "lang-typescript", "lang-rust", "lang-swift", "lang-kotlin", "lang-json", "lang-bash", "lang-c", "lang-cpp", "lang-go", "lang-html", "lang-css", "lang-yaml", "lang-toml", "lang-sql", "lang-java", "lang-c-sharp"]
 
 [dependencies]

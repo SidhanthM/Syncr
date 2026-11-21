@@ -92,7 +92,7 @@ fn listed_languages_are_what_was_compiled_in() {
     want.sort();
     assert_eq!(got, want);
     if cfg!(feature = "all-languages") { assert_eq!(got.len(), 18); }
-    else if cfg!(feature = "main-languages") { assert_eq!(got, ["c", "c_sharp", "cpp", "java", "python"]); }
+    else if cfg!(feature = "main-languages") { assert_eq!(got, ["c", "cpp", "java", "python"]); }
 }
 
 #[test]
