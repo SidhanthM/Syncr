@@ -122,7 +122,7 @@ adb pull /data/misc/perfetto-traces/front.pftrace   # ui.perfetto.dev; search "s
 
 ## Mac link
 
-Phone to Mac over the local network, specified in `../../tasks/contracts/wifi-link-v0.md` (frozen; the wire and the shared vectors in
+Phone to Mac over the local network, specified in `../../tasks/archive/contracts/wifi-link-v0.md` (frozen; the wire and the shared vectors in
 `../shared/link-v0/vectors.json` are the authority). **Plain TCP, no encryption** (owner decision, recorded in the contract): the
 pairing token and the notes are readable by anyone who can capture the Wi-Fi traffic. Off by default. Settings, "Mac link", switches it on.
 

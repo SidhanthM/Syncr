@@ -50,7 +50,7 @@ Every fallible call returns `CoreResult<T>`, which is `CoreException` in Kotlin.
 **`Note`** (concurrent `open_note` calls share one live handle): `snapshot`, `get_samples`, `submit`, `lookup_operation`, `changes_since`, `export_copy`, `close_note`.
 
 **Commands** (`CommandBody`):
-- `Marks`: 1–1024 unique stroke or text mutations, applied atomically. Strokes: `AddStroke` / `DeleteStroke` / `RestoreStroke` / `TransformStroke` / `RestyleStroke`. Text: `AddText` / `SpliceText` / `SetTextWidth` / `DeleteText` / `RestoreText` / `TransformText` / `RestyleText`. Exact text API and canonical tags: `tasks/contracts/text-v1.md` §3.
+- `Marks`: 1–1024 unique stroke or text mutations, applied atomically. Strokes: `AddStroke` / `DeleteStroke` / `RestoreStroke` / `TransformStroke` / `RestyleStroke`. Text: `AddText` / `SpliceText` / `SetTextWidth` / `DeleteText` / `RestoreText` / `TransformText` / `RestyleText`. Exact text API and canonical tags: `tasks/archive/contracts/text-v1.md` §3.
 - `RenameNote`, `SetNotebook`, `SetArchived`: on the metadata head, outside ink undo.
 - `Undo`, `Redo`: on the author's own top action.
 - `AddSheet` and `ReorderSheets` are always `InvalidInput`: a note is one canvas. They exist only so old logs replay and old retries still return duplicates.
@@ -99,7 +99,7 @@ Integers are little-endian. Strings are a `u32` byte length plus UTF-8. Lists ar
 - **Body**: Marks `0` + mutation list; AddSheet `1` + sheet ID + base; ReorderSheets `2` + ID list + base; RenameNote `3` + title + base; Undo `4` / Redo `5` + target ID; SetNotebook `6` + optional + base; SetArchived `7` + `u8` + base.
 - **Mutation**: Add `0` + mark ID + sheet ID + `u32` length + SYNS bytes + brush; Delete `1` / Restore `2` + mark ID + base; Transform `3` + mark ID + base + six `f64` bit patterns `[a,b,c,d,tx,ty]`; Restyle `4` + mark ID + base + brush.
 - **Optional**: `0` for none, or `1` + string. **Base**: Absent `0`, Operation `1` + ID, Confirmed `2` + `u64`. **Brush** (`brush.rs`, also the preview Begin and stroke-commit wire): family byte (Pen/Fountain `0`, Highlighter `1`, Pen/Ballpoint `2`, Pen/Fineliner `3`; `|0x10` = a feel block follows), size (Small `0`, Medium `1`, Large `2`), colour (Ink `0`, Red `1`, Green `2`, Blue `3`, Orange `4`; `5` = custom OKLCH ink followed by three f32 l, c, h), then the optional feel block (pressure u8, smoothing u8, taper u8). A plain brush is the original three bytes.
-- **Text mutation tags**: AddText `5`, SpliceText `6`, SetTextWidth `7`, DeleteText `8`, RestoreText `9`, TransformText `10`, RestyleText `11`. Full byte layouts and errors: `tasks/contracts/text-v1.md` §3. Existing tags are unchanged.
+- **Text mutation tags**: AddText `5`, SpliceText `6`, SetTextWidth `7`, DeleteText `8`, RestoreText `9`, TransformText `10`, RestyleText `11`. Full byte layouts and errors: `tasks/archive/contracts/text-v1.md` §3. Existing tags are unchanged.
 - **Budgets**: 64 KiB for everything except sample/text payload bytes, 16 MiB of sample bytes and independently 16 MiB of text bytes per gesture. Each text block/result/insertion is at most 1 MiB; at most 10,000 blocks including tombstones. `-0.0` and `0.0` are different operations.
 
 The SYNS sample layout is documented at the top of `src/samples.rs`.

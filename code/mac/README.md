@@ -122,7 +122,7 @@ Offscreen harness (checks, release core): received to GPU-complete p50 3.7 / p95
 
 ## Phone link (Wi-Fi link v0)
 
-Implements the Mac side of `tasks/contracts/wifi-link-v0.md` (the wire, messages and shared vectors in `code/shared/link-v0/vectors.json` are the authority). **It is plain TCP with no TLS, by the owner's decision of 2026-11-14 (security is not a concern for this link yet).** Anyone on the same Wi-Fi who captures traffic can read the notes and the pairing token; the token only stops other devices writing by accident. The pinned-TLS design is not deleted and slots under this link later.
+Implements the Mac side of `tasks/archive/contracts/wifi-link-v0.md` (the wire, messages and shared vectors in `code/shared/link-v0/vectors.json` are the authority). **It is plain TCP with no TLS, by the owner's decision of 2026-11-14 (security is not a concern for this link yet).** Anyone on the same Wi-Fi who captures traffic can read the notes and the pairing token; the token only stops other devices writing by accident. The pinned-TLS design is not deleted and slots under this link later.
 
 **Turning it on.** It is on by default and the listener exists only while the app is open and "Phone link" is on. Phone menu (or Cmd-P): "Phone Link On/Off", "Follow Phone On/Off", "Forget Phone…". The choices are kept in `<library>/.mac/link.json` (with this Mac's link ID, generated once); paired phones in `<library>/.mac/paired-phones.json` (mode 600, holds tokens). The title bar shows "Phone link: off / waiting for phone / pairing with X / X connected". The Mac listens on any free TCP port (`TCP_NODELAY`, keepalive) on every interface and advertises Bonjour `_syncr._tcp` with TXT `v=0`, `name`, `id`.
 
