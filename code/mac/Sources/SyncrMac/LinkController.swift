@@ -324,6 +324,8 @@ private let disconnectLogger = Logger(subsystem: "dev.syncr.mac", category: "lin
         let bridge = bridge, store = store, engine = live.engine, staging = stagingDir, epochs = epochs
         server.makeSession = { [weak server] connection in
             let epoch = epochs.withLock { n -> UInt32 in n &+= 1; if n == 0 { n = 1 }; return n }
+            // Incoming note bytes are written and hashed here, never on the queue that reads live frames.
+            let files = DispatchQueue(label: "dev.syncr.mac.link.files.\(epoch)", qos: .userInitiated)
             let io = LinkSession.IO(
                 send: { connection.send($0) }, close: { connection.close() },
                 liveReceive: { engine.receive($0, at: $1) },
@@ -332,7 +334,8 @@ private let disconnectLogger = Logger(subsystem: "dev.syncr.mac", category: "lin
                 sendBulk: { connection.sendBulk($0, done: $1) },
                 // Only a large copy waits for the pen (a small delta goes at once); it waits until the pen has rested a while.
                 penActive: { engine.penActive(within: 2_500_000_000) },
-                expectResend: { engine.expectResend(strokeId: $0, rev: $1) })
+                expectResend: { engine.expectResend(strokeId: $0, rev: $1) },
+                files: { files.async(execute: $0) })
             let session = LinkSession(config: .init(macName: name, macId: macId, epoch: epoch, stagingDir: staging,
                                                     udpPort: server?.udpPort, udpKey: UInt64.random(in: 1...UInt64.max)), store: store, io: io)
             session.host = bridge

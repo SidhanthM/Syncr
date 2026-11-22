@@ -62,7 +62,7 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
     private var queuedNote: String? = null
     @Volatile private var generation = 0
     private class Request(val note: NoteSnapshot, val key: Long, val dark: Boolean, val hide: String?, val title: TitleDisplay?, val cell: Float, val mine: Int,
-        val offsets: Map<String, Placement>, val canvas: Boolean = false, val paper: Int? = null)
+        val offsets: Map<String, Placement>, val canvas: Boolean = false, val paper: Int? = null, val at: Long = System.nanoTime())
     private val latest = LatestWork<Request>(executor, ::process)
     /** Jobs that started and jobs that gave up halfway, for the tests. */
     @Volatile var rendered = 0; @Volatile var abandoned = 0
@@ -110,6 +110,7 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
         main.post {
             if (r.mine == generation) {
                 done = result; version++; onExtent(result.bottom)
+                dev.syncr.prototype.link.TextTrace.published(r.note.noteId, r.at)
                 // Items that came or went on a note already on screen dissolve and the text glides, unless the pen is busy or
                 // animations are off: then the new page simply lands finished. A newer scene ends what was running.
                 running = null

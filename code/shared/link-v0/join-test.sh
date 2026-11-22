@@ -5,6 +5,8 @@
 #
 #   code/shared/link-v0/join-test.sh            # builds both sides if needed, then runs once
 #   KEEP=1 code/shared/link-v0/join-test.sh     # keep the temp folder (logs) and print its path
+#   SYNCR_MAC_BIN=<path> ...                    # run that Mac executable (the latency harness's release build) instead
+#   SYNCR_JOIN_ONLY=latency ...                 # only the steps the latency harness needs (see JoinTest.kt)
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
@@ -25,7 +27,8 @@ pass() { echo "PASS $1"; }
 fail() { echo "FAIL $1"; fails=$((fails + 1)); }
 
 echo "== build"
-(cd "$MAC" && swift build 2>&1 | grep -E "error:|Build complete" ) || { echo "FAIL mac build"; exit 1; }
+MAC_BIN="${SYNCR_MAC_BIN:-$MAC/.build/debug/SyncrMac}"
+if [[ -z "${SYNCR_MAC_BIN:-}" ]]; then (cd "$MAC" && swift build 2>&1 | grep -E "error:|Build complete" ) || { echo "FAIL mac build"; exit 1; }; fi
 (cd "$ANDROID" && ./gradlew -q --console=plain :app:compileDebugUnitTestKotlin >"$S/gradle-build.log" 2>&1) || { cat "$S/gradle-build.log"; echo "FAIL android build"; exit 1; }
 
 PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')"
@@ -34,7 +37,7 @@ mkdir -p "$S/maclib"
 
 echo "== start the Mac app (port $PORT, library $S/maclib)"
 SYNCR_MAC_LIBRARY_FOLDER="$S/maclib" SYNCR_MAC_DEBUG_REPLAY=1 SYNCR_MAC_DEBUG_CONTROL="$S/control" SYNCR_MAC_LINK_PORT="$PORT" \
-  "$MAC/.build/debug/SyncrMac" >"$S/mac.log" 2>&1 &
+  "$MAC_BIN" >"$S/mac.log" 2>&1 &
 MAC_PID=$!
 for _ in $(seq 1 100); do
   grep -q "link: listening port=$PORT" "$S/mac.log" 2>/dev/null && grep -q "link: control ready" "$S/mac.log" 2>/dev/null && break
@@ -45,7 +48,7 @@ grep -q "link: listening port=$PORT" "$S/mac.log" || { cat "$S/mac.log"; echo "F
 pass "mac-start: listening on 127.0.0.1-reachable port $PORT, control file ready"
 
 echo "== phone scenarios"
-(cd "$ANDROID" && ./gradlew -q --console=plain :app:linkProbe -x :app:testDebugUnitTest \
+(cd "$ANDROID" && ./gradlew -q --console=plain :app:linkProbe -x :app:testDebugUnitTest -PsyncrNativeHost=true \
   --args="127.0.0.1:$PORT --join --mac-log $S/mac.log --mac-control $S/control --mac-library $S/maclib") >"$S/probe.log" 2>&1
 probe_status=$?
 grep -E "^JOIN " "$S/probe.log"

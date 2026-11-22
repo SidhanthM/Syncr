@@ -129,11 +129,21 @@ private final class LoadToken: @unchecked Sendable {
     }
 
     func refresh() throws {
-        let all = try library?.listNotes() ?? []
-        liveIds = Set(all.map(\.id))
-        notes = all.filter { !$0.archived }
-        notebooks = try library?.listNotebooks() ?? []
-        deleted = try library?.listDeletedNotes() ?? []
+        guard let library else { adopt(Listing(notes: [], notebooks: [], deleted: [])); return }
+        adopt(try Self.listing(library))
+    }
+
+    /// The library's lists. Reading them opens every note file: hundreds of milliseconds on a large library, so sync reads
+    /// them on the worker and hands them to `adopt` (remaining-v1 L.5: an incoming merge must not stall the main thread).
+    struct Listing: Sendable { var notes: [NoteSummary]; var notebooks: [NotebookSummary]; var deleted: [DeletedNoteSummary] }
+    nonisolated static func listing(_ library: SyncrLibrary) throws -> Listing {
+        Listing(notes: try library.listNotes(), notebooks: try library.listNotebooks(), deleted: try library.listDeletedNotes())
+    }
+    func adopt(_ listing: Listing) {
+        liveIds = Set(listing.notes.map(\.id))
+        notes = listing.notes.filter { !$0.archived }
+        notebooks = listing.notebooks
+        deleted = listing.deleted
         error = nil
     }
 

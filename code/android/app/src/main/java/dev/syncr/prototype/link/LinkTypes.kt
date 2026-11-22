@@ -52,6 +52,12 @@ interface NoteSource {
      */
     fun applyCopy(id: String, file: File): CopyOutcome = CopyOutcome.Refused("not supported")
 
+    /**
+     * True while the note on screen is [id] and its editor has a change staged but not yet stored: a merge then is refused, so
+     * a Mac file waits for the editor to be quiet instead of failing (remaining-v1 L.4). Cheap; any thread.
+     */
+    fun editing(id: String): Boolean = false
+
     /** Delta sync: the newest operation ID per author (author to ID) this phone holds for [id], or null when it has no such note. Blocking. */
     fun heads(id: String): Map<String, String>? = null
 

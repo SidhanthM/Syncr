@@ -50,3 +50,4 @@ CLAUDE.md
 
 # ./syncr check logs
 code/.check-logs/
+code/.latency/

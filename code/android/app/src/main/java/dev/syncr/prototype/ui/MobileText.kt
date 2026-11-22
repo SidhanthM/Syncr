@@ -70,8 +70,10 @@ internal fun MobileTextEditor(repo: NotesRepository, block: String?, canvas: Not
     /** Stores [text] as a splice of the draft when it differs. False when it could not be stored. */
     suspend fun store(text: String): Boolean = saving.withLock {
         if (conflict) return@withLock false
+        val t0 = System.nanoTime(); var t1 = t0; var t2 = t0
         try {
             settle()
+            t1 = System.nanoTime()
             // What is stored now: the same words under a newer head is only this editor's own last save arriving; other
             // words are another device's edit, which this one must never overwrite.
             val current = repo.textDraft(draft.blockId, draft.place)
@@ -83,9 +85,12 @@ internal fun MobileTextEditor(repo: NotesRepository, block: String?, canvas: Not
             try { repo.saveText(draft, text) }
             catch (e: CancellationException) { throw e }
             catch (e: IllegalStateException) { settle() } // staged but not delivered yet: delivery goes on in the background
+            t2 = System.nanoTime()
             draft = repo.textDraft(draft.blockId, draft.place)
             if (draft.text != text) { error = "Could not save. Your text is still here."; return@withLock false }
             error = ""
+            dev.syncr.prototype.link.TextTrace.commit()
+            dev.syncr.prototype.link.TextTrace.store((t1 - t0) / 1000, (t2 - t1) / 1000, (System.nanoTime() - t0) / 1000)
             true
         } catch (e: CancellationException) { throw e }
         catch (e: IllegalArgumentException) { conflict = e.message?.startsWith("Wait for") != true; error = e.message.orEmpty(); false }
@@ -95,7 +100,10 @@ internal fun MobileTextEditor(repo: NotesRepository, block: String?, canvas: Not
 
     SideEffect { canvas?.setTextEditingEnabled(!asking) }
     DisposableEffect(canvas, initial.noteId) {
-        canvas?.beginTextEditing(initial, initial.text) { next, undo, redo -> state = next; canUndo = undo; canRedo = redo }
+        canvas?.beginTextEditing(initial, initial.text) { next, undo, redo ->
+            if (next.text != state.text) dev.syncr.prototype.link.TextTrace.key()
+            state = next; canUndo = undo; canRedo = redo
+        }
         val lifecycle = (context as? androidx.lifecycle.LifecycleOwner)?.lifecycle
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event -> if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) scope.launch { flush() } }
         lifecycle?.addObserver(observer)
@@ -120,7 +128,28 @@ internal fun MobileTextEditor(repo: NotesRepository, block: String?, canvas: Not
         }
         androidx.core.content.ContextCompat.registerReceiver(context, receiver,
             android.content.IntentFilter("dev.syncr.prototype.DEBUG_FOREIGN_EDIT"), androidx.core.content.ContextCompat.RECEIVER_EXPORTED)
-        onDispose { context.unregisterReceiver(receiver) }
+        // The latency driver (remaining-v1 L.2): bursts of keys typed into this editor at the caret, as a person would.
+        val typist = object : android.content.BroadcastReceiver() {
+            override fun onReceive(c: Context, i: Intent) {
+                val count = i.getIntExtra("count", 15); val interval = i.getIntExtra("interval", 100).toLong()
+                val bursts = i.getIntExtra("bursts", 1); val gap = i.getIntExtra("gap", 1500).toLong()
+                scope.launch {
+                    repeat(bursts) {
+                        val start = android.os.SystemClock.uptimeMillis()
+                        for (k in 0 until count) {
+                            delay(maxOf(0L, start + k * interval - android.os.SystemClock.uptimeMillis()))
+                            val live = canvas?.currentText() ?: return@launch
+                            canvas.applyText(TextSel(live.text.substring(0, live.lo) + "p" + live.text.substring(live.hi), live.lo + 1))
+                        }
+                        delay(gap)
+                    }
+                    android.util.Log.i(TEXT_TAG, "typed bursts=$bursts count=$count interval=$interval")
+                }
+            }
+        }
+        androidx.core.content.ContextCompat.registerReceiver(context, typist, android.content.IntentFilter(TEXT_TYPE_BURST),
+            androidx.core.content.ContextCompat.RECEIVER_EXPORTED)
+        onDispose { context.unregisterReceiver(receiver); context.unregisterReceiver(typist) }
     }
     // [0] is when the oldest unsaved keystroke arrived and [1] when the text was last stored; a keystroke restarts the effect
     // below but not these, so the deadline stays where it was and a long burst is still stored every ~150 ms.

@@ -76,9 +76,11 @@ class SyncSenderTest {
         assertEquals(5L, file.seq)
         assertEquals(150_001L, file.size)
         assertEquals(sha(data), file.sha256)
-        assertEquals(3L, file.chunks) // 65,000 + 65,000 + 20,001
-        assertEquals(listOf(0L, 1L, 2L), r.chunks.map { it.index })
-        assertEquals(listOf(65_000, 65_000, 20_001), r.chunks.map { it.data.size })
+        // Chunks of 16 KiB, so a pen frame never waits behind more than one (remaining-v1 L.5): 9 whole and 2,545 bytes.
+        val c = SendScheduler.CHUNK_BYTES
+        assertEquals(10L, file.chunks)
+        assertEquals((0L until 10L).toList(), r.chunks.map { it.index })
+        assertEquals(List(9) { c } + (150_001 - 9 * c), r.chunks.map { it.data.size })
         assertTrue(r.chunks.all { it.transfer == 1L })
         assertArrayEquals(data, r.data())
         assertTrue(r.ended)
@@ -93,11 +95,11 @@ class SyncSenderTest {
 
     @Test fun exactMultipleOfChunkSizeAndEmptyEdgeCases() {
         val h = SessionHarness().connected(NoteMeta("a", 1, "A"))
-        h.source.contents["a"] = ByteArray(130_000) { 1 }
+        h.source.contents["a"] = ByteArray(8 * SendScheduler.CHUNK_BYTES) { 1 }
         h.mac(Control.Want(listOf("a"))); h.loop.runPosted()
         val r = h.receive()
-        assertEquals(2L, r.file!!.chunks)
-        assertEquals(2, r.chunks.size)
+        assertEquals(8L, r.file!!.chunks)
+        assertEquals(8, r.chunks.size)
         h.cleanup()
     }
 

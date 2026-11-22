@@ -20,6 +20,10 @@ class FakeMac(
     private val code: String = "4242",
     private val macName: String = "Fake Mac",
     private val macId: String = MAC_ID,
+    /** The link version `welcome` says (1: the phone takes pointer input and files from the Mac). */
+    private val version: Int = 0,
+    /** Writes leave from a thread of their own, as the real Mac's sends are queued: a Mac sending a big file still reads. */
+    private val queuedWrites: Boolean = false,
 ) : AutoCloseable {
     private val server = ServerSocket(0, 4, InetAddress.getByName("127.0.0.1"))
     val port = server.localPort
@@ -65,15 +69,22 @@ class FakeMac(
         }
     }
 
-    fun send(c: Control) = synchronized(lock) {
-        val o = out ?: return
-        try { o.write(Wire.frame(c.encode())); o.flush() } catch (_: IOException) { }
-    }
+    fun send(c: Control) = rawWrite(Wire.frame(c.encode()))
 
     /** Writes raw bytes, bypassing framing, to test how the phone handles garbage. */
-    fun rawWrite(bytes: ByteArray) = synchronized(lock) {
+    fun rawWrite(bytes: ByteArray) {
+        if (queuedWrites) { outbox.put(bytes); return }
+        write(bytes)
+    }
+
+    private fun write(bytes: ByteArray) = synchronized(lock) {
         val o = out ?: return
         try { o.write(bytes); o.flush() } catch (_: IOException) { }
+    }
+
+    private val outbox = LinkedBlockingQueue<ByteArray>()
+    init {
+        if (queuedWrites) Thread({ while (true) write(outbox.take()) }, "fake-mac-writer").apply { isDaemon = true; start() }
     }
 
     fun drop() { conn?.let { try { it.close() } catch (_: IOException) { } } }
@@ -101,7 +112,7 @@ class FakeMac(
     private fun welcome() {
         epoch++
         val keep = keepStrokes && hellos.lastOrNull()?.keep == true
-        send(Control.Welcome(if (keepStrokes) 1 else 0, macName, macId, epoch, keep = keep))
+        send(Control.Welcome(if (keepStrokes) maxOf(version, 1) else version, macName, macId, epoch, keep = keep))
     }
 
     private fun onControl(c: Control) {

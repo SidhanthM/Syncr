@@ -121,6 +121,52 @@ class SchedulerTest {
         assertNull(s.next())
     }
 
+    @Test fun pointerMotionHoldsALargeTransferBackAsThePenDoes() {
+        scheduler.file = fileOf(3)
+        scheduler.sendControl(Control.Pointer(1, PointerInput(dx = 1.0)))
+        assertEquals(Wire.KIND_CONTROL, kind(scheduler.next()))
+        assertNull(scheduler.next()) // the trackpad is moving: no chunk
+        assertTrue(scheduler.pointerActive())
+        assertTrue(!scheduler.pointerActive(System.nanoTime() + SendScheduler.INPUT_GRACE_NS))
+        scheduler.file = fileOf(1)
+        assertEquals(Wire.KIND_FILE, kind(scheduler.next())) // a small one still goes
+    }
+
+    /** Runs what it is given only when told to: the files thread, by hand. */
+    private class HandRun : java.util.concurrent.Executor {
+        val queue = ArrayDeque<Runnable>()
+        override fun execute(command: Runnable) { queue += command }
+        fun runAll() { while (queue.isNotEmpty()) queue.removeFirst().run() }
+    }
+
+    @Test fun aFileStreamReadsAheadOffTheLinkThreadAndWakesItWhenAChunkIsReady() {
+        val f = Files.createTempFile("syncr-ahead", ".bin").toFile().also { it.deleteOnExit(); it.writeBytes(ByteArray(2500) { it.toByte() }) }
+        val files = HandRun()
+        var woken = 0
+        val s = FileStream(f, 4, 3, chunkBytes = 1000, files = files, wake = { woken++ })
+        assertNull(s.next()) // nothing read yet: the link thread does not wait for the disk
+        files.runAll()
+        assertTrue(woken >= 1)
+        val sizes = ArrayList<Int>()
+        repeat(3) { sizes += Wire.parseFileChunk(s.next() ?: run { files.runAll(); s.next()!! }).data.size }
+        assertEquals(listOf(1000, 1000, 500), sizes)
+        assertEquals(Control.FileEnd(4), Control.parse(s.next()!!))
+        assertTrue(s.finished)
+        files.runAll() // the close runs on the files thread too
+    }
+
+    @Test fun aReadThatFailsOnTheFilesThreadIsThrownToTheLinkThread() {
+        val f = Files.createTempFile("syncr-ahead", ".bin").toFile().also { it.deleteOnExit(); it.writeBytes(ByteArray(10)) }
+        val files = HandRun()
+        val failing = object : BulkDisk {
+            override fun read(file: java.io.RandomAccessFile, buffer: ByteArray, offset: Int, length: Int): Int = throw java.io.IOException("disk")
+        }
+        val s = FileStream(f, 1, 1, failing, 1000, files)
+        assertNull(s.next())
+        files.runAll()
+        assertTrue(runCatching { s.next() }.exceptionOrNull() is java.io.IOException)
+    }
+
     @Test fun backoffRetriesAtOnceThenHalfOneTwoFourEightTenSecondsAndResets() {
         val b = Backoff { 0.5 } // the middle of the jitter: none
         assertEquals(listOf(0L, 500, 1000, 2000, 4000, 8000, 10_000, 10_000), List(8) { b.nextMs() })

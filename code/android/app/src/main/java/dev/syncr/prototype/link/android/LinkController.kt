@@ -319,6 +319,7 @@ class LinkController private constructor(private val app: Application) {
                 return runBlocking { repo.syncDigests(ids) }.mapValues { NoteDigest(it.value.digest, it.value.operationCount.toLong()) }
             }
             override fun heads(id: String): Map<String, String>? = repo?.let { runBlocking { it.syncHeads(id) } }
+            override fun editing(id: String): Boolean = repo?.state?.value?.let { it.unsaved && it.snapshot?.noteId == id } == true
             override fun exportDelta(id: String, base: Map<String, String>, dest: File): Long? {
                 val repo = repo ?: return null
                 dest.delete()
@@ -346,7 +347,7 @@ class LinkController private constructor(private val app: Application) {
         }
         val config = ClientConfig(
             device = deviceName(), store = store, source = source, clock = Clock.SYSTEM, tempDir = dir, out = out, feed = feed,
-            encodeSamples = ::encodeSamples, log = { Log.i(TAG, it) }, ids = ids, latencyContext = ::radioContext, keeper = keeper,
+            encodeSamples = ::encodeSamples, log = { Log.i(TAG, it) }, ids = ids, latencyContext = ::radioContext, keeper = keeper, transport = TunedTcp,
         )
         lateinit var self: LinkClient
         val listener = object : ClientListener {

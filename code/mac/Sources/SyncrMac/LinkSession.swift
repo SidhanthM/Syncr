@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import os
 
 // The protocol logic of one phone connection: hello and pairing (3.1), clock (3.2), note transfer
 // (3.3) and the pass-through of live frames, viewing and pad messages. No sockets and no UI: bytes
@@ -98,6 +99,11 @@ final class LinkSession: @unchecked Sendable {
         var penActive: (() -> Bool)? = nil
         /// A stroke the phone is sending again was begun at this target revision (`stroke_rev`); the stroke's commit follows.
         var expectResend: ((String, UInt32) -> Void)? = nil
+        /// Where an incoming file's bytes are written and hashed, in order, off the executor that reads live frames
+        /// (remaining-v1 L.5). nil: on the executor (checks).
+        var files: ((@escaping @Sendable () -> Void) -> Void)? = nil
+        /// Writes one chunk of an incoming file (checks slow it down).
+        var diskWrite: @Sendable (FileHandle, Data) throws -> Void = { try $0.write(contentsOf: $1) }
     }
 
     /// The same note and operation set is not transferred more than this many times a minute in one direction.
@@ -119,13 +125,27 @@ final class LinkSession: @unchecked Sendable {
         var endedNs: UInt64?
     }
 
-    private struct Transfer {
+    /// An incoming file. The executor keeps the count; `hasher`, `handle` writes and `failed` belong to `IO.files`.
+    private final class Transfer: @unchecked Sendable {
         let offer: FileOffer
         let file: URL
         let handle: FileHandle
         var hasher = SHA256()
+        var failed = false
         var received: UInt64 = 0
         var nextIndex: UInt32 = 0
+        init(offer: FileOffer, file: URL, handle: FileHandle) { self.offer = offer; self.file = file; self.handle = handle }
+    }
+
+    /// Bytes of incoming chunks handed to `IO.files` and not yet written. The connection stops reading while it is over
+    /// `maxFileBacklog`, so a slow disk slows the phone down instead of filling memory.
+    private let backlog = OSAllocatedUnfairLock(initialState: UInt64(0))
+    var fileBacklog: UInt64 { backlog.withLock { $0 } }
+    static let maxFileBacklog: UInt64 = 4 << 20
+
+    /// Runs `block` where file bytes go: `IO.files` in order, or right here.
+    private func onFiles(_ block: @escaping @Sendable () -> Void) {
+        if let files = io.files { files(block) } else { block() }
     }
 
     private struct Pairing { var code: String; var expiresNs: UInt64; var failures = 0 }
@@ -474,7 +494,8 @@ final class LinkSession: @unchecked Sendable {
                     guard size >= 1, size <= LinkLimits.maxFileBytes, let handle = try? FileHandle(forReadingFrom: url) else {
                         log("export-unusable id=\(id)"); try? FileManager.default.removeItem(at: url); pumpWanted(); return
                     }
-                    let offer = FileOffer(xfer: nextXfer, id: id, seq: seq, size: size, sha256: sha, chunks: chunks, delta: delta)
+                    let offer = FileOffer(xfer: nextXfer, id: id, seq: seq, size: size, sha256: sha, chunks: chunks, delta: delta,
+                                          heads: peerDelta && !heads.isEmpty ? heads : nil)
                     nextXfer &+= 1
                     outgoing = Outgoing(offer: offer, file: url, handle: handle, heads: heads, pushed: pushed.remove(id) != nil)
                     counters.files += 1
@@ -569,26 +590,49 @@ final class LinkSession: @unchecked Sendable {
     }
 
     private func receiveChunk(xfer: UInt32, index: UInt32, data: Data) {
-        guard var t = transfer, t.offer.xfer == xfer else { return }  // late chunk of an abandoned transfer
+        guard let t = transfer, t.offer.xfer == xfer else { return }  // late chunk of an abandoned transfer
         guard index == t.nextIndex, index < t.offer.chunks, t.received + UInt64(data.count) <= t.offer.size else {
             failTransfer("chunk"); return
         }
-        do { try t.handle.write(contentsOf: data) } catch { failTransfer("write"); return }
-        t.hasher.update(data: data)
         t.received += UInt64(data.count); t.nextIndex += 1
-        transfer = t
+        let size = UInt64(data.count), write = io.diskWrite, backlog = backlog
+        backlog.withLock { $0 += size }
+        onFiles {
+            if !t.failed {
+                do { try write(t.handle, data); t.hasher.update(data: data) } catch { t.failed = true }
+            }
+            backlog.withLock { $0 -= size }
+        }
     }
 
     private func receiveFileEnd(xfer: UInt32) {
         guard let t = transfer, t.offer.xfer == xfer else { return }
         transfer = nil
-        try? t.handle.close()
-        func reject(_ reason: String) {
-            try? FileManager.default.removeItem(at: t.file)
-            sendFileError(t.offer.xfer, t.offer.id, reason)
+        guard t.nextIndex == t.offer.chunks, t.received == t.offer.size else { reject(t, "size"); return }
+        // Once every chunk of it is written: the files queue runs in order.
+        onFiles { [self] in
+            try? t.handle.close()
+            let sha = t.failed ? nil : t.hasher.finalize().map({ String(format: "%02x", $0) }).joined()
+            io.run { [self] in
+                guard phase == .ready else { try? FileManager.default.removeItem(at: t.file); return }
+                guard let sha else { reject(t, "write"); return }
+                guard sha == t.offer.sha256.lowercased() else { reject(t, "hash"); return }
+                install(t)
+            }
         }
-        guard t.nextIndex == t.offer.chunks, t.received == t.offer.size else { reject("size"); return }
-        guard t.hasher.finalize().map({ String(format: "%02x", $0) }).joined() == t.offer.sha256.lowercased() else { reject("hash"); return }
+    }
+
+    private func reject(_ t: Transfer, _ reason: String) {
+        discard(t)
+        sendFileError(t.offer.xfer, t.offer.id, reason)
+    }
+
+    /// Closes and deletes an incoming file once any write of it still queued is done.
+    private func discard(_ t: Transfer) {
+        onFiles { t.failed = true; try? t.handle.close(); try? FileManager.default.removeItem(at: t.file) }
+    }
+
+    private func install(_ t: Transfer) {
         let offer = t.offer, file = t.file
         guard let host else { try? FileManager.default.removeItem(at: file); return }
         host.sessionInstall(self, offer: offer, file: file) { [self] outcome in
@@ -599,6 +643,8 @@ final class LinkSession: @unchecked Sendable {
                 if !offer.delta { fullOnly.remove(offer.id) }
                 switch outcome {
                 case .installed(let seq, let digest, let ops):
+                    // The phone holds at least what it said it held: the next push leaves that out instead of sending it back.
+                    if peerPush, let heads = offer.heads { peerHeads[offer.id] = heads }
                     send(peerVersion >= 1 ? .have(id: offer.id, seq: seq, digest: digest, ops: ops) : .have(id: offer.id, seq: seq))
                 case .current(let seq): send(.have(id: offer.id, seq: seq))
                 case .refused(let why):
@@ -622,8 +668,7 @@ final class LinkSession: @unchecked Sendable {
     private func failTransfer(_ reason: String) {
         guard let t = transfer else { return }
         transfer = nil
-        try? t.handle.close()
-        try? FileManager.default.removeItem(at: t.file)
+        discard(t)
         sendFileError(t.offer.xfer, t.offer.id, reason)
     }
 
@@ -690,8 +735,13 @@ final class LinkSession: @unchecked Sendable {
         }
         endPairing()
         if let t = transfer {
-            try? t.handle.close(); try? FileManager.default.removeItem(at: t.file); transfer = nil
-            log("transfer-aborted id=\(t.offer.id) received=\(t.received) of=\(t.offer.size) partial-file-removed=\(!FileManager.default.fileExists(atPath: t.file.path))")
+            transfer = nil
+            nonisolated(unsafe) let host = host  // sessionLog is safe from any thread (the bridge only writes stderr)
+            // The partial file goes after any write of it still queued; the line says so once it is gone.
+            onFiles {
+                t.failed = true; try? t.handle.close(); try? FileManager.default.removeItem(at: t.file)
+                host?.sessionLog("link: transfer-aborted id=\(t.offer.id) received=\(t.received) of=\(t.offer.size) partial-file-removed=\(!FileManager.default.fileExists(atPath: t.file.path))")
+            }
         }
         finishOutgoing()
         phase = .closed

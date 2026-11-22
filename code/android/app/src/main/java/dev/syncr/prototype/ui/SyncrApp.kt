@@ -38,6 +38,7 @@ fun SyncrApp(vm: NotesViewModel = viewModel(), dark: Boolean, appearance: Appear
     val repo = vm.repository
     StippleDebug.Listen()
     CanvasDebugHooks(vm)
+    TextDebugHooks()
     val state by repo.state.collectAsStateWithLifecycle()
     val guard = remember(vm) { ClosureGuard(vm) }
     var paper by remember { mutableStateOf<NoteCanvasView?>(null) }

@@ -95,11 +95,13 @@ extension LibraryModel {
     func syncIncoming(file: URL, noteId: String, phone: String, completion: @escaping @MainActor (Result<SyncResult, Error>) -> Void) {
         guard let library else { completion(.failure(SyncError.unavailable)); return }
         if deleted.contains(where: { $0.id == noteId }) { completion(.failure(SyncError.deletedNote)); return }
+        // The lists are read where the merge ran, never on the main thread.
         let finish: @Sendable (Result<SyncResult, Error>) -> Void = { [weak self] result in
+            let listing = (try? result.get()).flatMap { _ in try? Self.listing(library) }
             DispatchQueue.main.async { MainActor.assumeIsolated {
                 guard let self else { return }
                 if case .success(let r) = result {
-                    _ = try? self.refresh()
+                    if let listing { self.adopt(listing) }
                     if r.installed || r.applied > 0 { (self.onPeerMerge ?? self.onCommit)?(noteId) }
                 }
                 completion(result)
@@ -149,10 +151,12 @@ extension LibraryModel {
                                   rejected: merged.report.rejected.count, seq: try note.snapshot().localSequence, digest: d.digest,
                                   ops: d.operationCount, short: !merged.complete)
             }
+            // The lists are read here, after the merge, never on the main thread (a typed delta arrives several times a second).
+            let listing = (try? result.get()).flatMap { _ in try? Self.listing(library) }
             DispatchQueue.main.async { MainActor.assumeIsolated {
                 guard let self else { return }
                 if case .success(let r) = result {
-                    _ = try? self.refresh()
+                    if let listing { self.adopt(listing) }
                     if r.applied > 0 { (self.onPeerMerge ?? self.onCommit)?(noteId) }
                 }
                 completion(result)

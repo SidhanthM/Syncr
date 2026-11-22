@@ -277,20 +277,23 @@ class JoinTest(private val o: Options, private val print: (String) -> Unit) {
     /** How the phone's editor commits typed text: the delay before the next save, from the clock, the first unsaved keystroke and the last save. */
     private fun interface TextCommit { fun delayMs(now: Long, dirtySince: Long, lastCommit: Long): Long }
 
-    /** The phone types [n] letters [gapMs] apart and commits them as its editor would; per letter, ms until the Mac's editor shows it. */
+    /**
+     * The phone types [n] letters [gapMs] apart and commits them as its editor would; per letter, ms until the Mac's editor shows
+     * it. The commit schedule is kept by a polling thread, not a scheduled executor: macOS stretches a background JVM's timers by
+     * up to ~100 ms, which the phone's editor (a coroutine `delay` on Android's main looper) does not suffer.
+     */
     private fun phoneToMac(note: String, n: Int, gapMs: Int, commit: TextCommit): List<Long> {
         val base = lib.documentTextOf(note).length
         val m = mark()
         val keys = LongArray(n)
-        val clock = java.util.concurrent.Executors.newSingleThreadScheduledExecutor()
         val lock = Any()
         var text = lib.documentTextOf(note)
-        var pending: java.util.concurrent.ScheduledFuture<*>? = null
-        var dirtySince = 0L; var lastCommit = 0L
+        var dirtySince = 0L; var lastCommit = 0L; var due = Long.MAX_VALUE
         val commits = java.util.concurrent.CopyOnWriteArrayList<Long>()
+        val late = java.util.concurrent.CopyOnWriteArrayList<Long>()
         val costs = java.util.concurrent.CopyOnWriteArrayList<String>()
         fun commitNow() {
-            val t = synchronized(lock) { dirtySince = 0; lastCommit = System.currentTimeMillis(); text }
+            val t = synchronized(lock) { late += System.currentTimeMillis() - due; dirtySince = 0; due = Long.MAX_VALUE; lastCommit = System.currentTimeMillis(); text }
             val t0 = System.nanoTime()
             lib.typeText(note, t); commits += System.currentTimeMillis()
             val t1 = System.nanoTime()
@@ -299,21 +302,27 @@ class JoinTest(private val o: Options, private val print: (String) -> Unit) {
             current.client.notesChanged(listed, note)
             costs += "${(t1 - t0) / 1_000_000}+${(t2 - t1) / 1_000_000}"
         }
+        val typing = java.util.concurrent.atomic.AtomicBoolean(true)
+        val committer = Thread {
+            while (typing.get()) {
+                val ready = synchronized(lock) { dirtySince != 0L && System.currentTimeMillis() >= due }
+                if (ready) try { commitNow() } catch (e: Exception) { print("JOIN info commit failed: $e") } else Thread.sleep(0, 200_000)
+            }
+        }.apply { isDaemon = true; start() }
         val start = System.nanoTime()
         for (i in 1..n) {
-            val due = start + (i - 1) * gapMs * 1_000_000L
-            while (System.nanoTime() < due) Thread.sleep(0, 200_000)
+            val at = start + (i - 1) * gapMs * 1_000_000L
+            while (System.nanoTime() < at) Thread.sleep(0, 200_000)
             val now = System.currentTimeMillis()
-            val (since, last) = synchronized(lock) { text += "p"; keys[i - 1] = now; if (dirtySince == 0L) dirtySince = now; dirtySince to lastCommit }
-            pending?.cancel(false)
-            pending = clock.schedule({ try { commitNow() } catch (e: Exception) { print("JOIN info commit failed: $e") } }, commit.delayMs(now, since, last), java.util.concurrent.TimeUnit.MILLISECONDS)
+            synchronized(lock) { text += "p"; keys[i - 1] = now; if (dirtySince == 0L) dirtySince = now; due = now + commit.delayMs(now, dirtySince, lastCommit) }
         }
         val settled = poll(15_000, 5) { macSince(m).any { l -> Regex("""link: editor-text len=(\d+)""").find(l)?.groupValues?.get(1)?.toInt()?.let { it >= base + n } == true } }
-        clock.shutdownNow()
+        typing.set(false); committer.join(1_000)
         check(settled) { "the last phone letter never showed in the Mac's editor (${macSince(m).filter { it.contains("editor-text") }.takeLast(2)}, wanted length ${base + n})" }
         if (System.getenv("SYNCR_JOIN_TEXT_TRACE") == "1") {
             print("JOIN trace phone commits (ms since first key): " + commits.joinToString(" ") { "${it - keys[0]}" })
             print("JOIN trace phone commit cost, save+list ms: " + costs.joinToString(" "))
+            print("JOIN trace phone commit lateness against the throttle's schedule, ms: " + late.joinToString(" "))
             for (l in macSince(m)) Regex("""epoch=(\d+)""").find(l)?.let { e -> if (l.contains("file-in") || l.contains("delta-merged") || l.contains("editor-text") || l.contains("have-in") || l.contains("out-file")) print("JOIN trace mac ${e.groupValues[1].toLong() - keys[0]} ${l.substringAfter("link: ").substringBefore(" epoch").take(60)}") }
         }
         val seen = macSince(m).mapNotNull { Regex("""link: editor-text len=(\d+) epoch=(\d+)""").find(it)?.destructured?.let { (l, e) -> l.toInt() to e.toLong() } }
@@ -324,7 +333,19 @@ class JoinTest(private val o: Options, private val print: (String) -> Unit) {
 
     // ------------------------------------------------------------------ the script
 
+    /**
+     * SYNCR_JOIN_ONLY: run only the steps named (their first word), comma or space separated; `latency` is the latency
+     * harness's set (`code/shared/latency/run.sh`): pairing, the first sync, a Mac note, a v1 phone, then `t` and `L`.
+     */
+    private val only: Set<String>? = System.getenv("SYNCR_JOIN_ONLY")?.split(',', ' ')?.filter { it.isNotBlank() }?.flatMap {
+        if (it == "latency") listOf("a1", "a2", "c1", "f1", "j0", "t", "L") else listOf(it)
+    }?.toSet()
+
+    /** One line per measured series, for the latency harness: `JOIN metric <name> p50=… p95=… max=… n=…` (ms). */
+    private fun metric(name: String, v: List<Long>) = print("JOIN metric $name ${summary(v)}")
+
     private fun step(name: String, body: () -> Unit) {
+        if (only != null && name.substringBefore(' ') !in only) return
         try { body(); print("JOIN PASS $name") }
         catch (f: Fail) { failed++; print("JOIN FAIL $name: ${f.message}") }
         catch (e: Exception) { failed++; print("JOIN FAIL $name: ${e.javaClass.simpleName}: ${e.message}") }
@@ -869,18 +890,65 @@ class JoinTest(private val o: Options, private val print: (String) -> Unit) {
                 print("JOIN info t mode=$mode phone to Mac, every keystroke: ${summary(phoneDuring)}")
                 print("JOIN info t mode=$mode phone to Mac, first key of a burst: ${summary(phoneFirst)}")
                 print("JOIN info t mode=$mode phone to Mac, last key of a burst: ${summary(phoneLast)}")
+                metric("text.mac-to-phone.every", macDuring); metric("text.mac-to-phone.last", macLast)
+                metric("text.phone-to-mac.every", phoneDuring); metric("text.phone-to-mac.last", phoneLast)
                 awaitEqual(typing)
-                // Latency-v1 T.6, Mac to phone: the whole path is the app's own code (editor throttle, announce, push, merge). Phone to
-                // Mac is reported only: its first hop is this test's stand-in for the phone's editor (host core calls that queue behind the
-                // link's own, one library lock), so its numbers say less about the app than the other direction's.
-                check(pct(macDuring, 0.95) <= 300) { "Mac to phone, during typing: p95 ${pct(macDuring, 0.95)} ms is over 300" }
-                check(pct(macLast, 0.95) <= 250) { "Mac to phone, after the last key: p95 ${pct(macLast, 0.95)} ms is over 250" }
-                if (System.getenv("SYNCR_JOIN_TEXT_ENFORCE") == "1") {
+                // Latency-v1 T.6, both ways (remaining-v1 L.4). Phone to Mac's first hop is this test's stand-in for the phone's editor:
+                // the real throttle and core calls, committed on the throttle's schedule (see phoneToMac); the app's own key-to-commit
+                // is measured on the emulator (TextTrace). SYNCR_JOIN_TEXT_ENFORCE=0 only reports.
+                if (System.getenv("SYNCR_JOIN_TEXT_ENFORCE") != "0") {
+                    check(pct(macDuring, 0.95) <= 300) { "Mac to phone, during typing: p95 ${pct(macDuring, 0.95)} ms is over 300" }
+                    check(pct(macLast, 0.95) <= 250) { "Mac to phone, after the last key: p95 ${pct(macLast, 0.95)} ms is over 250" }
                     check(pct(phoneDuring, 0.95) <= 300) { "phone to Mac, during typing: p95 ${pct(phoneDuring, 0.95)} ms is over 300" }
                     check(pct(phoneLast, 0.95) <= 250) { "phone to Mac, after the last key: p95 ${pct(phoneLast, 0.95)} ms is over 250" }
                 }
             }
 
+
+            step("L pad ink in Stream mode: pen event to socket write on the phone, phone frame to Mac presented, idle and while a large note syncs") {
+                // Mac drawable presented times need the window on screen and in front.
+                macNote(macNoteId)
+                run { val m = mark(); control("front"); awaitLog(m, "ack front", 10_000) }
+                cur.client.setPad(true)
+                check(poll { cur.target.usable && cur.target.noteId == macNoteId }) { "no writable pad target on $macNoteId (${cur.target})" }
+                fun num(s: String, k: String) = Regex("$k=([\\d.]+)").find(s)?.groupValues?.get(1)
+                fun strokes(label: String) {
+                    run { val m = mark(); control("latency-reset"); awaitLog(m, "ack latency-reset", 10_000) }
+                    cur.client.latencyLog.penToWrite.clear()
+                    repeat(5) { n ->
+                        val pen = StreamPen(cur.feed, cur.ids, { cur.target }, { brush(BrushFamily.PEN, InkColour.INK) })
+                        var started = false
+                        play(240) { k, t, last ->
+                            val u = k / 239f
+                            val x = 600f + 3600f * u; val y = 600f + 300f * n + 200f * sin(u * 3 * PI).toFloat()
+                            if (!started) started = pen.down(x, y, 0.5f, 0f, 0f, t, false, false) else pen.move(x, y, 0.5f, 0f, 0f, t)
+                            if (last && started) pen.flush()
+                        }
+                        check(started) { "the pad could not start a stroke: ${pen.problem()}" }
+                        pen.up()
+                        Thread.sleep(400)
+                    }
+                    Thread.sleep(600) // presented handlers trail the last frame
+                    val phone = cur.client.latencyLog.penToWrite.summary()
+                    val mac = run { val m = mark(); control("latency-report"); awaitLog(m, "^link: latency-report ", 10_000) }
+                    print("JOIN info L $label phone pen-event-to-socket-write $phone | mac ${mac.substringAfter("latency-report ")}")
+                    print("JOIN metric pad.$label.pen-to-write p50=${num(phone, "p50")} p95=${num(phone, "p95")} max=${num(phone, "max")} ms n=${num(phone, "n")}")
+                    print("JOIN metric pad.$label.send-to-presented p50=${num(mac, "p50")} p95=${num(mac, "p95")} max=${num(mac, "max")} ms n=${num(mac, "n")}")
+                    print("JOIN fallback pad.$label ${num(mac, "handler-time-frames") ?: 0}")
+                    check((num(mac, "n")?.toDoubleOrNull() ?: 0.0) > 0) { "the Mac presented no phone frame with a known clock offset: $mac" }
+                }
+                strokes("idle")
+                // A large note goes from the Mac to the phone while the pad writes: 200 long strokes (several MB) on note1 (j7 leaves note2 in the phone's Recently deleted).
+                val m = mark()
+                control("sync-bulk $note1 200")
+                awaitLog(m, "link: ack sync-bulk $note1", 120_000)
+                awaitLog(m, "link: out-file id=$note1 ", 30_000)
+                val big = num(macSince(m).last { it.contains("out-file id=$note1 ") }, "size")
+                strokes("bulk")
+                print("JOIN info L bulk: the Mac's copy of $note1 is $big bytes; it had ${if (macHas(m, "have-in id=$note1")) "already" else "not yet"} been confirmed when the strokes ended")
+                cur.client.setPad(false)
+                awaitEqual(note1, 120_000)
+            }
 
             // ---------------------------------------------------------------- the pad's Local mode (rework-v1 §V)
             step("p1 Local mode: the Mac answers padmode with a pen frame of the pad's shape inside its view") {

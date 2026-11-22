@@ -60,8 +60,18 @@ final class LinkConnection: @unchecked Sendable {
                 }
             }
             if complete || error != nil { self.ended(); return }
-            self.receiveLoop()
+            self.receiveWhenDiskCatchesUp()
         }
+    }
+
+    /// A slow disk is behind on an incoming file: stop reading (TCP slows the phone down) until it catches up.
+    private func receiveWhenDiskCatchesUp() {
+        guard !closing else { return }
+        if session.fileBacklog > LinkSession.maxFileBacklog {
+            queue.asyncAfter(deadline: .now() + .milliseconds(2)) { [weak self] in self?.receiveWhenDiskCatchesUp() }
+            return
+        }
+        receiveLoop()
     }
 
     /// Queued behind everything already sent, so a final `bye` goes out first.
