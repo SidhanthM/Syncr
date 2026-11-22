@@ -83,6 +83,34 @@ class StrokeKeepTest {
         assertEquals(2, h.pump.commitsQueued)
     }
 
+    /** Remaining-v1 merge: a resent kept stroke (K.4) beats a note transfer already queued on the new connection (L.5). */
+    @Test fun aKeptStrokeResentAfterAReconnectGoesAheadOfAQueuedNoteTransferAndOnce() {
+        h.pump.control = h.scheduler::sendControl
+        h.pump.goOnline(keep = true)
+        h.feed.enabled = true
+        draw("S1", rev = 9)
+        h.drain()
+        // The connection drops with the stroke unconfirmed and a note on its way; the new connection has the note queued first.
+        h.pump.reset()
+        h.pump.goOnline(keep = true)
+        val f = java.nio.file.Files.createTempFile("syncr-resend", ".bin").toFile().also { it.deleteOnExit(); it.writeBytes(ByteArray(Wire.FILE_CHUNK_DATA * 4)) }
+        h.scheduler.file = FileStream(f, 1, 4)
+        val kinds = ArrayList<Int>()
+        val messages = ArrayList<ByteArray>()
+        fun drainAll() { while (true) { val m = h.scheduler.next() ?: break; messages += m; kinds += Wire.kind(m) } }
+        drainAll()
+        h.clock.now += 1_000 // past the pen's grace: the chunks may go now
+        drainAll()
+        val firstFile = kinds.indexOf(Wire.KIND_FILE)
+        val firstStroke = kinds.indexOf(Wire.KIND_STROKE)
+        assertTrue("the note's chunks did go: $kinds", firstFile >= 0)
+        assertTrue("the stroke goes ahead of every chunk: $kinds", firstStroke in 0 until firstFile)
+        val rev = messages.indexOfFirst { Wire.kind(it) == Wire.KIND_CONTROL && Control.parse(it) == Control.StrokeRev("S1", 9) }
+        assertTrue("its revision goes before the stroke: $kinds", rev in 0 until firstStroke)
+        assertEquals("the stroke is sent once however long the transfer takes", 1, kinds.count { it == Wire.KIND_STROKE })
+        assertEquals(4, kinds.count { it == Wire.KIND_FILE })
+    }
+
     @Test fun aCanvasStrokeNeedsNoRevision() {
         h.pump.control = h.scheduler::sendControl
         h.pump.goOnline(keep = true); h.feed.enabled = true

@@ -72,6 +72,9 @@ class NotesFixture : NoteSource {
     /** What [digests] answers: the operation set of each note. */
     val digestsOf = HashMap<String, NoteDigest>()
     val copiesApplied = ArrayList<String>()
+    /** Whether the editor is mid-store for a note (typing); tests set it. */
+    var editingNow: (String) -> Boolean = { false }
+    override fun editing(id: String) = editingNow(id)
     override fun list() = notes.toList()
     override fun heads(id: String) = headsOf[id]
     override fun digests(ids: List<String>): Map<String, NoteDigest> = ids.mapNotNull { id -> digestsOf[id]?.let { id to it } }.toMap()

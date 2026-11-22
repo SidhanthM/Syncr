@@ -1567,6 +1567,35 @@ private func padChecks() throws {
     try check(hung.closed, "a disk stuck for more than 30 s no longer excuses the silence")
 }
 
+/// Remaining-v1 merge: the same phone connects again (K.2, the old session is told `bye: replaced`) while the old connection's
+/// incoming note is still being written on its files queue (L.5). The old partial file must go once, after its queued writes, and
+/// never install; the new connection's transfer of the same note completes and leaves staging empty.
+@MainActor private func replacedWhileWritingChecks() throws {
+    let queued = OSAllocatedUnfairLock(initialState: [@Sendable () -> Void]())
+    let old = SessionRig(files: { block in queued.withLock { $0.append(block) } })
+    try old.welcome(v: 1, delta: true)
+    let source = old.dir.appendingPathComponent("note.bin")
+    try Data((0..<60).map { UInt8($0) }).write(to: source)
+    let (o1, pieces) = try offer(for: source, id: "01HREPLACED00000000000000A", seq: 4, xfer: 1, chunkSize: 20)
+    old.feed(.file(o1))
+    old.feed(.fileChunk(xfer: 1, index: 0, data: pieces[0])) // written later: the disk is behind
+    try check(old.stagingFiles.count == 1, "the old connection has its partial file in staging")
+    // The new connection of the same phone takes over (a fresh session on the same staging folder, its files queue in order).
+    old.clearSent()
+    old.session.close(bye: "replaced")
+    try check(old.closed && old.controls.contains(.bye(reason: "replaced")), "the old session is closed with bye: replaced")
+    try check(old.stagingFiles.count == 1, "the partial file is not removed from under a write still queued")
+    let new = SessionRig(dir: old.dir)
+    try new.welcome(v: 1, delta: true)
+    send(new, o1, pieces)
+    try check(new.installed.count == 1, "the new connection's transfer completes (\(new.installed.count))")
+    // The old queue now catches up: the write, then the abort, in order.
+    for block in queued.withLock({ let b = $0; $0 = []; return b }) { block() }
+    try check(old.installed.isEmpty, "the replaced session never installs its partial note")
+    try check(old.stagingFiles.isEmpty, "staging is empty: the old partial file is gone and the new one was removed after install (\(old.stagingFiles))")
+    try check(old.logs.contains { $0.contains("transfer-aborted") && $0.contains("partial-file-removed=true") }, "the abort is logged once the file is gone")
+}
+
 @MainActor func linkChecks() throws {
     let pixels: [[UInt8]] = [[255, 255, 255, 255], [255, 255, 255, 255], [254, 255, 255, 255],
                               [255, 254, 255, 255], [255, 255, 254, 255], [255, 255, 255, 254]]
@@ -1576,6 +1605,7 @@ private func padChecks() throws {
     try clockChecks()
     try watchdogChecks()
     try slowDiskWatchdogChecks()
+    try replacedWhileWritingChecks()
     try strokeKeepChecks()
     try pairingChecks()
     try syncChecks()
