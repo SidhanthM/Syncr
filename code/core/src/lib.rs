@@ -33,6 +33,7 @@ mod pages;
 #[cfg(test)]
 mod pages_tests;
 mod pages_types;
+mod panic_log;
 mod picture;
 mod picture_display;
 mod picture_path;

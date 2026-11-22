@@ -97,6 +97,7 @@ pub fn open_library(root_path: String) -> CoreResult<Arc<SyncrLibrary>> {
     )?;
     let root = Path::new(&root_path);
     std::fs::create_dir_all(root).map_err(io)?;
+    crate::panic_log::install(root);
     let writer = acquire_writer_lock(root)?;
     let (db, author) = open_catalog(root)?;
     remove_unpublished_temporaries(root)?;
