@@ -73,8 +73,9 @@ fun TextAction(text: String, onClick: () -> Unit, modifier: Modifier = Modifier,
         tone == ActionTone.DESTRUCTIVE -> c.destructive
         else -> c.ink
     }
+    val act = rememberDialogAction(onClick)
     Box(modifier.heightIn(min = TouchTarget).clip(Radius.pill)
-        .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+        .clickable(enabled = enabled, role = Role.Button, onClick = act)
         .then(if (description != null) Modifier.semantics { contentDescription = description } else Modifier)
         .padding(horizontal = Space.m), contentAlignment = Alignment.Center) {
         Text(text, style = Syncr.type.label.copy(fontWeight = FontWeight.SemiBold), color = colour, maxLines = 1,
@@ -86,8 +87,9 @@ fun TextAction(text: String, onClick: () -> Unit, modifier: Modifier = Modifier,
 @Composable
 fun PrimaryAction(text: String, enabled: Boolean = true, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val c = Syncr.colors
+    val act = rememberDialogAction(onClick)
     Box(modifier.heightIn(min = TouchTarget).clip(Radius.pill).background(if (enabled) c.ink else c.dots)
-        .clickable(enabled = enabled, role = Role.Button, onClick = onClick).padding(horizontal = Space.xl),
+        .clickable(enabled = enabled, role = Role.Button, onClick = act).padding(horizontal = Space.xl),
         contentAlignment = Alignment.Center) {
         Text(text, style = Syncr.type.label.copy(fontWeight = FontWeight.SemiBold), color = if (enabled) c.surface1 else c.muted, maxLines = 1)
     }

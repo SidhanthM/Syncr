@@ -29,7 +29,15 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.staticCompositionLocalOf
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
@@ -95,24 +103,63 @@ private fun Modifier.sheetEdge(dark: Boolean): Modifier =
     }
 
 /**
+ * How a dialog leaves: it fades out the way it faded in, and only then does what was asked (close it, save, delete). A
+ * second request while it is leaving is ignored, and a request that leaves the dialog open brings it back.
+ */
+internal class DialogExit(private val shown: MutableTransitionState<Boolean>, private val scope: CoroutineScope) {
+    private var leaving = false
+    fun leave(then: () -> Unit) {
+        if (leaving) return
+        leaving = true
+        shown.targetState = false
+        scope.launch {
+            snapshotFlow { shown.isIdle && !shown.currentState }.first { it }
+            then()
+            // Still here (the action did not close it): fade back in.
+            leaving = false; shown.targetState = true
+        }
+    }
+}
+
+/** The dialog's exit, for what its body does on its own (a keyboard's Done); null outside a dialog. */
+internal val LocalDialogExit = staticCompositionLocalOf<DialogExit?> { null }
+/** True inside a dialog's own button row: [TextAction] and [PrimaryAction] there leave the dialog before acting. */
+internal val LocalInDialogButtons = staticCompositionLocalOf { false }
+
+/** [onClick] run after the dialog has left, when this is a dialog button; unchanged anywhere else. */
+@Composable
+internal fun rememberDialogAction(onClick: () -> Unit): () -> Unit {
+    val exit = LocalDialogExit.current
+    val inButtons = LocalInDialogButtons.current
+    val latest = rememberUpdatedState(onClick)
+    return if (exit != null && inButtons) ({ exit.leave { latest.value() } }) else onClick
+}
+
+/**
  * The app's dialog: a centred card on the level-three surface, a title in the title style, body copy in the body
  * style and right-aligned text actions supplied by the caller. It fades in on [Motion.MENU_MS] with a slight scale
- * from 0.96 (a fade alone with animations off).
+ * from 0.96 and leaves on the same fade (both a fade alone with animations off): the window stays up until the fade
+ * is done, then [onDismiss] or the button's action runs.
  */
 @Composable
 fun SyncrDialog(onDismiss: () -> Unit, title: String, confirm: @Composable () -> Unit,
     dismiss: (@Composable () -> Unit)? = null, body: @Composable () -> Unit) {
     val reduced = Syncr.reducedMotion
     val shown = remember { MutableTransitionState(false).apply { targetState = true } }
-    Dialog(onDismiss, DialogProperties(usePlatformDefaultWidth = false)) {
+    val scope = rememberCoroutineScope()
+    val exit = remember { DialogExit(shown, scope) }
+    val request = rememberUpdatedState(onDismiss)
+    Dialog({ exit.leave { request.value() } }, DialogProperties(usePlatformDefaultWidth = false)) {
         SheetSystemBars(Syncr.colors.dark)
-        AnimatedVisibility(visibleState = shown, enter = Motion.dialogIn(reduced), exit = Motion.menuOut(reduced)) {
-            Column(Modifier.padding(horizontal = Space.xl).widthIn(max = 560.dp).fillMaxWidth()
-                .raised(Level.THREE, Radius.card).padding(start = Space.xl, end = Space.s, top = Space.xl, bottom = Space.s)) {
-                Text(title, style = Syncr.type.subheading, color = Syncr.colors.ink, maxLines = 3, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(end = Space.m).semantics { heading() })
-                Box(Modifier.padding(top = Space.m, end = Space.m)) { body() }
-                DialogButtons { dismiss?.invoke(); confirm() }
+        CompositionLocalProvider(LocalDialogExit provides exit) {
+            AnimatedVisibility(visibleState = shown, enter = Motion.dialogIn(reduced), exit = Motion.menuOut(reduced)) {
+                Column(Modifier.padding(horizontal = Space.xl).widthIn(max = 560.dp).fillMaxWidth()
+                    .raised(Level.THREE, Radius.card).padding(start = Space.xl, end = Space.s, top = Space.xl, bottom = Space.s)) {
+                    Text(title, style = Syncr.type.subheading, color = Syncr.colors.ink, maxLines = 3, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(end = Space.m).semantics { heading() })
+                    Box(Modifier.padding(top = Space.m, end = Space.m)) { body() }
+                    CompositionLocalProvider(LocalInDialogButtons provides true) { DialogButtons { dismiss?.invoke(); confirm() } }
+                }
             }
         }
     }

@@ -73,10 +73,11 @@ private fun NameDialog(heading: String, fieldLabel: String, initial: String, pro
     SyncrDialog(onDismiss, title = heading,
         confirm = { TextAction(confirmLabel, save, enabled = issue == null) },
         dismiss = { TextAction("Cancel", onDismiss) }) {
+        val exit = LocalDialogExit.current
         SyncrTextField(value, { value = it; touched = true }, Modifier.fillMaxWidth().focusRequester(focus),
             label = fieldLabel, singleLine = true, error = if (touched && !issue.isNullOrEmpty()) issue else null,
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(onDone = { save() }))
+            keyboardActions = KeyboardActions(onDone = { if (issue == null) exit?.leave { save() } ?: save() }))
     }
 }
 
