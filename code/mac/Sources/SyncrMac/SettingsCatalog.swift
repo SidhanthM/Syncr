@@ -17,7 +17,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
 }
 
 struct SettingItem: Identifiable {
-    enum ID: String { case restoreSession, appearance, reduceMotion, textSize, lineSpacing, spellCheck, naturalScroll, hotkeys, provider, models, readers, limits, voice, libraryFolder, revealLibrary, importNote, importMarkdown }
+    enum ID: String { case pairPhone, restoreSession, appearance, reduceMotion, textSize, lineSpacing, spellCheck, naturalScroll, hotkeys, provider, models, readers, limits, voice, libraryFolder, revealLibrary, importNote, importMarkdown }
     let id: ID
     let category: SettingsCategory
     let title: String
@@ -30,6 +30,7 @@ struct SettingItem: Identifiable {
 
 enum SettingsCatalog {
     static let items: [SettingItem] = [
+        .init(id: .pairPhone, category: .general, title: "Pair a phone", detail: "Show a code to scan with your phone's camera and link it to this Mac over Wi-Fi.", keywords: "phone link qr code scan connect android wifi"),
         .init(id: .restoreSession, category: .general, title: "Restore session", detail: "Restore your open tabs and active note when Syncr starts.", keywords: "startup launch session reopen remember"),
         .init(id: .appearance, category: .appearance, title: "Colour mode", detail: "Follow your Mac, or make Syncr always light or dark.", keywords: "theme appearance system light dark color"),
         .init(id: .reduceMotion, category: .appearance, title: "Reduce motion", detail: "Keep sidebar transitions and companion indicators still. Your Mac’s accessibility preference is also respected.", keywords: "animation accessibility pulse movement"),

@@ -173,6 +173,8 @@ func viewportAndOffscreenMeshPixels() throws {
             if CommandLine.arguments.contains("--canvas") { try canvasChecks(); try canvasWorkspaceChecks(); try canvasRenderChecks(); print("Canvas checks: OK"); return }
             if CommandLine.arguments.contains("--companion-v2") { try companionV2Checks(); return }
             if CommandLine.arguments.contains("--round2") { try notebookRound2Checks(); return }
+            if let at = CommandLine.arguments.firstIndex(of: "--pairing-shots"), at + 1 < CommandLine.arguments.count { try pairingScreenshots(into: URL(fileURLWithPath: CommandLine.arguments[at + 1])); return }
+            if CommandLine.arguments.contains("--pairing") { try pairingWindowChecks(); print("Pairing window checks: OK"); return }
             if CommandLine.arguments.contains("--link") { try linkChecks(); print("Phone link checks: OK"); return }
             if CommandLine.arguments.contains("--pointer") { try pointerScrollChecks(); try pointerResumeChecks(); print("Pointer scroll checks: OK (phases, remainders, direction, idle end, event fields, wire, resume)"); return }
             if CommandLine.arguments.contains("--editor") { try editorRuleChecks(); return }
@@ -204,6 +206,7 @@ func viewportAndOffscreenMeshPixels() throws {
             try readOnlyAndSessionChecks()
             try liveInkChecks()
             try linkChecks()
+            try pairingWindowChecks()
             try pointerScrollChecks()
             try pointerResumeChecks()
             try penGlyphChecks()

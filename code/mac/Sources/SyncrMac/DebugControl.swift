@@ -160,7 +160,7 @@ import SyncrCore
         case "ai-settings": companion.showSettings(); say("ack ai-settings")
         case "ai-last": companion.lastRequest(); say("ack ai-last")
         case "ai-drawings": var p = companion.preferences; p.drawings = words.last == "on"; companion.savePreferences(p); say("ack ai-drawings")
-        case "command", "palette", "accept", "tag-open": notebookAction(words[0], words.dropFirst().joined(separator: " ")); say("ack \(words[0])")
+        case "command", "palette", "accept", "tag-open", "pair-shot": notebookAction(words[0], words.dropFirst().joined(separator: " ")); say("ack \(words[0])")
         case "windows":
             for window in NSApplication.shared.windows where window.isVisible { say("visible-window id=\(window.windowNumber) title=\(window.title)") }
         case "outline":
@@ -302,6 +302,9 @@ import SyncrCore
         case "fit": detail.fit(); say("ack fit")
         case "panel": if words.count == 2 { detail.debugCanvasPanels(words[1]); say("ack panel \(words[1])") }
         case "forget-phones": forgetPhones(); say("ack forget-phones")
+        case "pair-url":
+            // The link the "Pair a phone" window would show as its QR code, for an emulator that opens it with an intent.
+            let made = link.pairingLink(); say("pair-url \(made.link?.url ?? "none (\(made.reason))")")
         case "link": if words.count == 2 { link.setEnabled(words[1] == "on"); say("ack link \(words[1])") }
         default: say("unknown-command \(line)")
         }

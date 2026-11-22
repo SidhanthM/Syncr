@@ -132,7 +132,7 @@ struct SessionState: Codable, Equatable {
     }
 
     func availableCommands() -> Set<AppCommand> {
-        var set: Set<AppCommand> = [.companionSettings, .lastCompanionRequest, .newNote, .newCanvas, .newNotebook, .quickSwitcher, .toggleSidebar, .importExport, .chooseFolder, .phoneLink, .followPhone]
+        var set: Set<AppCommand> = [.companionSettings, .lastCompanionRequest, .newNote, .newCanvas, .newNotebook, .quickSwitcher, .toggleSidebar, .importExport, .chooseFolder, .pairPhone, .phoneLink, .followPhone]
         set.formUnion([.settings, .hotkeys, .commandPalette, .showLeftSidebar, .hideLeftSidebar,
                        .searchNotes, .dailyNote, .importMarkdown, .browseTags])
         if active != nil { set.formUnion([.findInNote, .exportMarkdown, .documentView, .outline, .toggleReading]) }

@@ -16,7 +16,7 @@ enum AppCommand: String, CaseIterable, Sendable {
     case toggleThumbnails, addPage, fitPage, fitPageWidth, fitPageHeight
     case layoutSingle, layoutDouble, layoutCover, toggleFlip, nextPage, previousPage
     /// The phone link: on/off, Follow phone, and forgetting a paired phone.
-    case phoneLink, followPhone, forgetPhone
+    case pairPhone, phoneLink, followPhone, forgetPhone
     /// Debug-only (launch flag): in-process live-ink replays. Listed only when `Workspace.debugCommands` is set.
     case replayTestStroke, replayHighlighter, replayCancelled, replayViewRelative, simulateDisconnect
 
@@ -79,6 +79,7 @@ enum AppCommand: String, CaseIterable, Sendable {
         case .fit: "Fit to Window"
         case .importExport: "Import Phone Export…"
         case .chooseFolder: "Choose Library Folder…"
+        case .pairPhone: "Pair a Phone…"
         case .phoneLink: "Phone Link On/Off"
         case .followPhone: "Follow Phone On/Off"
         case .forgetPhone: "Forget Phone…"
@@ -111,7 +112,7 @@ enum AppCommand: String, CaseIterable, Sendable {
              .toggleSidebar, .nextTab, .previousTab, .zoomIn, .zoomOut, .fit, .documentView,
              .toggleThumbnails, .fitPage, .fitPageWidth, .fitPageHeight, .layoutSingle, .layoutDouble, .layoutCover, .toggleFlip, .nextPage, .previousPage: "Workspace"
         case .askSyncr, .drawSelection, .askAllReaders, .companionSettings, .lastCompanionRequest, .undoCompanion, .redoCompanion: "Companion"
-        case .phoneLink, .followPhone, .forgetPhone: "Phone"
+        case .pairPhone, .phoneLink, .followPhone, .forgetPhone: "Phone"
         case .undo, .redo, .bold, .italic, .insertLink, .toggleTask, .slashMenu, .freeText, .addPage, .toggleReading: "Editor"
         default: "Notes"
         }

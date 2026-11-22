@@ -1,0 +1,1 @@
+../SyncrMac/QRCode.swift

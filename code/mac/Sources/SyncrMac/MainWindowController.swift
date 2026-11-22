@@ -102,7 +102,8 @@ import UniformTypeIdentifiers
             let link = LinkController(model: model, workspace: workspace, live: live)
             self.link = link
             link.onStatus = { [weak self] in self?.linkChanged() }
-            link.onPairing = { [weak self] in self?.detail.showPairing($0) }
+            link.onPairing = { [weak self] in self?.detail.showPairing($0); self?.pairWindow?.pairingChanged($0) }
+            link.onPaired = { [weak self] in self?.pairWindow?.phonePaired($0) }
         }
         ribbon.onFiles = { [weak self] in self?.run(.toggleSidebar) }
         ribbon.onSearch = { [weak self] in self?.run(.searchNotes) }
@@ -248,7 +249,7 @@ import UniformTypeIdentifiers
     /// The phone's controls, from the ribbon or the status bar's pill.
     private func phoneMenu(at view: NSView) {
         let menu = NSMenu()
-        for command in [AppCommand.phoneLink, .followPhone, .forgetPhone] {
+        for command in [AppCommand.pairPhone, .phoneLink, .followPhone, .forgetPhone] {
             let item = NSMenuItem(title: command.title, action: #selector(runMenu(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = command.rawValue
@@ -454,6 +455,7 @@ import UniformTypeIdentifiers
         case .toggleFlip: var view = detail.pageView; view.flip.toggle(); detail.setPageView(view)
         case .nextPage: detail.stepPage(1)
         case .previousPage: detail.stepPage(-1)
+        case .pairPhone: showPairWindow()
         case .phoneLink: link?.setEnabled(!(link?.enabled ?? true))
         case .followPhone: link?.setFollow(!(link?.follow ?? true))
         case .forgetPhone: pickPhone()
@@ -527,6 +529,7 @@ import UniformTypeIdentifiers
                                         guard let self else { return }
                                         switch action {
                                         case "command": if let command = AppCommand(rawValue: argument) { self.run(command) }
+                                        case "pair-shot": self.pairWindow?.writeSnapshot(to: argument)
                                         case "palette": self.palette.debugQuery(argument)
                                         case "accept": self.palette.debugAccept()
                                         case "tag-open": self.sidebarOpen(note: "tag:" + argument, newTab: false)
@@ -644,6 +647,15 @@ import UniformTypeIdentifiers
             }
             say("ack pageop \(op)")
         }
+    }
+
+    private var pairWindow: PairingWindowController?
+
+    private func showPairWindow() {
+        guard let link else { return }
+        let controller = pairWindow ?? PairingWindowController(link: link)
+        pairWindow = controller
+        controller.show()
     }
 
     private func pickPhone() {

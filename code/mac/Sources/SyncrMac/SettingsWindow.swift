@@ -218,6 +218,7 @@ import AppKit
     }
     private func activate(_ id: SettingItem.ID) {
         switch id {
+        case .pairPhone: onCommand?(.pairPhone)
         case .hotkeys: select(.hotkeys)
         case .provider, .models, .readers, .limits, .voice: select(.companion)
         case .libraryFolder: onCommand?(.chooseFolder)

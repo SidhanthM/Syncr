@@ -40,7 +40,7 @@ import AppKit
             command(.toggleThumbnails), command(.layoutSingle), command(.layoutDouble), command(.layoutCover), command(.toggleFlip), command(.nextPage), command(.previousPage), command(.addPage)
         ])
         add("Companion", [command(.askSyncr), command(.drawSelection), command(.askAllReaders), .separator(), command(.undoCompanion), command(.redoCompanion), .separator(), command(.lastCompanionRequest), command(.companionSettings)])
-        add("Phone", [command(.phoneLink), command(.followPhone), .separator(), command(.forgetPhone)])
+        add("Phone", [command(.pairPhone), command(.phoneLink), command(.followPhone), .separator(), command(.forgetPhone)])
         add("Window", [plain("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m")])
         return bar
     }

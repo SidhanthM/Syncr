@@ -480,6 +480,12 @@ private func pairingChecks() throws {
     try check(wrongToken.controls == [.pair], "a wrong token starts pairing")
     let none = SessionRig(store: rig.store); none.hello(token: nil)
     try check(none.controls == [.pair], "a null token starts pairing")
+    // A code that already paired is worth nothing on the next connection: each connection gets its own, and the old one is refused.
+    let reuse = SessionRig(store: rig.store); reuse.hello(token: nil)
+    if reuse.codes[0].code != code {
+        reuse.feed(.code(code))
+        try check(reuse.controls.last == .denied(left: 4) && !reuse.controls.contains { if case .paired = $0 { true } else { false } }, "the code that paired the last phone is refused on a new connection")
+    }
     // Forget: the old token no longer works.
     try check(rig.store.forget(id: rig.phoneId) && rig.store.all.isEmpty, "forget removes the phone")
     let forgotten = SessionRig(store: rig.store); forgotten.hello(token: token)
@@ -1244,7 +1250,9 @@ private func isTarget(_ c: LinkControl, note: String, writable: Bool) -> Bool {
     let link = LinkController(model: model, workspace: workspace, live: rig.live,
                               options: .init(port: nil, loopbackOnly: true, advertise: false))
     var shownCode: (phone: String, code: String)?
+    var pairedName: String?
     link.onPairing = { shownCode = $0 }
+    link.onPaired = { pairedName = $0 }
     workspace.onChange = { link.stateChanged() }
     model.onChange = { link.stateChanged() }
     defer { link.stop() }
@@ -1253,6 +1261,12 @@ private func isTarget(_ c: LinkControl, note: String, writable: Bool) -> Bool {
     try pump("listening") { link.port != nil }
     guard let port = link.port else { return }
     try check(link.status == .waiting(port: port), "no phone yet: waiting")
+    // The pairing window's code says where this Mac listens (no address on a Mac without a local network: then there is only a reason).
+    let offered = link.pairingLink()
+    if let made = offered.link {
+        try check(made.port == port && made.macId == link.settings.macId && PairingLink.isPrivate(made.host) && made.expires != nil, "the QR code names the listening port, this Mac and an address on the network (\(made.url))")
+        try check(PairingLink.parse(made.url) == made, "and reads back as it was written")
+    } else { try check(!offered.reason.isEmpty, "no local address: the window says why") }
 
     // Pair: wrong code, then the one on the screen.
     let phone = FakePhone(port: port)
@@ -1272,6 +1286,8 @@ private func isTarget(_ c: LinkControl, note: String, writable: Bool) -> Bool {
         return !token.isEmpty && epoch != 0
     }
     try check(shownCode == nil, "the code is hidden once paired")
+    try pump("paired event") { pairedName != nil }
+    try check(pairedName == "Test Phone", "the pairing window is told the phone paired")
     try pump("connected") { link.status == .connected(phone: "Test Phone") }
     try check(link.store.phone(id: phoneId)?.token == token && link.hasPairedPhones, "the pairing is stored")
     try check(rig.live.engine.epoch == epoch && rig.live.mirrorEnabled, "the live-ink epoch is the welcome's")

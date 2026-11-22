@@ -242,6 +242,10 @@ private let disconnectLogger = Logger(subsystem: "dev.syncr.mac", category: "lin
     var onStatus: (() -> Void)?
     /// The four digits to show (phone name, code), or nil to hide them.
     var onPairing: (((phone: String, code: String)?) -> Void)?
+    /// A phone finished pairing (it typed the right digits): its name.
+    var onPaired: ((String) -> Void)?
+    /// The session whose digits went away just now: if it is welcomed next, it paired.
+    private weak var justHidden: LinkSession?
 
     init(model: LibraryModel, workspace: Workspace, live: LiveInkCoordinator, options: Options = .fromEnvironment()) {
         self.model = model; self.workspace = workspace; self.live = live; self.options = options; debug = live.debug
@@ -404,6 +408,21 @@ private let disconnectLogger = Logger(subsystem: "dev.syncr.mac", category: "lin
         onStatus?()
     }
 
+    // MARK: Pairing window
+
+    /// "Pair a phone" turns the link on: asking to pair is asking for it.
+    func setEnabledForPairing() { if !settings.enabled { setEnabled(true) } }
+
+    /// The code for the "Pair a phone" window: where this Mac listens and who it is. nil, with the reason to show, when there is no
+    /// port yet (the link is starting or failed) or no local address (no Wi-Fi).
+    func pairingLink(now: Date = Date()) -> (link: PairingLink?, reason: String) {
+        guard settings.enabled else { return (nil, "The phone link is off. Turn it on to pair a phone.") }
+        guard let port else { return (nil, failure.map { "The phone link could not start: \($0)" } ?? "The phone link is starting. Try again in a moment.") }
+        guard let host = PairingLink.localAddress() else { return (nil, "This Mac is not on a local network. Connect to Wi-Fi to pair a phone.") }
+        let expires = UInt64(now.timeIntervalSince1970 + PairingLink.lifetime)
+        return (PairingLink(host: host, port: port, macId: settings.macId, name: macName, expires: expires), "")
+    }
+
     // MARK: Forget
 
     func forget(phoneId: String) {
@@ -426,11 +445,13 @@ private let disconnectLogger = Logger(subsystem: "dev.syncr.mac", category: "lin
     fileprivate func hideCode(_ session: LinkSession) {
         guard pairingSession === session else { return }
         pairingSession = nil
+        justHidden = session
         setPairing(nil)
     }
 
     fileprivate func welcomed(_ session: LinkSession) {
         guard let id = session.phoneId else { return }
+        if justHidden === session { justHidden = nil; onPaired?(session.phoneName) }
         if let old = registry.register(phoneId: id, session) {
             remotePointer.stop(old, resumable: true)
             let old = old
