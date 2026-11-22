@@ -23,10 +23,18 @@
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode"
             android:theme="@style/Theme.Syncr.Tablet"
             tools:ignore="DiscouragedApi" />
-        <activity android:name=".MainActivity" android:exported="true">
+        <!-- singleTask: a scanned syncr://pair link reaches the app that is already open (onNewIntent) instead of starting a second one. -->
+        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Pair a phone: the Mac's QR code is a syncr://pair link, opened by the phone's own camera. No scanner or camera permission here. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="syncr" android:host="pair" />
             </intent-filter>
         </activity>
     </application>

@@ -163,6 +163,7 @@ fun SyncrApp(vm: NotesViewModel = viewModel(), dark: Boolean, appearance: Appear
             onDismiss = { overlay = Overlay.NONE },
             onPick = { target -> overlay = Overlay.NONE; if (target != snapshot.notebook) vm.run { repo.moveOpenNote(target) } })
     }
+    PairingHost()
     ClosureGuardDialogs(guard, state, onChooseExport = {
         export.launch("Syncr-${snapshot?.noteId ?: "unsaved"}.syncr-recovery.json")
     })

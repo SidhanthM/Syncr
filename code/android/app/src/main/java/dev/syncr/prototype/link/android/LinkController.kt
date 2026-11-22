@@ -76,9 +76,17 @@ data class LinkUi(
     val pairedMac: String? = null,
     val target: StreamTarget = StreamTarget(),
     val pointer: PointerStatus = PointerStatus(),
+    /** The pairing screen's subject while one is open (a scanned code, or a Mac picked from the list); null otherwise. */
+    val pairing: PairingTarget? = null,
 ) {
     val connected get() = status.phase == Phase.CONNECTED
 }
+
+/**
+ * What the pairing screen is about: the Mac's [name] and where it listens, or a [problem] (a code that expired, a link that is
+ * not a pairing code) with nothing to connect to.
+ */
+data class PairingTarget(val name: String, val endpoint: Endpoint? = null, val problem: String? = null)
 
 /** A decoded picture of what the pad covers: the canvas [region] it shows, drawn at target [rev] with [saved] pad strokes in it. */
 class PadPicture(val rev: Long, val saved: Long, val region: CanvasRect, val bitmap: android.graphics.Bitmap, val kind: Int = 1)
@@ -174,7 +182,41 @@ class LinkController private constructor(private val app: Application) {
     }
 
     /** Connect to a Mac chosen from the list. */
-    fun connect(mac: FoundMac) = client?.connect(mac.endpoint)
+    fun connect(mac: FoundMac) = beginPairing(mac.endpoint)
+
+    /**
+     * Opens the pairing screen for [endpoint] and connects to it (turning the link on when it was off: scanning a code or tapping
+     * a Mac is asking for exactly that). The Mac this phone is already paired with just reconnects, with no screen.
+     */
+    fun beginPairing(endpoint: Endpoint) {
+        if (endpoint.macId != null && endpoint.macId == store.pairing()?.macId) {
+            if (!ui.value.enabled) setEnabled(true)
+            pairingEndpoint = endpoint
+            client?.connect(endpoint)
+            return
+        }
+        pairingEndpoint = endpoint
+        val name = endpoint.name ?: endpoint.host
+        // The status of an earlier connection says nothing about this one.
+        ui.update { it.copy(pairing = PairingTarget(name, endpoint), status = SessionStatus(Phase.CONNECTING, name, message = "Connecting to $name…")) }
+        if (!ui.value.enabled) setEnabled(true)
+        client?.connect(endpoint)
+    }
+
+    /** A scanned link that cannot be used: the pairing screen says why. */
+    fun pairingProblem(name: String, problem: String) {
+        pairingEndpoint = null
+        ui.update { it.copy(pairing = PairingTarget(name, null, problem)) }
+    }
+
+    /** The pairing screen closed. A connection that is waiting for its code stays, as in Settings. */
+    fun endPairing() {
+        pairingEndpoint = null
+        ui.update { it.copy(pairing = null) }
+    }
+
+    /** The Mac a scanned code or a tap named, until the client exists to connect to it. */
+    @Volatile private var pairingEndpoint: Endpoint? = null
 
     /** Connect to a typed `host:port`. Returns an error to show, or null. */
     fun connectManual(text: String): String? {
@@ -356,6 +398,7 @@ class LinkController private constructor(private val app: Application) {
         val listener = object : ClientListener {
             override fun onStatus(status: SessionStatus) {
                 if (client !== self) return // a client that was stopped
+                if (status.phase == Phase.CONNECTED) pairingEndpoint = null
                 // A Mac that confirms strokes lets the pad go on through a drop: its target stays, so ink drawn meanwhile is kept.
                 if (status.phase != Phase.CONNECTED && !keeper.peerKeeps) { target = StreamTarget(); picture.value = null }
                 ui.update { it.copy(status = status, pairedMac = store.pairing()?.macName, target = target,
@@ -383,6 +426,7 @@ class LinkController private constructor(private val app: Application) {
         c.setPadWish(padWish)
         c.setPointer(pointerOn)
         c.start()
+        pairingEndpoint?.let { c.connect(it) }
     }
 
     private fun stopClient() {
