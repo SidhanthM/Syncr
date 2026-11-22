@@ -17,7 +17,7 @@ class HostCoreIntegrationTest {
             .forEach { it.copyTo(File(root, it.name)) }
         var repo = NotesRepository(root.absolutePath)
         try {
-            assertEquals(CanvasSize(CanvasLayout.WIDTH, CanvasLayout.VIEW_HEIGHT, CanvasLayout.PHONE_COLUMN), canvasSize())
+            assertEquals(CanvasSize(LegacyPage.WIDTH, LegacyPage.VIEW_HEIGHT, LegacyPage.PHONE_COLUMN), canvasSize())
             repo.loadLibrary(); assertNull(repo.state.value.error)
             assertEquals(2, repo.state.value.notes.size)
             for (summary in repo.state.value.notes) {

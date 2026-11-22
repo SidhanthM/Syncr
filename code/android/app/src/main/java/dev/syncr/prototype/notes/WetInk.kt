@@ -20,8 +20,8 @@ internal interface WetInk {
     /** Finished on this layer but not yet handed to dry ink, which skips it meanwhile. */
     fun isFinishing(previewId: String): Boolean
 
-    /** Pen-down. [frozen] maps canvas units to the view; the stroke is recorded in canvas units. */
-    fun start(event: MotionEvent, pointerId: Int, frozen: SheetMapping, width: Int, height: Int, brush: InkBrush, dark: Boolean, prefs: InkPreferences)
+    /** Pen-down. [frozen] maps canvas units to the view; the stroke is recorded in canvas units and clipped to [clip] (canvas units; null = nowhere). */
+    fun start(event: MotionEvent, pointerId: Int, frozen: SheetMapping, width: Int, height: Int, clip: CanvasRect?, brush: InkBrush, dark: Boolean, prefs: InkPreferences)
 
     /** A pen move. Every event (history included) is consumed oldest-first. */
     fun add(event: MotionEvent)

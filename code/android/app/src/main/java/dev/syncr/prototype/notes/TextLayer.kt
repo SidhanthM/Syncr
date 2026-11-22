@@ -201,7 +201,7 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
             val inBand = scene.prims.filter { it.bottom >= top && it.top < bottom }
             if (inBand.isNotEmpty()) {
                 val picture = Picture()
-                val canvas = picture.beginRecording(CanvasLayout.WIDTH.toInt(), BAND.toInt())
+                val canvas = picture.beginRecording(LegacyPage.WIDTH.toInt(), BAND.toInt())
                 canvas.translate(0f, -top)
                 for (p in inBand) painter.draw(canvas, p)
                 picture.endRecording()

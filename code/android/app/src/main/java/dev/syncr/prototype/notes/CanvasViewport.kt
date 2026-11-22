@@ -11,7 +11,7 @@ internal class CanvasViewport {
     var mapping: SheetMapping? = null
         private set
 
-    var layout = CanvasLayout()
+    var geometry: NoteGeometry = PagedGeometry()
         private set
 
     var width = 0
@@ -20,29 +20,29 @@ internal class CanvasViewport {
     var height = 0
         private set
 
-    val fitScale: Float get() = Viewport.fitScale(width, height)
+    val fitScale: Float get() = geometry.fitScale(width, height)
 
     /** A newly opened note starts from its retained viewport, if any, at the left edge. */
     fun reset(retained: SheetMapping?) {
         mapping = retained?.copy(tx = 0f)
     }
 
-    /** New ink extent: re-clamp, or place the default view once the size is known. */
-    fun setLayout(next: CanvasLayout) {
-        layout = next
-        if (width > 0 && height > 0) mapping = mapping?.let(::clamp) ?: Viewport.defaultView(layout, width, height)
+    /** New paper: re-clamp, or place the default view once the size is known. */
+    fun setGeometry(next: NoteGeometry) {
+        geometry = next
+        if (width > 0 && height > 0) mapping = mapping?.let(::clamp) ?: Viewport.defaultView(geometry, width, height)
     }
 
     /** Rotation and width changes keep the zoom but return to the left edge; a change of height alone (the keyboard) keeps the place. */
     fun resize(newWidth: Int, newHeight: Int, oldWidth: Int) {
         width = newWidth
         height = newHeight
-        mapping = Viewport.resized(layout, mapping?.takeIf { oldWidth > 0 }, newWidth, newHeight, keepLeft = newWidth == oldWidth)
+        mapping = Viewport.resized(geometry, mapping?.takeIf { oldWidth > 0 }, newWidth, newHeight, keepLeft = newWidth == oldWidth)
     }
 
     /** Back to the phone column at the fit scale, keeping the top canvas row. */
     fun fitColumn() {
-        mapping = Viewport.fitColumn(layout, mapping, width, height)
+        mapping = Viewport.fitColumn(geometry, mapping, width, height)
     }
 
     /** Zooms to [scale] about a screen point, without the pinch scale limits. */
@@ -59,7 +59,7 @@ internal class CanvasViewport {
     /** Pan by ([dx], [dy]) and zoom by [factor] about a screen point, within [Viewport.scaleRange]. */
     fun navigate(dx: Float, dy: Float, factor: Float, focusX: Float, focusY: Float) {
         val m = mapping ?: return
-        val next = (m.scale * factor).coerceIn(Viewport.scaleRange(fitScale))
+        val next = (m.scale * factor).coerceIn(geometry.scaleRange(fitScale))
         mapping = clamp(m.navigate(dx, dy, next / m.scale, focusX, focusY))
     }
 
@@ -84,25 +84,23 @@ internal class CanvasViewport {
         mapping?.let { mapping = clamp(it.copy(tx = tx, ty = ty)) }
     }
 
-    /** Where a fling starts and how far it may travel (the max offsets are both 0). */
+    /** Where a fling starts and how far it may travel (a bounded paper's max offsets are both 0). */
     fun flingBounds(): FlingBounds? {
         val m = mapping ?: return null
-        val minX = minOf(0f, width - CanvasLayout.WIDTH * m.scale)
-        val minY = -layout.lowestInk * m.scale
-        return FlingBounds(m.tx.toInt(), m.ty.toInt(), minX.toInt(), minY.toInt())
+        return geometry.flingBounds(m, width, height)
     }
 
     /** Whether a screen point lies on the canvas. */
     fun contains(x: Float, y: Float): Boolean {
         val m = mapping ?: return false
         val (cx, cy) = m.toSheet(x, y)
-        return layout.contains(cx, cy)
+        return geometry.contains(cx, cy)
     }
 
-    private fun clamp(m: SheetMapping) = Viewport.clamp(m, layout, width, height)
+    private fun clamp(m: SheetMapping) = geometry.clamp(m, width, height)
 }
 
-internal data class FlingBounds(val startX: Int, val startY: Int, val minX: Int, val minY: Int)
+data class FlingBounds(val startX: Int, val startY: Int, val minX: Int, val minY: Int, val maxX: Int = 0, val maxY: Int = 0)
 
 /**
  * Finger pan and pinch: each move pans by the change in the pointers' centroid and zooms by the

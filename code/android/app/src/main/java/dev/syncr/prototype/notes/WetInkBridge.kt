@@ -63,15 +63,15 @@ internal class WetInkBridge(
     override fun isFinishing(previewId: String): Boolean = finished.values.any { it.preview?.id == previewId }
 
     /** Pen-down. [frozen] maps canvas units to the view; the stroke is recorded in canvas units. */
-    override fun start(event: MotionEvent, pointerId: Int, frozen: SheetMapping, width: Int, height: Int, brush: InkBrush, dark: Boolean, prefs: InkPreferences) {
+    override fun start(event: MotionEvent, pointerId: Int, frozen: SheetMapping, width: Int, height: Int, clip: CanvasRect?, brush: InkBrush, dark: Boolean, prefs: InkPreferences) {
         if (!isAttached) return
         trace(TraceNames.WET_START) {
-            val canvasRight = frozen.tx + CanvasLayout.WIDTH * frozen.scale
-            // Only the canvas's horizontal edges and top clip ink; there is no bottom edge.
+            // Ink outside the paper the pen came down on is clipped; a null clip (no edges) clips nothing.
             view.maskPath = Path().apply {
                 addRect(0f, 0f, width.toFloat(), height.toFloat(), Path.Direction.CW)
-                val canvasArea = Path().apply { addRect(frozen.tx, frozen.ty, canvasRight, height.toFloat(), Path.Direction.CW) }
-                op(canvasArea, Path.Op.DIFFERENCE)
+                val paper = FrontInkPad.canvasClip(frozen, clip, width, height)
+                val area = Path().apply { addRect(paper.left.toFloat(), paper.top.toFloat(), paper.right.toFloat(), paper.bottom.toFloat(), Path.Direction.CW) }
+                op(area, Path.Op.DIFFERENCE)
             }
             // New stroke units are canvas units, exactly as MeasuredGesture stores them.
             val toCanvas = Matrix().apply {

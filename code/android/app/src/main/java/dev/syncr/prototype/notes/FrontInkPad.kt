@@ -129,7 +129,7 @@ internal class FrontInkPad(
         if (handover.force()) release()
     }
 
-    override fun start(event: MotionEvent, pointerId: Int, frozen: SheetMapping, width: Int, height: Int, brush: InkBrush, dark: Boolean, prefs: InkPreferences) {
+    override fun start(event: MotionEvent, pointerId: Int, frozen: SheetMapping, width: Int, height: Int, clip: CanvasRect?, brush: InkBrush, dark: Boolean, prefs: InkPreferences) {
         val pv = PadView(frozen, width, height)
         val join = handover.penDown(pv)
         if (join == PadPen.BUSY) return
@@ -143,7 +143,7 @@ internal class FrontInkPad(
         )
         val hz = display?.refreshRate ?: 0f
         refreshMs = if (hz > 1f) (1000f / hz).toLong().coerceIn(4L, 40L) else DEFAULT_REFRESH_MS
-        val clip = canvasClip(frozen, width, height)
+        val clip = canvasClip(frozen, clip, width, height)
         val fresh = join == PadPen.FRESH
         post {
             renderer.beginStroke(brush, frozen, clip, SAMPLES, join = !fresh)
@@ -567,13 +567,12 @@ internal class FrontInkPad(
             return if (normalized >= turn) 0f else normalized
         }
 
-        /** The canvas area: left and right edges and the top clip ink; there is no bottom edge. */
-        fun canvasClip(frozen: SheetMapping, width: Int, height: Int): PxRect {
-            val right = frozen.tx + CanvasLayout.WIDTH * frozen.scale
-            return PxRect(
-                Math.round(frozen.tx).coerceIn(0, width), Math.round(frozen.ty).coerceIn(0, height),
-                Math.round(right).coerceIn(0, width), height,
-            )
+        /** The paper [paper] covers on screen, clamped to the view; a null paper (no edges) is the whole view. */
+        fun canvasClip(frozen: SheetMapping, paper: CanvasRect?, width: Int, height: Int): PxRect {
+            if (paper == null) return PxRect(0, 0, width, height)
+            fun edge(units: Float, offset: Float, limit: Int) =
+                if (units.isInfinite()) (if (units > 0) limit else 0) else Math.round(offset + units * frozen.scale).coerceIn(0, limit)
+            return PxRect(edge(paper.left, frozen.tx, width), edge(paper.top, frozen.ty, height), edge(paper.right, frozen.tx, width), edge(paper.bottom, frozen.ty, height))
         }
     }
 }

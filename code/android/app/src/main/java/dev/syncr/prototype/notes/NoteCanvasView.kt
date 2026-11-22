@@ -78,7 +78,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         textInput.onState = state
         textInput.onPan = { dy -> viewport.navigate(0f, dy, 1f, 0f, 0f); invalidate() }
         textInput.onFling = { vy -> fling(0f, vy) }
-        textInput.onExtent = { bottom -> editorBottom = if (bottom > 0f) bottom + 900f else 0f; viewport.setLayout(CanvasLayout(maxOf(scene.lowestInk(), textBottom, editorBottom))) }
+        textInput.onExtent = { bottom -> editorBottom = if (bottom > 0f) bottom + 900f else 0f; viewport.setGeometry(PagedGeometry(maxOf(scene.lowestInk(), textBottom, editorBottom))) }
         val block = textSnapshot?.textBlocks?.firstOrNull { it.id == draft.blockId }
         val document = block == null || block.role == dev.syncr.core.TextRole.DOCUMENT
         val rect = draft.blockId?.let(text::bounds) ?: if (document) {
@@ -127,7 +127,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     }
 
     fun endTextEditing() { if (textInput.active) lastCaret = textInput.current().end; textInput.end(); editingBlock = null; editorBottom = 0f; textSnapshot?.let { text.show(it, dark, null, titleDisplay) }
-        viewport.setLayout(CanvasLayout(maxOf(scene.lowestInk(), textBottom))) }
+        viewport.setGeometry(PagedGeometry(maxOf(scene.lowestInk(), textBottom))) }
     fun setTextEditingEnabled(enabled: Boolean) = textInput.setEnabled(enabled)
 
     /** Any new touch on the paper, e.g. to collapse floating tool chrome. */
@@ -213,7 +213,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     private var textBottom = 0f
     private val text = TextLayer(invalidate = ::invalidate, onExtent = { bottom ->
         textBottom = bottom
-        viewport.setLayout(CanvasLayout(maxOf(scene.lowestInk(), textBottom, editorBottom)))
+        viewport.setGeometry(PagedGeometry(maxOf(scene.lowestInk(), textBottom, editorBottom)))
     })
     private val panZoom = PanZoomTracker()
     private val pen = PenCapture(scene, lassoStepPx = density)
@@ -318,7 +318,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         titleDisplay = state.snapshot?.let { snap -> titleDisplayOf(snap.title, snap.notebook, state.notes.firstOrNull { it.id == snap.noteId }?.modifiedAtMs) }
         scene.load(state)
         selection.dropIfStale()
-        viewport.setLayout(CanvasLayout(maxOf(scene.lowestInk(), textBottom, editorBottom)))
+        viewport.setGeometry(PagedGeometry(maxOf(scene.lowestInk(), textBottom, editorBottom)))
         text.penBusy = { activePointer != -1 || android.os.SystemClock.uptimeMillis() - lastPenUp < dev.syncr.prototype.ui.theme.Motion.PEN_QUIET_MS }
         text.reduced = runCatching { dev.syncr.prototype.ui.theme.Motion.reducedMotion(context) }.getOrDefault(false)
         text.cellUnits = dev.syncr.prototype.stipple.Stipple.cellUnits(viewport.mapping?.scale ?: 1f, density)
@@ -447,13 +447,17 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         if (under != underTop) { underTop = under; post { onContentUnderTop(under) } }
         textInput.position(m, dark)
         dry.beginFrame()
-        // The paper: the canvas's width, from its top edge down past the bottom of the screen.
-        pageRect.set(m.tx, m.ty, m.tx + CanvasLayout.WIDTH * m.scale, height.toFloat())
+        // The paper: each sheet the geometry names, from its top edge down past the bottom of the screen.
         pagePaint.color = PaperPalette.paper(dark)
-        canvas.drawRect(pageRect, pagePaint)
         edgePaint.color = PaperPalette.hairline(dark)
-        canvas.drawLine(pageRect.left, pageRect.top, pageRect.left, pageRect.bottom, edgePaint)
-        canvas.drawLine(pageRect.right, pageRect.top, pageRect.right, pageRect.bottom, edgePaint)
+        for (paper in viewport.geometry.paper) {
+            pageRect.set(m.tx + paper.left * m.scale, m.ty + paper.top * m.scale, m.tx + paper.right * m.scale,
+                if (paper.bottom.isInfinite()) height.toFloat() else m.ty + paper.bottom * m.scale)
+            canvas.drawRect(pageRect, pagePaint)
+            canvas.drawLine(pageRect.left, pageRect.top, pageRect.left, pageRect.bottom, edgePaint)
+            canvas.drawLine(pageRect.right, pageRect.top, pageRect.right, pageRect.bottom, edgePaint)
+        }
+        pageRect.set(m.tx, m.ty, m.tx + LegacyPage.WIDTH * m.scale, height.toFloat())
         canvas.withClip(pageRect) {
             translate(m.tx, m.ty)
             scale(m.scale, m.scale)
@@ -696,7 +700,8 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
             val solid = pen.brush.family != BrushFamily.HIGHLIGHTER && (inkBrush.colorIntArgb ushr 24) == 0xff
             pad.viewMayHaveChanged(pen.frozen, width, height)
             wet = if (chooseWetPath(prefs.frontBufferInk, FrontInkPad.available != false, rotation == 0f, solid, pad.canStart(pen.frozen, width, height)) == WetPath.PAD) pad else wetBridge
-            wet.start(event, event.getPointerId(index), pen.frozen, width, height, inkBrush, dark, prefs)
+            val (penX, penY) = pen.frozen.toSheet(x, y)
+            wet.start(event, event.getPointerId(index), pen.frozen, width, height, viewport.geometry.inkClip(penX, penY), inkBrush, dark, prefs)
             startMirror(event, index)
         }
     }
@@ -924,7 +929,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
 
     private fun fling(vx: Float, vy: Float) {
         val bounds = viewport.flingBounds() ?: return
-        scroller.fling(bounds.startX, bounds.startY, vx.toInt(), vy.toInt(), bounds.minX, 0, bounds.minY, 0)
+        scroller.fling(bounds.startX, bounds.startY, vx.toInt(), vy.toInt(), bounds.minX, bounds.maxX, bounds.minY, bounds.maxY)
         postInvalidateOnAnimation()
     }
 

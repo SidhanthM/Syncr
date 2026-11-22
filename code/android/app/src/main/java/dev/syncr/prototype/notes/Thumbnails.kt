@@ -18,12 +18,12 @@ class ThumbStroke(val points: FloatArray, val brush: Brush, val pressure: FloatA
 class Thumbnail(val localSequence: ULong, val width: Float, val viewHeight: Float, val strokes: List<ThumbStroke>)
 
 /** Pure: keeps at most about [maxPoints] points overall by taking every k-th sample (and each last one). */
-fun buildThumbnail(snapshot: NoteSnapshot, samples: (String) -> SampleChannels?, maxPoints: Int = 4000): Thumbnail {
+fun buildThumbnail(snapshot: NoteSnapshot, samples: (String) -> SampleChannels?, maxPoints: Int = 4000, geometry: NoteGeometry = PagedGeometry()): Thumbnail {
     val sheets = snapshot.sheets.associateBy { it.id }
     val strokes = snapshot.strokes.filter { !it.tombstone && it.sheetId in sheets }.mapNotNull { s -> samples(s.id)?.let { s to it } }
     val total = strokes.sumOf { it.second.x.size }
     val step = maxOf(1, (total + maxPoints - 1) / maxPoints)
-    return Thumbnail(snapshot.localSequence, CanvasLayout.WIDTH, CanvasLayout.VIEW_HEIGHT, strokes.map { (stroke, channels) ->
+    return Thumbnail(snapshot.localSequence, geometry.thumbnailWidth, geometry.thumbnailHeight, strokes.map { (stroke, channels) ->
         val kept = channels.x.indices.filter { it % step == 0 || it == channels.x.lastIndex }
         val points = FloatArray(kept.size * 2)
         kept.forEachIndexed { i, index ->

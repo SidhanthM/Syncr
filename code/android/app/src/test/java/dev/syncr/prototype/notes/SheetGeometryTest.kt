@@ -8,7 +8,7 @@ import org.junit.Test
 class SheetGeometryTest {
     @Test fun canvasMappingIsUniformAndRoundTripsInBothOrientations() {
         for ((width, height) in listOf(1000 to 1600, 1920 to 1080, 1600 to 1000)) {
-            val mapping = Viewport.defaultView(CanvasLayout(), width, height)
+            val mapping = Viewport.defaultView(PagedGeometry(), width, height)
             val zero = mapping.toScreen(0f, 0f); val far = mapping.toScreen(4800f, 3000f)
             assertEquals(0f to 0f, zero)
             assertEquals((far.first - zero.first) / 4800f, (far.second - zero.second) / 3000f, .0001f)

@@ -10,12 +10,12 @@ class CanvasViewportTest {
     /** Portrait phone: fit scale 1080 / 1600 = 0.675; pinch range 0.3375..4.05. */
     private fun portrait(lowestInk: Float = 10_000f) = CanvasViewport().apply {
         resize(1080, 2340, oldWidth = 0)
-        setLayout(CanvasLayout(lowestInk))
+        setGeometry(PagedGeometry(lowestInk))
     }
 
     @Test fun noMappingUntilSizedThenTheDefaultViewShowsTheLeftColumn() {
         val viewport = CanvasViewport()
-        viewport.setLayout(CanvasLayout(500f))
+        viewport.setGeometry(PagedGeometry(500f))
         assertNull(viewport.mapping)
         viewport.resize(1080, 2340, oldWidth = 0)
         assertEquals(SheetMapping(0.675f, 0f, 0f), viewport.mapping)
@@ -27,7 +27,7 @@ class CanvasViewportTest {
         viewport.resize(2000, 1000, oldWidth = 0) // first size: no previous mapping is kept
         assertEquals(1000f / 1600f, viewport.mapping!!.scale, 1e-6f)
         viewport.reset(SheetMapping(1.3f, -900f, -400f))
-        viewport.setLayout(CanvasLayout(10_000f))
+        viewport.setGeometry(PagedGeometry(10_000f))
         assertEquals(SheetMapping(1.3f, 0f, -400f), viewport.mapping)
         viewport.resize(1000, 2000, oldWidth = 2000)
         assertEquals(1.3f, viewport.mapping!!.scale)
@@ -37,7 +37,7 @@ class CanvasViewportTest {
     @Test fun aHeightOnlyChangeKeepsTheHorizontalPlaceSoAnOpenKeyboardDoesNotShiftTheColumn() {
         val viewport = CanvasViewport()
         viewport.resize(1000, 2000, oldWidth = 0)
-        viewport.setLayout(CanvasLayout(10_000f))
+        viewport.setGeometry(PagedGeometry(10_000f))
         viewport.fitText(1.2f, -90f, 0f, 0f)
         assertEquals(-90f, viewport.mapping!!.tx, 1e-3f)
         viewport.resize(1000, 1200, oldWidth = 1000) // the keyboard opens
@@ -119,7 +119,7 @@ class CanvasViewportTest {
 class PanZoomTrackerTest {
     private fun viewport() = CanvasViewport().apply {
         resize(1000, 2000, oldWidth = 0)
-        setLayout(CanvasLayout(100_000f))
+        setGeometry(PagedGeometry(100_000f))
         navigate(-200f, -500f, 1f, 0f, 0f) // somewhere in the middle, so pans aren't clamped
     }
 

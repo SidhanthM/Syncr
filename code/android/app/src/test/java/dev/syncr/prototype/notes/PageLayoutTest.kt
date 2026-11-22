@@ -7,13 +7,13 @@ import org.junit.Test
 
 class PageLayoutTest {
     @Test fun continuousCanvasHasNoGapsOrBottomBoundary() {
-        val canvas = CanvasLayout()
+        val canvas = PagedGeometry()
         assertTrue(canvas.contains(0f, 0f)); assertTrue(canvas.contains(4800f, 1e7f))
         assertTrue(canvas.contains(1700f, 3201f)); assertTrue(canvas.contains(4700f, 6401f))
         assertFalse(canvas.contains(-1f, 0f)); assertFalse(canvas.contains(4801f, 10f)); assertFalse(canvas.contains(1f, -1f))
     }
     @Test fun portraitShowsLeftColumnAndLandscapeKeepsScaleAndStartsLeft() {
-        val canvas = CanvasLayout(10000f)
+        val canvas = PagedGeometry(10000f)
         val portrait = Viewport.defaultView(canvas, 1080, 2340)
         assertEquals(1080f / 1600f, portrait.scale, 1e-6f)
         assertEquals(0f, portrait.tx); assertEquals(0f, portrait.ty)
@@ -25,20 +25,20 @@ class PageLayoutTest {
         assertEquals(portrait.scale, Viewport.defaultView(canvas, 2340, 1080).scale)
     }
     @Test fun panClampsToWidthAndLowestInkPlusOneCurrentScreen() {
-        val canvas = CanvasLayout(9000f)
+        val canvas = PagedGeometry(9000f)
         val clamped = Viewport.clamp(SheetMapping(.5f, -1e7f, -1e7f), canvas, 1080, 2000)
         assertEquals(1080f - 4800f * .5f, clamped.tx)
         assertEquals(-9000f * .5f, clamped.ty)
         assertEquals(9000f + 2000f / .5f, clamped.toSheet(0f, 2000f).second)
         val start = Viewport.clamp(SheetMapping(.5f, 1000f, 1000f), canvas, 1080, 2000)
         assertEquals(0f, start.tx); assertEquals(0f, start.ty)
-        val empty = Viewport.clamp(SheetMapping(.5f, -900f, -1000f), CanvasLayout(), 1080, 2000)
+        val empty = Viewport.clamp(SheetMapping(.5f, -900f, -1000f), PagedGeometry(), 1080, 2000)
         assertEquals(0f, empty.ty, 0f)
         val zoomedOut = Viewport.clamp(SheetMapping(.01f, -100f, 0f), canvas, 1080, 2000)
         assertEquals(1080f / 4800f, zoomedOut.scale); assertEquals(0f, zoomedOut.tx)
     }
     @Test fun fitReturnsToLeftColumnWithoutChangingTopCanvasRow() {
-        val fit = Viewport.fitColumn(CanvasLayout(10000f), SheetMapping(1f, -300f, -2000f), 1080, 2340)
+        val fit = Viewport.fitColumn(PagedGeometry(10000f), SheetMapping(1f, -300f, -2000f), 1080, 2340)
         assertEquals(1080f / 1600f, fit.scale, 1e-6f); assertEquals(0f, fit.tx)
         assertEquals(2000f, fit.toSheet(0f, 0f).second, .001f)
     }

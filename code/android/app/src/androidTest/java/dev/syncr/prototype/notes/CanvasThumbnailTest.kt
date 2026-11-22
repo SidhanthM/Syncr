@@ -13,7 +13,7 @@ import org.junit.runner.RunWith
 class CanvasThumbnailTest {
     @Test fun topLeftCanvasPreviewScalesRightHandInkIntoTheCard() {
         val brush = Brush(BrushFamily.PEN, BrushSize.MEDIUM, InkColour.INK)
-        val thumbnail = Thumbnail(1u, CanvasLayout.WIDTH, CanvasLayout.VIEW_HEIGHT,
+        val thumbnail = Thumbnail(1u, LegacyPage.WIDTH, LegacyPage.VIEW_HEIGHT,
             listOf(ThumbStroke(floatArrayOf(4000f, 200f, 4100f, 240f), brush)))
         val bitmap = renderThumbnail(thumbnail, false)
         try {

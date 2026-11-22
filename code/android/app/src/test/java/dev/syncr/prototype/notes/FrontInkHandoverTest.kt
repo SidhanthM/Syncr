@@ -158,10 +158,10 @@ class FrontInkHandoverTest {
 
     // ---- geometry helpers ----
     @Test fun clipIsTheCanvasColumnWithNoBottomEdge() {
-        val clip = FrontInkPad.canvasClip(SheetMapping(2f, 40f, -100f), 1000, 1800)
+        val clip = FrontInkPad.canvasClip(SheetMapping(2f, 40f, -100f), PagedGeometry().inkClip(0f, 0f), 1000, 1800)
         assertEquals(40, clip.left)
         assertEquals(0, clip.top)
         assertEquals(1800, clip.bottom)
-        assertEquals((40 + CanvasLayout.WIDTH * 2f).toInt().coerceAtMost(1000), clip.right)
+        assertEquals((40 + LegacyPage.WIDTH * 2f).toInt().coerceAtMost(1000), clip.right)
     }
 }
