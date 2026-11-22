@@ -11,7 +11,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -139,8 +139,15 @@ private fun MorphBody(
             // 0: the shape. A disc at rest, the pill when open; the same surface as the bar it becomes.
             {
                 Box(Modifier.graphicsLayer { shape = Radius.pill; clip = true; shadowElevation = (4f + 4f * p()) * density }
-                    .background(c.surface2).border(1.dp, c.lineStrong, Radius.pill)
-                    .drawBehind { if (c.dark) drawRect(Color.White.copy(alpha = 0.06f), size = Size(size.width, 1.dp.toPx())) })
+                    .background(c.surface2)
+                    .drawBehind {
+                        // The outline belongs to the disc: full at rest, gone once the bar is open.
+                        val line = 1.dp.toPx()
+                        val fade = 1f - p()
+                        if (fade > 0.001f) drawRoundRect(c.lineStrong.copy(alpha = c.lineStrong.alpha * fade), Offset(line / 2, line / 2),
+                            Size(size.width - line, size.height - line), CornerRadius(minOf(size.width, size.height) / 2 - line / 2), style = Stroke(line))
+                        if (c.dark) drawRect(Color.White.copy(alpha = 0.06f), size = Size(size.width, 1.dp.toPx()))
+                    })
             },
             // 1: bar content, laid out at its final place and revealed by the growing shape.
             {
