@@ -194,6 +194,12 @@ import SyncrCore
                 view.cacheDisplay(in: view.bounds, to: rep)
                 do { try rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: words[1])); say("snapshot ok") } catch { say("snapshot failed") }
             }
+        case "shot":
+            // `shot <png path> [width]`: what the canvas shows, ink and text together (the Metal view is not part of `snapshot`).
+            if words.count >= 2, let image = detail.debugShot(width: words.count > 2 ? Int(words[2]) ?? 1400 : 1400) {
+                let rep = NSBitmapImageRep(cgImage: image)
+                do { try rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: words[1])); say("shot ok") } catch { say("shot failed") }
+            } else { say("shot failed") }
         case "save": detail.flushText(); notebook.flushAll { ok in self.say("saved ok=\(ok)") }
         case "drag-width": if words.count >= 2, let width = Double(words[1]) { detail.documentEditor.debugDragWidth(width, left: words.count > 2 && words[2] == "left"); say("ack drag-width") }
         case "drag-free": if words.count == 4, let index = Int(words[1]), let dx = Double(words[2]), let dy = Double(words[3]) { detail.debugDragFree(index, dx: dx, dy: dy); say("ack drag-free") }

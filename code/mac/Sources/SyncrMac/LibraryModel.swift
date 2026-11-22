@@ -23,6 +23,8 @@ final class Drawing {
     var lowestInk: Float
     /// The sheet live ink lands on (the first sheet), once known.
     var sheetId: String?
+    /// Where the paper is; `.legacy` until the snapshot says otherwise.
+    var geometry = NoteGeometry.legacy
     var textBlocks: [TextBlockView] = []
     init(title: String, strokes: [DrawStroke], lowestInk: Float) {
         self.title = title; self.strokes = strokes; self.lowestInk = lowestInk
@@ -427,6 +429,7 @@ private final class LoadToken: @unchecked Sendable {
         drawing = Drawing(title: snapshot.title, strokes: strokes,
                           lowestInk: strokes.map { $0.originY + $0.mesh.maxY }.max() ?? 0)
         drawing?.sheetId = snapshot.sheets.first?.id
+        drawing?.geometry = NoteGeometry(snapshot: snapshot)
         drawing?.textBlocks = snapshot.textBlocks
         error = nil
     }
@@ -448,6 +451,7 @@ private final class LoadToken: @unchecked Sendable {
                     guard !token.cancelled else { return }
                     self?.drawing = Drawing(title: snapshot.title, strokes: [], lowestInk: 0)
                     self?.drawing?.sheetId = snapshot.sheets.first?.id
+                    self?.drawing?.geometry = NoteGeometry(snapshot: snapshot)
                     self?.drawing?.textBlocks = snapshot.textBlocks
                     self?.onChange?()
                 }
@@ -491,7 +495,7 @@ private final class LoadToken: @unchecked Sendable {
         // A merge of text (or anything but ink) leaves the strokes as they were: their meshes are kept, not rebuilt from samples.
         let kept = Dictionary((drawing?.strokes ?? []).compactMap { s in s.markId.map { ($0, s) } }, uniquingKeysWith: { a, _ in a })
         worker.async { [weak self] in
-            let built = Result { () -> (strokes: [DrawStroke], title: String, sheet: String?, ids: Set<String>, text: [TextBlockView]) in
+            let built = Result { () -> (strokes: [DrawStroke], title: String, sheet: String?, ids: Set<String>, text: [TextBlockView], geometry: NoteGeometry) in
                 let note = try library.openNote(noteId: id)
                 defer { try? note.closeNote() }
                 let snapshot = try note.snapshot()
@@ -503,14 +507,14 @@ private final class LoadToken: @unchecked Sendable {
                     if let old = kept[mark.id], old.head == mark.head.operationId { return old }
                     return try Self.stroke(mark, note: note, sheets: sheets)
                 }, snapshot.title,
-                        snapshot.sheets.first?.id, Set(snapshot.strokes.map(\.id)), snapshot.textBlocks)
+                        snapshot.sheets.first?.id, Set(snapshot.strokes.map(\.id)), snapshot.textBlocks, NoteGeometry(snapshot: snapshot))
             }
             DispatchQueue.main.async { MainActor.assumeIsolated {
                 guard let self, !token.cancelled, self.generation == started, self.shownNote == id else { return }
                 switch built {
                 case .success(let b):
                     let new = Drawing(title: b.title, strokes: b.strokes, lowestInk: b.strokes.map { $0.originY + $0.mesh.maxY }.max() ?? 0)
-                    new.sheetId = b.sheet; new.textBlocks = b.text
+                    new.sheetId = b.sheet; new.textBlocks = b.text; new.geometry = b.geometry
                     self.generation += 1
                     self.drawing = new; self.loading = false; self.error = nil
                     swapped(b.ids)

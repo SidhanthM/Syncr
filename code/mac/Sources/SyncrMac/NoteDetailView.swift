@@ -26,6 +26,8 @@ import SyncrCore
     private var sticky = StickyTitleState() { didSet { stickyTitle.setShown(sticky.visible) } }
     private var stickyTimer: Timer?
     private var stickyTracking: NSTrackingArea?
+    /// Where the paper is: the pages of a Note, or nothing for a Canvas.
+    private var geometry: NoteGeometry { model.drawing?.geometry ?? .legacy }
     private var pinchStart: Viewport?
     private var pinchAnchor = SIMD2<Float>(0.5, 0.5)
     /// The document view keeps the text column in the middle of the window by showing space left of the canvas (a
@@ -381,7 +383,7 @@ import SyncrCore
         let overlayHeight = max(8000, documentEditor.textView.frame.maxY + 3000)
         // Include negative canvas coordinates so left-margin cards both draw and receive clicks.
         let overlayLeft = min(0, documentEditor.columnLeft - 140 - MarginCard.width)
-        let overlayWidth = max(4800, documentEditor.columnRight + 140 + PictureCard.width) - overlayLeft
+        let overlayWidth = max(geometry.bounds.maxX, documentEditor.columnRight + 140 + PictureCard.width) - overlayLeft
         let overlayFrame = CGRect(x: (overlayLeft - CGFloat(viewport.left)) * scale, y: -CGFloat(viewport.top) * scale, width: overlayWidth * scale, height: overlayHeight * scale)
         let overlayBounds = CGRect(x: overlayLeft, y: 0, width: overlayWidth, height: overlayHeight)
         placeView(companionOverlay, frame: overlayFrame, bounds: overlayBounds)
@@ -853,6 +855,8 @@ import SyncrCore
         for i in stride(from: 0, to: bytes.count, by: 4) where Array(bytes[i..<i + 4]) != paper { n += 1 }
         return n
     }
+    /// The canvas as the owner sees it, for check screenshots: `visibleCanvasRect` drawn the way the pad's picture is.
+    func debugShot(width: Int) -> CGImage? { padPicture(region: visibleCanvasRect, width: width) }
     func resetViewport() { centred = false; slide?.invalidate(); slide = nil; viewport = Viewport(); requestRedraw() }
 
     /// With live ink wired, every draw goes through the display link: a layer driven by a
@@ -1008,7 +1012,7 @@ import SyncrCore
         let minLeft = documentVisible
             ? min(centredLeft(zoom: next.zoom), Float(documentEditor.columnLeft - 140 - MarginCard.width - 20))
             : 0
-        next.clamp(pixels: canvas.drawableSize, bottom: max(model.drawing?.lowestInk ?? 0, documentVisible ? Float(documentEditor.textView.frame.maxY) : 0), minLeft: minLeft)
+        next.clamp(pixels: canvas.drawableSize, geometry: geometry, scrollBottom: max(model.drawing?.lowestInk ?? 0, documentVisible ? Float(documentEditor.textView.frame.maxY) : 0), minLeft: minLeft)
         if next != viewport { viewport = next }
         requestRedraw()
     }
@@ -1034,18 +1038,20 @@ import SyncrCore
                                 Float(1 - point.y / canvas.bounds.height))
         } else if gesture.state == .changed, let start = pinchStart {
             viewport = start.zoomed(to: start.zoom * Float(max(0.01, 1 + gesture.magnification)),
-                                    around: pinchAnchor, pixels: canvas.bounds.size)
+                                    around: pinchAnchor, pixels: canvas.bounds.size, limits: geometry.zoomRange(view: canvas.bounds.size))
             move(0, 0)
         } else if gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed {
             pinchStart = nil
         }
     }
-    @objc func zoomIn() { zoom(to: min(8, viewport.zoom * 1.25)) }
-    @objc func zoomOut() { zoom(to: max(1, viewport.zoom / 1.25)) }
+    @objc func zoomIn() { zoom(to: viewport.zoom * 1.25) }
+    @objc func zoomOut() { zoom(to: viewport.zoom / 1.25) }
     private func zoom(to value: Float) {
         slide?.invalidate(); slide = nil
         var next = viewport
-        next.zoom = value
+        let limits = geometry.zoomRange(view: canvas.bounds.size)
+        next.zoom = min(limits.upperBound, max(limits.lowerBound, value))
+        let value = next.zoom
         if centred { next.left = centredLeft(zoom: value) }
         viewport = next
         move(0, 0)

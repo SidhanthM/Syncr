@@ -1,0 +1,1 @@
+../SyncrMac/NoteGeometry.swift

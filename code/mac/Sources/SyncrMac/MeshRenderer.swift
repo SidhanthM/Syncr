@@ -21,20 +21,14 @@ struct Viewport: Equatable, Sendable {
         return SIMD2(x, y) / max(0.001, fit * zoom)
     }
     /// Keep the canvas point under a pinch stationary as the visible area changes.
-    func zoomed(to newZoom: Float, around fraction: SIMD2<Float>, pixels: CGSize) -> Viewport {
+    func zoomed(to newZoom: Float, around fraction: SIMD2<Float>, pixels: CGSize, limits: ClosedRange<Float> = 1...8) -> Viewport {
         let before = visibleSize(pixels)
         var result = self
-        result.zoom = min(8, max(1, newZoom))
+        result.zoom = min(limits.upperBound, max(limits.lowerBound, newZoom))
         let after = result.visibleSize(pixels)
         result.left += fraction.x * (before.x - after.x)
         result.top += fraction.y * (before.y - after.y)
         return result
-    }
-    /// `minLeft` below zero lets the view show space left of the canvas (the centred document view).
-    mutating func clamp(pixels: CGSize, bottom: Float, minLeft: Float = 0) {
-        let size = visibleSize(pixels)
-        left = min(max(minLeft, left), max(minLeft, canvasSize().width - size.x))
-        top = min(max(0, top), max(0, bottom))
     }
 }
 
