@@ -249,15 +249,43 @@ pub(crate) fn times(db: &Connection, state: &State) -> CoreResult<(i64, i64)> {
     let modified = modified.unwrap_or_else(|| ulid_ms(&latest));
     Ok((created, modified.max(created)))
 }
+/// The note's projection: the stored one, caught up with every operation committed after it was
+/// written. A writer stores the projection only every few commits (see `note::SAVE_EVERY`): the
+/// log is the record, and this is how a reader, or a writer reopening after a kill, sees all of it.
 pub(crate) fn load(db: &Connection) -> CoreResult<State> {
+    Ok(load_behind(db)?.0)
+}
+/// The caught-up projection, and whether the stored one was behind the log.
+pub(crate) fn load_behind(db: &Connection) -> CoreResult<(State, bool)> {
     let value: String = db
         .query_row("SELECT state FROM document WHERE singleton=1", [], |r| {
             r.get(0)
         })
         .map_err(storage)?;
-    let state: State = parse(&value)?;
+    let mut state: State = parse(&value)?;
     validation::id(&state.note_id)?;
-    Ok(state)
+    let behind = catch_up(db, &mut state)?;
+    Ok((state, behind))
+}
+/// Applies, in commit order, the logged operations newer than `state` (the local sequence is
+/// stored big-endian, so blob order is commit order), exactly as `replay` does from empty.
+fn catch_up(db: &Connection, state: &mut State) -> CoreResult<bool> {
+    let mut statement = db
+        .prepare("SELECT author_id, payload FROM operations WHERE local_sequence > ?1 ORDER BY local_sequence")
+        .map_err(storage)?;
+    let rows = statement
+        .query_map([state.sequence.to_be_bytes().as_slice()], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })
+        .map_err(storage)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(storage)?;
+    for (author, payload) in &rows {
+        state.apply_logged(&parse::<Command>(payload)?, author)?;
+        state.sequence = state.sequence.checked_add(1).ok_or_else(internal)?;
+    }
+    state.text_effects.clear();
+    Ok(!rows.is_empty())
 }
 pub(crate) fn save(db: &Connection, state: &State) -> CoreResult<()> {
     db.execute(

@@ -78,6 +78,13 @@ fn crash_probe() {
         lib.restore_note(NOTE.into()).unwrap();
     } else if stage.starts_with("purge_") {
         lib.purge_note(NOTE.into()).unwrap();
+    } else if stage == "typing_then_kill" {
+        // remaining-v1 L.3: many commits, most without a stored projection, then a kill.
+        let note = lib.open_note(NOTE.into()).unwrap();
+        for i in 0..TYPED {
+            note.submit(typed(i)).unwrap();
+        }
+        std::process::exit(91);
     } else if stage.starts_with("command_") {
         lib.open_note(NOTE.into())
             .unwrap()
@@ -88,6 +95,76 @@ fn crash_probe() {
     }
     panic!("Crash fault was not reached");
 }
+const TYPED: usize = 150;
+/// The `i`th of [TYPED] strokes, each its own commit, as a stand-in for typed text commits.
+fn typed(i: usize) -> Command {
+    let mut c = command();
+    c.operation_id = format!("01ARZ3NDEKTSV4RRFFQ7{i:06}");
+    if let CommandBody::Marks { mutations } = &mut c.body
+        && let MarkMutation::AddStroke { mark_id, .. } = &mut mutations[0]
+    {
+        *mark_id = format!("01ARZ3NDEKTSV4RRFFQ8{i:06}");
+    }
+    c
+}
+
+/// The projection is stored only every few commits; the log holds each one. A writer killed
+/// between stores loses nothing: a reader sees every commit before the note is reopened, the
+/// reopened projection equals a replay of the log from empty, and the file's own projection is
+/// brought up to date by the open (remaining-v1 L.3).
+#[test]
+fn a_kill_between_projection_stores_loses_no_commit() {
+    let root = tempfile::tempdir().unwrap();
+    open_library(path(root.path())).unwrap().create_note(request()).unwrap();
+    run_crash_probe(root.path(), "typing_then_kill", None);
+    let file = root.path().join(format!("{NOTE}.syncr"));
+    {
+        let db = store::open(&file, false).unwrap();
+        let (state, behind) = store::load_behind(&db).unwrap();
+        assert!(behind, "the stored projection lags the log after a kill");
+        assert_eq!(state.strokes.len(), TYPED);
+        assert_eq!(state.sequence, 1 + TYPED as u64);
+        let replayed = store::replay(&db).unwrap();
+        assert_eq!(store::json(&state).unwrap(), store::json(&replayed).unwrap(), "caught up equals replayed from empty");
+    }
+    let lib = open_library(path(root.path())).unwrap();
+    assert_eq!(lib.list_notes().unwrap()[0].local_sequence, 1 + TYPED as u64);
+    let note = lib.open_note(NOTE.into()).unwrap();
+    let s = note.snapshot().unwrap();
+    assert_eq!((s.local_sequence, s.strokes.len()), (1 + TYPED as u64, TYPED));
+    assert!(note.submit(typed(7)).unwrap().duplicate);
+    {
+        let db = store::open(&file, false).unwrap();
+        assert!(!store::load_behind(&db).unwrap().1, "opening stored the caught-up projection");
+    }
+    note.close_note().unwrap();
+}
+
+/// Commits store the projection only every `SAVE_EVERY`; closing and exporting store it, so a
+/// closed or copied file never needs the log replayed.
+#[test]
+fn close_and_export_leave_a_current_projection() {
+    let root = tempfile::tempdir().unwrap();
+    let lib = open_library(path(root.path())).unwrap();
+    lib.create_note(request()).unwrap();
+    let note = lib.open_note(NOTE.into()).unwrap();
+    for i in 0..5 {
+        note.submit(typed(i)).unwrap();
+    }
+    let file = root.path().join(format!("{NOTE}.syncr"));
+    let stored = |f: &Path| {
+        let db = store::open(f, false).unwrap();
+        let value: String = db.query_row("SELECT state FROM document", [], |r| r.get(0)).unwrap();
+        store::parse::<crate::reducer::State>(&value).unwrap().sequence
+    };
+    assert!(stored(&file) < 6, "five commits did not each store the projection");
+    let copy = root.path().join("copy.syncr");
+    note.export_copy(path(&copy)).unwrap();
+    assert_eq!(stored(&copy), 6, "an exported copy carries a current projection");
+    note.close_note().unwrap();
+    assert_eq!(stored(&file), 6, "a closed note's file carries a current projection");
+}
+
 #[test]
 fn process_exit_before_after_commit_and_publication() {
     for stage in [

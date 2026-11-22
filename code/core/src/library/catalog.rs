@@ -232,7 +232,11 @@ pub(super) fn open_note(library: &Arc<SyncrLibrary>, note_id: Id) -> CoreResult<
     // A note written before the canvas amendment becomes a canvas here, after a backup
     // copy; failure leaves it unchanged and unopened.
     store::upgrade(&db, &library.root.join(store::BACKUP_DIR))?;
-    let state = store::load(&db)?;
+    // A projection behind the log (the writer was killed between stores) is stored now.
+    let (state, behind) = store::load_behind(&db)?;
+    if behind {
+        store::save(&db, &state)?;
+    }
     let note = Note::new(library.clone(), path, db, state);
     catalog.notes.insert(note_id, Arc::downgrade(&note));
     Ok(note)

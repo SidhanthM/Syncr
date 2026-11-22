@@ -17,6 +17,12 @@ use std::{
 
 /// Change events kept per open handle; an older cursor gets `ResyncRequired`.
 const EVENT_RING: usize = 256;
+/// The projection is stored with every `SAVE_EVERY`th commit, or the first commit `SAVE_AFTER` after
+/// the last store, and whenever the note is closed or exported; in between the log alone records
+/// each commit, and `store::load` catches up from it (remaining-v1 L.3). Rewriting the whole
+/// projection with every typed commit cost ~19 MiB/s of writes on a 2,000-stroke note.
+const SAVE_EVERY: u64 = 64;
+const SAVE_AFTER: std::time::Duration = std::time::Duration::from_secs(10);
 /// Largest page `changes_since` returns.
 const MAX_EVENT_PAGE: u32 = 256;
 
@@ -34,11 +40,24 @@ pub(super) struct Runtime {
     /// Sample bounds per stroke `[min_x, min_y, max_x, max_y]` (samples never change), read
     /// lazily for the auto-height page's content bottom.
     ink_bounds: HashMap<Id, [f32; 4]>,
+    /// The local sequence of the projection last stored in the file, and when it was stored.
+    saved: u64,
+    saved_at: std::time::Instant,
 }
 
 impl Runtime {
     pub(super) fn db(&self) -> CoreResult<&Connection> {
         self.db.as_ref().ok_or_else(closed)
+    }
+    /// Stores the projection when the file's is behind it (close, export). Commits never wait for this.
+    pub(super) fn store_projection(&mut self) -> CoreResult<()> {
+        if self.saved == self.state.sequence {
+            return Ok(());
+        }
+        store::save(self.db()?, &self.state)?;
+        self.saved = self.state.sequence;
+        self.saved_at = std::time::Instant::now();
+        Ok(())
     }
     pub(super) fn cursor(&self) -> EventCursor {
         EventCursor {
@@ -61,6 +80,8 @@ impl super::Recover for Runtime {
             state.text_effects.clear();
             self.state = state;
         }
+        // Whatever the file's projection is, the next commit stores this one.
+        self.saved = 0;
         self.digest = None;
         self.events.clear();
         self.sequence = 0;
@@ -75,6 +96,7 @@ impl Note {
         db: Connection,
         state: State,
     ) -> Arc<Self> {
+        let state_sequence = state.sequence;
         Arc::new(Note {
             library,
             path,
@@ -86,6 +108,9 @@ impl Note {
                 events: VecDeque::new(),
                 digest: None,
                 ink_bounds: HashMap::new(),
+                // Callers store a projection that was behind the log before handing it over.
+                saved: state_sequence,
+                saved_at: std::time::Instant::now(),
             }),
         })
     }
@@ -104,6 +129,7 @@ fn write_commit(
     receipt: &Receipt,
     mark_effects: &[MarkEffect],
     author: &str,
+    save_projection: bool,
 ) -> CoreResult<()> {
     if !candidate.text_effects.is_empty() {
         tx.execute_batch("CREATE TABLE IF NOT EXISTS text_effects(operation_id TEXT PRIMARY KEY, effects TEXT NOT NULL);")
@@ -178,7 +204,9 @@ fn write_commit(
         tx.pragma_update(None, "user_version", store::PAGES_NOTE_VERSION)
             .map_err(storage)?;
     }
-    store::save(tx, candidate)?;
+    if save_projection {
+        store::save(tx, candidate)?;
+    }
     if !mark_effects.is_empty() {
         tx.execute(
             "INSERT INTO mark_effects VALUES (?1,?2)",
@@ -375,6 +403,8 @@ pub(super) fn submit_checked(
         duplicate: false,
     };
     let mark_effects = candidate.mark_effects_since(&r.state);
+    let save_projection = candidate.sequence - r.saved.min(candidate.sequence) >= SAVE_EVERY
+        || r.saved_at.elapsed() >= SAVE_AFTER;
     let tx =
         r.db.as_mut()
             .ok_or_else(closed)?
@@ -388,10 +418,15 @@ pub(super) fn submit_checked(
         &receipt,
         &mark_effects,
         author,
+        save_projection,
     )?;
     fault::crash_point("command_before_commit");
     tx.commit().map_err(storage)?;
     fault::crash_point("command_after_commit");
+    if save_projection {
+        r.saved = candidate.sequence;
+        r.saved_at = std::time::Instant::now();
+    }
     candidate.text_effects.clear();
     r.digest = None;
     r.state = candidate;
@@ -454,7 +489,9 @@ pub(super) fn changes_since(
 }
 
 pub(super) fn export_copy(note: &Note, destination_path: String) -> CoreResult<ExportReceipt> {
-    let r = lock(&note.runtime)?;
+    let mut r = lock(&note.runtime)?;
+    // A copy goes to other devices and other app versions: its projection is current.
+    r.store_projection()?;
     let db = r.db()?;
     path_input(
         &destination_path,
@@ -478,9 +515,12 @@ pub(super) fn export_copy(note: &Note, destination_path: String) -> CoreResult<E
 
 pub(super) fn close_note(note: &Note) -> CoreResult<()> {
     let mut r = lock(&note.runtime)?;
-    let Some(db) = r.db.as_ref() else {
+    if r.db.is_none() {
         return Ok(());
-    };
+    }
+    // A closed note's file holds a current projection, for every reader and app version.
+    r.store_projection()?;
+    let db = r.db.as_ref().ok_or_else(closed)?;
     // Fold the WAL first: a failed checkpoint leaves the handle open and usable.
     store::checkpoint(db)?;
     files::sync(note.path.parent().ok_or_else(internal)?)?;

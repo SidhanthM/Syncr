@@ -441,11 +441,15 @@ pub(super) fn rebase_onto_copy(
     let result = (|| {
         store::export(&copy, &library.root, REBASE_PREFIX, &stage)?;
         let db = store::open(&stage, true)?;
-        let state = store::load(&db)?;
+        let (state, behind) = store::load_behind(&db)?;
+        if behind {
+            store::save(&db, &state)?;
+        }
         let staging = Note::new(library.clone(), stage.clone(), db, state);
         let report = merge_from(&staging, &local)?;
         {
-            let r = lock(&staging.runtime)?;
+            let mut r = lock(&staging.runtime)?;
+            r.store_projection()?;
             store::export(r.db()?, &library.root, REBASE_PREFIX, &final_file)?;
         }
         note::close_note(&staging)?;
