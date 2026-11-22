@@ -596,7 +596,7 @@ class JoinTest(private val o: Options, private val print: (String) -> Unit) {
                 play(240) { i, t, last ->
                     val p = points[i]; mirror.sample(p.first, p.second, p.third, 0f, 0f, t)
                     if (last) mirror.flush()
-                    if (i == 99) { check(poll(5_000) { report().wet == 1 }) { "the half stroke never showed on the Mac" }; socket.cutNow() }
+                    if (i == 99) { check(poll(5_000) { report().wet == 1 }) { "the half stroke never showed on the Mac (phone log: ${s.logs.takeLast(14)})" }; socket.cutNow() }
                 }
                 mirror.end()
                 awaitLog(m, "link: disconnected phone=")
@@ -631,7 +631,7 @@ class JoinTest(private val o: Options, private val print: (String) -> Unit) {
                     val x = 700f + 20f * k; val y = 2700f
                     if (!started) started = pen.down(x, y, 0.5f, 0f, 0f, t, false, false) else pen.move(x, y, 0.5f, 0f, 0f, t)
                     if (last) pen.flush()
-                    if (k == 79) { check(poll(5_000) { report().wet == 1 }) { "the half pad stroke never showed" }; socket.cutNow() }
+                    if (k == 79) { check(poll(5_000) { report().wet == 1 }) { "the half pad stroke never showed (phone log: ${s.logs.takeLast(14)})" }; socket.cutNow() }
                 }
                 // The pen lifts after the link is already gone; the stroke must not be half-saved.
                 pen.up()

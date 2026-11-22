@@ -19,6 +19,13 @@ fun main(args: Array<String>) {
     if (args.isEmpty() || args[0] in listOf("-h", "--help") || !args[0].contains(':')) { println(USAGE); exitProcess(2) }
     val (host, port) = args[0].let { it.substringBeforeLast(':') to (it.substringAfterLast(':').toIntOrNull() ?: run { println(USAGE); exitProcess(2) }) }
     fun option(name: String) = args.indexOf(name).takeIf { it >= 0 }?.let { args.getOrNull(it + 1) }
+    if ("--faults" in args) {
+        fun need(name: String) = option(name) ?: run { println("missing $name"); exitProcess(2) }
+        val fault = FaultTest(FaultTest.Options(File(need("--mac-bin")), File(need("--mac-library")), port, File(option("--library") ?: "../../core/fixtures/canvas-v2").canonicalFile,
+            File(need("--work")), only = option("--only")?.split(",")?.filter { it.isNotBlank() } ?: emptyList(),
+            soakSeconds = option("--soak")?.toIntOrNull() ?: 90, cuts = option("--cuts")?.toIntOrNull() ?: 200, check = "--no-check" !in args), ::println)
+        exitProcess(if (fault.run()) 0 else 1)
+    }
     if ("--join" in args) {
         fun need(name: String) = option(name) ?: run { println("missing $name\n$USAGE"); exitProcess(2) }
         val join = JoinTest(JoinTest.Options(host, port, File(need("--mac-log")), File(need("--mac-control")), File(need("--mac-library")),

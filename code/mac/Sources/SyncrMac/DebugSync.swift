@@ -1,4 +1,5 @@
 import Foundation
+import os
 import SyncrCore
 
 /// Mac-side edits and inspection for the joined sync test (`code/shared/link-v0/join-test.sh`), behind the same debug flag
@@ -12,13 +13,14 @@ import SyncrCore
 ///   sync-margin <note>              a margin note on the note's first text block (adds the anchor)
 ///   sync-bulk <note> <count>        count long strokes (8,000 samples each): a big note, for cutting a transfer
 ///   sync-count <note>               operations in the note: `link: sync-count note=<id> ops=<n>`
+///   sync-strokes <note>             the live strokes: `link: sync-strokes note=<id> ids=<id>:<x>:<y>,...`, first sample as stored (the fault scenarios)
 @MainActor final class DebugSync {
     private let model: LibraryModel
     private let say: (String) -> Void
     private let closeTabs: () -> Void
     init(model: LibraryModel, closeTabs: @escaping () -> Void, say: @escaping (String) -> Void) { self.model = model; self.closeTabs = closeTabs; self.say = say }
 
-    static let commands: Set<String> = ["sync-close-tabs", "sync-stroke", "sync-move", "sync-text", "sync-margin", "sync-bulk", "sync-count"]
+    static let commands: Set<String> = ["sync-close-tabs", "sync-stroke", "sync-move", "sync-text", "sync-margin", "sync-bulk", "sync-count", "sync-strokes"]
 
     nonisolated private static func channels(x: Float, count: Int = 60, row: Float = 0) throws -> Data {
         var c = SampleChannels(x: [], y: [], pressure: [], elapsedMs: [], tilt: nil, orientation: nil)
@@ -77,6 +79,17 @@ import SyncrCore
                     CompanionMutation(id: anchor, base: .absent, tombstone: false, body: .anchor(target: .text(blockId: block.id, start: 0, end: 2, detached: false))),
                     CompanionMutation(id: margin, base: .absent, tombstone: false, body: .marginNote(anchorId: anchor, kind: .flag, text: "Why?", reader: "Reader", state: .pinned, sources: []))])))
             }
+        case "sync-strokes":
+            let ids = OSAllocatedUnfairLock(initialState: [String]())
+            model.editNote(id: note, work: { h in
+                // Each stroke's ID and where its first sample is stored (sheet-local units, rounded), to see where a stroke landed.
+                let live = try h.snapshot().strokes.filter { !$0.tombstone }.map { stroke -> String in
+                    let c = try decodeSamples(blob: h.getSamples(markId: stroke.id))
+                    return "\(stroke.id):\(Int((c.x.first ?? 0).rounded())):\(Int((c.y.first ?? 0).rounded()))"
+                }
+                ids.withLock { $0 = live }
+            }) { [say] _ in say("sync-strokes note=\(note) ids=" + ids.withLock { $0 }.joined(separator: ",")) }
+            return
         case "sync-count":
             model.editNote(id: note, work: { _ in }) { [say] result in
                 switch result {
