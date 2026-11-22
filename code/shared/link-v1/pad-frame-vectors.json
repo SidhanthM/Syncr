@@ -1,0 +1,15 @@
+{
+ "note": "Pen frame limits (rework-v1 V.1, remaining-v1 V.1). Rects are [x, y, w, h] in canvas units. A page keeps its frame on 0...4800 across and 0 down; a canvas (unbounded) has no edges and the frame is held to the visible view only. mac_sized: PadFrame.sized(wanted, view) for a pad of the given aspect. phone_gesture: FrameMapping.gesture(area, start, x0, y0, x, y, ratio, view, unbounded).",
+ "mac_sized": [
+  {"name": "page keeps its bounds", "aspect": 2.0, "unbounded": false, "view": [4000, 0, 3200, 1600], "wanted": [4100, 100, 900, 450], "expect": [4000, 125, 800, 400]},
+  {"name": "canvas has no edge on the right", "aspect": 2.0, "unbounded": true, "view": [4000, 0, 3200, 1600], "wanted": [4100, 100, 900, 450], "expect": [4100, 100, 900, 450]},
+  {"name": "canvas far left and above", "aspect": 2.0, "unbounded": true, "view": [-8000, -3000, 3200, 1600], "wanted": [-7000, -2500, 800, 400], "expect": [-7000, -2500, 800, 400]},
+  {"name": "canvas is still limited to its view", "aspect": 2.0, "unbounded": true, "view": [-8000, -3000, 3200, 1600], "wanted": [-55399.5, -1900, 99999, 400], "expect": [-7000, -2500, 3200, 1600], "centre": true}
+ ],
+ "phone_gesture": [
+  {"name": "page: dragged far right and down stops on the paper's edge", "unbounded": false, "area": [0, 0, 2000, 1000], "start": [1000, 500, 1000, 500], "from": [1000, 500], "to": [90000, 90000], "ratio": 1.0, "view": [0, 0, 3200, 1600], "expect": [0, 0, 1000, 500]},
+  {"name": "page: dragged far left stops at the paper's right edge", "unbounded": false, "area": [0, 0, 2000, 1000], "start": [1000, 500, 1000, 500], "from": [1000, 500], "to": [-90000, 500], "ratio": 1.0, "view": [0, 0, 3200, 1600], "expect": [3800, 500, 1000, 500]},
+  {"name": "canvas: dragged far right and down goes on", "unbounded": true, "area": [0, 0, 2000, 1000], "start": [1000, 500, 1000, 500], "from": [1000, 500], "to": [90000, 90000], "ratio": 1.0, "view": [0, 0, 3200, 1600], "expect": [-43500, -44250, 1000, 500]},
+  {"name": "canvas: dragged far left goes past 4800", "unbounded": true, "area": [0, 0, 2000, 1000], "start": [1000, 500, 1000, 500], "from": [1000, 500], "to": [-90000, 500], "ratio": 1.0, "view": [0, 0, 3200, 1600], "expect": [46500, 500, 1000, 500]}
+ ]
+}

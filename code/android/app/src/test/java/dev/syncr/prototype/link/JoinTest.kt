@@ -106,6 +106,26 @@ class JoinTest(private val o: Options, private val print: (String) -> Unit) {
         return last!!
     }
 
+    /** One stroke across the middle of the pen frame [f] from the pad, in canvas units. Returns the saved stroke's bounds and where they should be. */
+    private fun padStrokeIn(cur: Session, f: CanvasRect): Pair<List<Float>, List<Float>> {
+        val before = report().strokes
+        val m = mark()
+        val area = dev.syncr.prototype.tablet.PadRect(0.0, 0.0, 2000.0, 1000.0)
+        val pen = StreamPen(cur.feed, cur.ids, { cur.target }, { brush(colour = InkColour.INK) })
+        var started = false
+        play(120) { k, t, last ->
+            val u = k / 119.0
+            val (x, y) = FrameMapping.toCanvas(area, f, 200 + 1600 * u, 200 + 600 * u)
+            if (!started) started = pen.down(x, y, 0.6f, 0f, 0f, t, false, false, dev.syncr.core.CoordinateSpace.CANVAS) else pen.move(x, y, 0.6f, 0f, 0f, t)
+            if (last && started) pen.flush()
+        }
+        check(started) { "the pad could not start a stroke: ${pen.problem()}" }
+        check(pen.up()) { "the stroke was cancelled" }
+        awaitLog(m, "link: stroke-saved note=${cur.target.noteId} stroke=")
+        val r = awaitReport("the pad stroke never showed") { it.strokes == before + 1 && it.wet == 0 }
+        return r.lastStroke()!! to listOf(f.x + 0.1 * f.w, f.y + 0.2 * f.h, f.x + 0.9 * f.w, f.y + 0.8 * f.h).map { it.toFloat() }
+    }
+
     private fun macNote(id: String): Report {
         control("open $id")
         return awaitReport("the Mac did not show note $id") { it.shown == id && !it.loading }
@@ -912,7 +932,7 @@ class JoinTest(private val o: Options, private val print: (String) -> Unit) {
                 cur.client.setPad(true)
                 check(poll { cur.target.usable && cur.target.noteId == macNoteId }) { "no writable pad target on $macNoteId (${cur.target})" }
                 fun num(s: String, k: String) = Regex("$k=([\\d.]+)").find(s)?.groupValues?.get(1)
-                fun strokes(label: String) {
+                fun strokes(label: String): Pair<Double, Double> {
                     run { val m = mark(); control("latency-reset"); awaitLog(m, "ack latency-reset", 10_000) }
                     cur.client.latencyLog.penToWrite.clear()
                     repeat(5) { n ->
@@ -936,8 +956,17 @@ class JoinTest(private val o: Options, private val print: (String) -> Unit) {
                     print("JOIN metric pad.$label.send-to-presented p50=${num(mac, "p50")} p95=${num(mac, "p95")} max=${num(mac, "max")} ms n=${num(mac, "n")}")
                     print("JOIN fallback pad.$label ${num(mac, "handler-time-frames") ?: 0}")
                     check((num(mac, "n")?.toDoubleOrNull() ?: 0.0) > 0) { "the Mac presented no phone frame with a known clock offset: $mac" }
+                    return (num(phone, "p95")?.toDoubleOrNull() ?: 0.0) to (num(mac, "p95")?.toDoubleOrNull() ?: 0.0)
                 }
-                strokes("idle")
+                val idle = strokes("idle")
+                // Pictures on (remaining-v1 V.2): the pad in Local mode asks for them, and the Mac renders one now and then; the ink path must not notice.
+                cur.client.setPadWish(PadWish(local = true, pics = true, aspect = 2.0))
+                check(poll { cur.target.frame != null }) { "no pen frame for the pictures run: ${cur.target}" }
+                val withPictures = strokes("pictures-on")
+                print("JOIN info L pictures on, p95 pen-to-write ${withPictures.first} vs idle ${idle.first}; send-to-presented ${withPictures.second} vs ${idle.second}")
+                check(withPictures.first <= idle.first * 2 + 5 && withPictures.second <= idle.second * 2 + 15) { "pictures slowed the ink: $withPictures against $idle" }
+                cur.client.setPadWish(PadWish(local = false, pics = false, aspect = 2.0))
+                check(poll { cur.target.frame == null }) { "the frame stayed after the pictures run" }
                 // A large note goes from the Mac to the phone while the pad writes: 200 long strokes (several MB) on note1 (j7 leaves note2 in the phone's Recently deleted).
                 val m = mark()
                 control("sync-bulk $note1 200")
@@ -1017,6 +1046,102 @@ class JoinTest(private val o: Options, private val print: (String) -> Unit) {
                 print("JOIN info p4 view ${v.y} -> ${nv.y}, frame ${f.y} -> ${nf.y}")
                 check(nf.y >= nv.y - 0.5 && nf.bottom <= nv.bottom + 0.5 && nf.y > f.y) { "frame $nf is not inside the view $nv, or did not move down" }
                 check(poll(5_000) { cur.pictures.size > n }) { "no new picture after the frame moved" }
+            }
+            step("p4b the pen frame at full view and at actual size: a stroke lands inside it at the mapped place (the moved frame is p2)") {
+                macNote(macNoteId)
+                control("view 0 0 1.5")
+                check(poll { cur.target.view?.y == 0.0 && cur.target.frame != null }) { "the view did not settle: ${cur.target}" }
+                fun landed(label: String) {
+                    val f = cur.target.frame!!
+                    val (b, want) = padStrokeIn(cur, f)
+                    val off = b.zip(want).map { (a, w) -> Math.abs(a - w) }
+                    print("JOIN info p4b $label frame=$f stroke bounds=${b.joinToString(",")} off=${off.joinToString(",") { "%.1f".format(it) }}")
+                    check(off.all { it <= 40f }) { "$label: the stroke's bounds $b are not near $want inside $f" }
+                }
+                cur.client.requestFrame(CanvasRect(0.0, 0.0, 99_999.0, 49_999.0))
+                val v = cur.target.view!!
+                val most = minOf(v.right - maxOf(0.0, v.x), v.h * 2.0)
+                check(poll { cur.target.frame?.let { it.w > most - 2 } == true }) { "asked for the whole view, the Mac says ${cur.target.frame} (view $v, largest $most)" }
+                landed("full view")
+                cur.client.requestFrame(CanvasRect(0.0, 0.0, 1.0, 1.0))
+                check(poll { cur.target.frame?.let { Math.abs(it.w - FrameMapping.MIN_WIDTH) < 0.5 } == true }) { "asked for the smallest, the Mac says ${cur.target.frame}" }
+                landed("actual size")
+            }
+            step("p4c the pen frame follows the Mac's scrolling") {
+                control("view 0 100 1.5")
+                check(poll { cur.target.view?.y == 100.0 }) { "view: ${cur.target.view}" }
+                Thread.sleep(150)
+                val f1 = cur.target.frame!!
+                control("view 0 500 1.5")
+                check(poll { cur.target.view?.y == 500.0 }) { "view: ${cur.target.view}" }
+                check(poll { cur.target.frame?.let { Math.abs(it.y - (f1.y + 400)) < 2 && Math.abs(it.w - f1.w) < 0.5 } == true }) { "the frame did not follow a 400 unit scroll: $f1 -> ${cur.target.frame}" }
+                control("view 0 0 1.5")
+                check(poll { cur.target.view?.y == 0.0 }) { "view: ${cur.target.view}" }
+            }
+            step("p4d a text edit on the Mac sends a new picture") {
+                // A picture is sent only when what is inside the frame changed, so the frame has to cover the text: the whole view, caret at the start.
+                control("view 0 0 1.5")
+                check(poll { cur.target.view?.y == 0.0 }) { "the view did not return to the top: ${cur.target.view}" }
+                val top = cur.target.view!!
+                cur.client.requestFrame(CanvasRect(maxOf(0.0, top.x), top.y, 3_000.0, 1_500.0)) // the top of the page, where the text goes
+                check(poll { cur.target.frame?.let { it.w > 1_000 && it.y < 1.0 } == true }) { "no large frame at the top: ${cur.target.frame}" }
+                control("caret 0")
+                // The scroll of the step before may still be sending a last picture: wait until none has come for a second.
+                var n = cur.pictures.size
+                check(poll(15_000, every = 1_000) { val quiet = cur.pictures.size == n; n = cur.pictures.size; quiet }) { "pictures kept coming with nothing changing" }
+                control("insert \"pad snippet text \"")
+                check(poll(8_000) { cur.pictures.size > n }) { "no picture after a text edit on the Mac" }
+            }
+            step("p4e a canvas has no edge: the pen frame goes past 4800 and below the origin, and a stroke lands there") {
+                val m = mark()
+                control("newcanvas Pad canvas")
+                val id = Regex("ack newcanvas (\\S+)").find(awaitLog(m, "ack newcanvas "))!!.groupValues[1]
+                macNote(id)
+                check(poll { cur.target.noteId == id && cur.target.usable && cur.target.frame != null }) { "no pen frame on the canvas: ${cur.target}" }
+                check(cur.target.pageHeight == null) { "a canvas reported a page: ${cur.target.pageHeight}" }
+                val want = CanvasRect(7000.0, 3000.0, 1000.0, 500.0)
+                cur.client.requestFrame(want)
+                fun near(a: CanvasRect, b: CanvasRect) = Math.abs(a.x - b.x) < 1 && Math.abs(a.y - b.y) < 1 && Math.abs(a.w - b.w) < 1 && Math.abs(a.h - b.h) < 1
+                check(poll { cur.target.frame?.let { near(it, want) } == true }) { "asked for $want past the old page, the Mac says ${cur.target.frame} (view ${cur.target.view})" }
+                val f = cur.target.frame!!; val v = cur.target.view!!
+                check(f.x >= v.x - 0.5 && f.right <= v.right + 0.5 && f.y >= v.y - 0.5 && f.bottom <= v.bottom + 0.5) { "the frame $f is outside the view $v" }
+                val (b, wantBounds) = padStrokeIn(cur, f)
+                val off = b.zip(wantBounds).map { (a, w) -> Math.abs(a - w) }
+                print("JOIN info p4e canvas frame=$f view=$v stroke bounds=${b.joinToString(",")} off=${off.joinToString(",") { "%.1f".format(it) }}")
+                check(off.all { it <= 40f }) { "the stroke's bounds $b are not near $wantBounds" }
+                // And the other way: to the left of and above the origin.
+                val neg = CanvasRect(-3000.0, -2000.0, 800.0, 400.0)
+                cur.client.requestFrame(neg)
+                check(poll { cur.target.frame?.let { near(it, neg) } == true }) { "asked for $neg, the Mac says ${cur.target.frame}" }
+                macNote(macNoteId)
+                check(poll { cur.target.noteId == macNoteId && cur.target.frame != null && cur.target.pageHeight != null }) { "the page came back without its extent: ${cur.target}" }
+            }
+            step("p4f Read on the pad: the Mac scrolls and zooms, a picture of its view arrives, and nothing is written") {
+                macNote(macNoteId)
+                control("view 0 0 1.5")
+                val before = report()
+                val m = mark()
+                cur.client.setPadWish(PadWish(local = false, pics = true, aspect = 2.0, read = true))
+                check(poll { cur.target.frame == null && cur.target.view?.y == 0.0 }) { "the frame stayed in Read: ${cur.target}" }
+                check(poll(8_000) { cur.pictures.lastOrNull()?.first?.kind == 3 }) { "no picture of the view; got ${cur.pictures.map { it.first.kind }}" }
+                val v0 = cur.target.view!!
+                cur.client.requestScroll(0.0, 200.0, 1.0)
+                check(poll { (cur.target.view?.y ?: 0.0) > v0.y + 50 }) { "the Mac's view did not scroll: $v0 -> ${cur.target.view}" }
+                val v1 = cur.target.view!!
+                cur.client.requestScroll(0.0, 0.0, 2.0)
+                check(poll { cur.target.view?.let { it.w < v1.w * 0.6 } == true }) { "the Mac's view did not zoom: $v1 -> ${cur.target.view}" }
+                val v2 = cur.target.view!!
+                check(poll(8_000) { cur.pictures.lastOrNull()?.first?.let { it.kind == 3 && Math.abs(it.region.w - v2.w) < 1 && Math.abs(it.region.y - v2.y) < 1 } == true }) {
+                    "the picture is not of the view $v2: ${cur.pictures.lastOrNull()?.first?.region}"
+                }
+                val after = report()
+                print("JOIN info p4f view ${v0.y},${v0.w} -> ${v1.y} -> ${v2.w}; strokes ${before.strokes} -> ${after.strokes}, seq ${before.seq} -> ${after.seq}")
+                check(after.strokes == before.strokes && after.seq == before.seq && !macHas(m, "stroke-saved")) { "Read wrote something: $before -> $after" }
+                // Back to Edit: the place is kept and the pen frame returns.
+                cur.client.setPadWish(PadWish(local = true, pics = true, aspect = 2.0))
+                check(poll { cur.target.frame != null }) { "no pen frame after switching back to Edit" }
+                check(Math.abs(cur.target.view!!.y - v2.y) < 1 && Math.abs(cur.target.view!!.w - v2.w) < 1) { "the place was lost: $v2 -> ${cur.target.view}" }
+                control("view 0 0 1.5")
             }
             step("p5 whole view again: the frame goes; the second path was offered and the connection lost or doubled nothing") {
                 cur.client.setPadWish(PadWish(local = false, pics = true, aspect = 2.0))

@@ -82,15 +82,15 @@ object Wire {
     }
 
     /** A picture's header: the target `rev` it was drawn at, pad strokes saved by then, and the pictured canvas region. */
-    class PictureHeader(val rev: Long, val saved: Long, val region: CanvasRect)
+    class PictureHeader(val rev: Long, val saved: Long, val region: CanvasRect, val kind: Int = 1)
 
     /** The header of a `0x53` message; the JPEG follows from [PICTURE_HEADER]. Null when it is not a usable picture. */
     fun parsePicture(message: ByteArray): PictureHeader? {
-        if (kind(message) != KIND_PICTURE || message.size <= PICTURE_HEADER || message[1].toInt() != 1) return null
+        if (kind(message) != KIND_PICTURE || message.size <= PICTURE_HEADER || message[1].toInt() != 1 && message[1].toInt() != 3) return null
         fun f(at: Int) = java.lang.Float.intBitsToFloat(getU32(message, at).toInt()).toDouble()
         val region = CanvasRect(f(10), f(14), f(18), f(22))
         if (listOf(region.x, region.y, region.w, region.h).any { !it.isFinite() } || region.w <= 0 || region.h <= 0) return null
-        return PictureHeader(getU32(message, 2), getU32(message, 6), region)
+        return PictureHeader(getU32(message, 2), getU32(message, 6), region, message[1].toInt())
     }
 
     /**

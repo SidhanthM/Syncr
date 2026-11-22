@@ -40,6 +40,8 @@ data class TabletUiState(
     val streamSummary: String = "",
     /** The pad writes inside a pen frame on the Mac's page (Local) rather than over the whole view. */
     val streamLocal: Boolean = true,
+    /** The pad reads the Mac's view (scroll, zoom) instead of writing into it. */
+    val streamRead: Boolean = false,
     val trackpad: Boolean = false,
     val orientation: TabletOrientation = TabletOrientation.LANDSCAPE,
     val tuning: TrackpadTuning = TrackpadTuning(),

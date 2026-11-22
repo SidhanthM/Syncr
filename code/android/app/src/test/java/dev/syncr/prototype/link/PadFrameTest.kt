@@ -102,4 +102,31 @@ class PadFrameTest {
         assertNull(Wire.datagram(1, 0, listOf(ByteArray(Wire.MAX_DATAGRAM))))
         assertNotNull(Wire.datagram(1, 0, listOf(ByteArray(Wire.MAX_DATAGRAM - 14) { 0x50 })))
     }
+
+    @Test fun sharedVectorsForPagesAndCanvases() {
+        val root = Json.parse(java.io.File("../../shared/link-v1/pad-frame-vectors.json").canonicalFile.readBytes()) as Map<*, *>
+        fun nums(v: Any?) = (v as List<*>).map { (it as Number).toDouble() }
+        val cases = (root["phone_gesture"] as List<*>).map { it as Map<*, *> }
+        assertTrue(cases.size >= 4)
+        for (c in cases) {
+            val a = nums(c["area"]); val st = nums(c["start"]); val f = nums(c["from"]); val t = nums(c["to"]); val vw = nums(c["view"]); val e = nums(c["expect"])
+            val got = FrameMapping.gesture(PadRect(a[0], a[1], a[2], a[3]), CanvasRect(st[0], st[1], st[2], st[3]), f[0], f[1], t[0], t[1],
+                (c["ratio"] as Number).toDouble(), CanvasRect(vw[0], vw[1], vw[2], vw[3]), unbounded = c["unbounded"] as Boolean)
+            assertEquals(c["name"] as String, CanvasRect(e[0], e[1], e[2], e[3]), got)
+        }
+    }
+
+    @Test fun readOnThePadMessagesAndViewPictures() {
+        val read = Control.PadMode(false, true, 2.0, read = true)
+        assertEquals(read, Control.parse(read.encode()))
+        assertEquals(false, (Control.parse(Control.PadMode(true, true, 2.0).encode()) as Control.PadMode).read)
+        assertEquals(mapOf("t" to "scroll", "dx" to -12.5, "dy" to 400.0, "zoom" to 1.25), Control.Scroll(-12.5, 400.0, 1.25).json())
+        // A padmode from an older Mac or phone has no mode: Edit.
+        val old = Control.parse(byteArrayOf(Wire.KIND_CONTROL.toByte()) + """{"t":"padmode","local":true,"pics":true,"aspect":2}""".toByteArray()) as Control.PadMode
+        assertFalse(old.read)
+        fun f32(v: Float) = java.nio.ByteBuffer.allocate(4).putFloat(v).array()
+        val view = byteArrayOf(Wire.KIND_PICTURE.toByte(), 3, 0, 0, 0, 9, 0, 0, 0, 0) + f32(0f) + f32(100f) + f32(3200f) + f32(2283f) + byteArrayOf(1, 2)
+        val h = Wire.parsePicture(view)!!
+        assertEquals(3, h.kind); assertEquals(CanvasRect(0.0, 100.0, 3200.0, 2283.0), h.region)
+    }
 }

@@ -98,6 +98,13 @@ import SyncrCore
                 let f = link.padFrame?.rect(in: detail.visibleCanvasRect) ?? .zero, v = detail.visibleCanvasRect
                 say(String(format: "pad-frame %.1f,%.1f,%.1f,%.1f view=%.1f,%.1f,%.1f,%.1f", f.minX, f.minY, f.width, f.height, v.minX, v.minY, v.width, v.height))
             }
+        case "pad-read":
+            // pad-read [dx dy zoom]: the phone's padmode read, then optionally its scroll message, without a phone
+            link.debugPad(local: false, aspect: 1.6, frame: nil, read: true)
+            let n = words.dropFirst().compactMap { Double($0) }
+            if n.count == 3 { link.debugScroll(dx: n[0], dy: n[1], zoom: n[2]) }
+            let v = detail.visibleCanvasRect
+            say(String(format: "pad-read view=%.1f,%.1f,%.1f,%.1f", v.minX, v.minY, v.width, v.height))
         case "pad-whole": link.debugPad(local: false, aspect: 1.6, frame: nil); say("ack pad-whole")
         case "pad-picture":
             if words.count == 2 {
@@ -131,6 +138,10 @@ import SyncrCore
             }
             func q(_ v: [Double], _ p: Double) -> Double { v.sorted()[min(v.count - 1, Int(Double(v.count) * p))] }
             say(String(format: "typing-latency n=%d insert p50 %.2f p95 %.2f max %.2f ms; redraw p50 %.2f p95 %.2f max %.2f ms", n, q(insert, 0.5), q(insert, 0.95), insert.max() ?? 0, q(draw, 0.5), q(draw, 0.95), draw.max() ?? 0))
+        case "ai-canvas-card":
+            // ai-canvas-card <x> <y> <w> <h> <question|explanation|flag> <text...>
+            let n = words.dropFirst().prefix(4).compactMap { Double($0) }
+            if n.count == 4, words.count >= 7 { companion.debugCanvasCard(x: n[0], y: n[1], width: n[2], height: n[3], kind: words[5], text: words.dropFirst(6).joined(separator: " ")); say("ack ai-canvas-card") }
         case "ai-cancel": companion.debugCancel(); say("ack ai-cancel")
         case "ai-hour": if words.count == 2, let script = try? String(contentsOfFile: words[1], encoding: .utf8) { Task { self.say("ai-hour " + (await self.companion.debugHour(script: script))) } }
         case "ai-hand": var p = companion.preferences; p.handDrawn = words.last == "on"; companion.savePreferences(p); say("ack ai-hand")

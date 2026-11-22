@@ -102,6 +102,20 @@ class TabletPadView(
     private var strokesSent = 0L
     private val strokePath = android.graphics.Path()
 
+    // Read on the pad: the picture of the Mac's view is scrolled and pinched, nothing is written.
+    private var readMode = false
+    private var readN = 0
+    private var readX = 0f
+    private var readY = 0f
+    private var readSpan = 0f
+    private var pendDx = 0f
+    private var pendDy = 0f
+    private var pendZoom = 1.0
+    private var lastScrollMs = 0L
+    private val readRect = RectF()
+    /** Read: the Mac's view should move by this many canvas units (right, down) and have its zoom multiplied. */
+    var onScroll: (Double, Double, Double) -> Unit = { _, _, _ -> }
+
     /** Local: fingers asked for this frame (canvas units). */
     var onFrameRequest: (CanvasRect) -> Unit = {}
     /** The pad's usable shape (width over height) is known or changed. */
@@ -177,7 +191,18 @@ class TabletPadView(
         invalidate()
     }
 
+    /** Read on the pad (true) or write (false). A stroke in progress is released and the picture waits for one of the right kind. */
+    fun setRead(on: Boolean) {
+        if (on == readMode) return
+        releaseAll()
+        readMode = on
+        readN = 0; pendDx = 0f; pendDy = 0f; pendZoom = 1.0
+        picture = null
+        invalidate()
+    }
+
     fun setPicture(next: PadPicture?) {
+        if (next != null && (next.kind == 3) != readMode) return
         picture = next
         if (next != null) while (localStrokes.isNotEmpty() && localStrokes.first().endedAt != 0L && localStrokes.first().ordinal <= next.saved) localStrokes.removeFirst()
         else localStrokes.clear()
@@ -227,6 +252,7 @@ class TabletPadView(
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
         if (!inputEnabled) return true
+        if (readMode) return readTouch(e)
         if (e.actionMasked == MotionEvent.ACTION_DOWN && !isPen(e, 0) && tabletCaptionTapAllowed(penId != -1, e.eventTime, lastPenUp)) {
             val hit = when {
                 picture != null && pictureBounds.contains(e.x, e.y) -> TAP_PICTURE
@@ -279,6 +305,52 @@ class TabletPadView(
             }
         }
         return true
+    }
+
+    /** Read: one finger or the pen scrolls the Mac's view, two fingers also pinch it. Never draws, never writes. */
+    private fun readTouch(e: MotionEvent): Boolean {
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> readAnchor(e, -1)
+            MotionEvent.ACTION_POINTER_UP -> { sendScroll(); readAnchor(e, e.actionIndex) }
+            MotionEvent.ACTION_MOVE -> {
+                val (n, cx, cy, span) = readGrip(e, -1)
+                if (n != readN) { readAnchor(e, -1); return true }
+                pendDx += cx - readX; pendDy += cy - readY
+                if (n >= 2 && readSpan > dp(16f) && span > dp(16f)) pendZoom *= (span / readSpan).toDouble()
+                readX = cx; readY = cy; readSpan = span
+                if (e.eventTime - lastScrollMs >= 33) sendScroll(e.eventTime)
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { sendScroll(); readN = 0 }
+        }
+        return true
+    }
+
+    private data class Grip(val n: Int, val x: Float, val y: Float, val span: Float)
+
+    private fun readGrip(e: MotionEvent, exclude: Int): Grip {
+        var n = 0; var sx = 0f; var sy = 0f
+        for (i in 0 until e.pointerCount) { if (i == exclude) continue; n++; sx += e.getX(i); sy += e.getY(i) }
+        if (n == 0) return Grip(0, 0f, 0f, 0f)
+        val cx = sx / n; val cy = sy / n
+        var d = 0f
+        for (i in 0 until e.pointerCount) { if (i == exclude) continue; d += kotlin.math.hypot(e.getX(i) - cx, e.getY(i) - cy) }
+        return Grip(n, cx, cy, if (n >= 2) 2 * d / n else 0f)
+    }
+
+    private fun readAnchor(e: MotionEvent, exclude: Int) {
+        val g = readGrip(e, exclude)
+        readN = g.n; readX = g.x; readY = g.y; readSpan = g.span
+    }
+
+    private fun sendScroll(now: Long = SystemClock.uptimeMillis()) {
+        val dx = pendDx; val dy = pendDy; val zoom = pendZoom
+        if (dx == 0f && dy == 0f && zoom == 1.0) return
+        pendDx = 0f; pendDy = 0f; pendZoom = 1.0
+        val p = picture ?: return
+        val k = p.region.w / readRect.width().coerceAtLeast(1f)
+        lastScrollMs = now
+        // The page follows the fingers: dragging right shows what is to the left, so the Mac's view moves the other way.
+        onScroll(-dx * k, -dy * k, zoom)
     }
 
     private fun isCanceled(e: MotionEvent) = Build.VERSION.SDK_INT >= 33 && (e.flags and MotionEvent.FLAG_CANCELED) != 0
@@ -412,7 +484,7 @@ class TabletPadView(
         if (n != 2) return
         val span = fingerSpan(e, -1, cx, cy)
         val ratio = if (gestureSpan0 > dp(32f) && span > dp(16f)) (span / gestureSpan0).toDouble() else 1.0
-        val next = FrameMapping.gesture(m.activeArea, start, gestureX0.toDouble(), gestureY0.toDouble(), cx.toDouble(), cy.toDouble(), ratio, target.view)
+        val next = FrameMapping.gesture(m.activeArea, start, gestureX0.toDouble(), gestureY0.toDouble(), cx.toDouble(), cy.toDouble(), ratio, target.view, unbounded = target.pageHeight == null)
         askedFrame = next
         if (e.eventTime - lastAskMs >= 33) { lastAskMs = e.eventTime; onFrameRequest(next) }
         invalidate()
@@ -444,7 +516,7 @@ class TabletPadView(
     }
 
     override fun onHoverEvent(e: MotionEvent): Boolean {
-        if (!inputEnabled || !isPen(e, 0)) return super.onHoverEvent(e)
+        if (!inputEnabled || readMode || !isPen(e, 0)) return super.onHoverEvent(e)
         when (e.actionMasked) {
             MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> {
                 if (penId == -1) {
@@ -476,7 +548,7 @@ class TabletPadView(
         drawPicture(canvas, a)
         canvas.drawRoundRect(a.left.toFloat() + inset, a.top.toFloat() + inset, a.right.toFloat() - inset, a.bottom.toFloat() - inset,
             r, r, outlinePaint)
-        drawLocalStrokes(canvas, a); drawMap(canvas, a)
+        if (!readMode) { drawLocalStrokes(canvas, a); drawMap(canvas, a) }
         drawTrail(canvas)
         drawCaption(canvas, a)
     }
@@ -487,8 +559,19 @@ class TabletPadView(
      * A tap on the thumbnail, or on the corner mark of the large picture, switches between the two.
      */
     private fun drawPicture(canvas: Canvas, a: PadRect) {
-        val p = picture ?: run { pictureBounds.setEmpty(); return }
+        val p = picture ?: run { pictureBounds.setEmpty(); readRect.setEmpty(); return }
         val edge = u(8f, 8f, 14f)
+        if (readMode) {
+            // The whole of the Mac's view, as large as the pad allows, nothing else on it.
+            val s = minOf(a.width / p.bitmap.width, a.height / p.bitmap.height).toFloat()
+            val w = p.bitmap.width * s; val h = p.bitmap.height * s
+            val x = (a.left + (a.width - w) / 2).toFloat(); val y = (a.top + (a.height - h) / 2).toFloat()
+            readRect.set(x, y, x + w, y + h)
+            pictureBounds.setEmpty()
+            picturePaint.alpha = 255
+            canvas.drawBitmap(p.bitmap, null, readRect, picturePaint)
+            return
+        }
         if (pictureLarge) {
             val f = frame
             val dest = if (f != null) RectF(

@@ -296,6 +296,8 @@ class LinkClient(
 
     fun requestFrame(rect: CanvasRect) = post { session?.requestFrame(rect) }
 
+    fun requestScroll(dx: Double, dy: Double, zoom: Double) = post { session?.requestScroll(dx, dy, zoom) }
+
     fun setPointer(on: Boolean) {
         appPointer = on
         post { session?.setPointer(on) }

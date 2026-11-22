@@ -45,17 +45,20 @@ object FrameMapping {
      * moves the frame the other way across the page, and [spanRatio] above 1 (fingers apart) makes the frame smaller.
      * [start] is the frame when the fingers landed with their centre at ([x0], [y0]); the canvas point under that centre
      * stays under the centre now at ([x], [y]). [view] is the Mac's visible canvas, the largest the frame may be.
+     * [unbounded] is a canvas: it has no edges, so nothing holds the frame to 0..4800 across or 0 down (the Mac still
+     * limits it to its view and the Mac's answer is the frame that counts).
      */
-    fun gesture(area: PadRect, start: CanvasRect, x0: Double, y0: Double, x: Double, y: Double, spanRatio: Double, view: CanvasRect?): CanvasRect {
+    fun gesture(area: PadRect, start: CanvasRect, x0: Double, y0: Double, x: Double, y: Double, spanRatio: Double, view: CanvasRect?, unbounded: Boolean = false): CanvasRect {
         val aspect = start.w / start.h
-        val most = minOf(CANVAS_WIDTH, view?.let { minOf(it.w, it.h * aspect) } ?: CANVAS_WIDTH)
+        val wide = if (unbounded) Double.MAX_VALUE else CANVAS_WIDTH
+        val most = minOf(wide, view?.let { minOf(it.w, it.h * aspect) } ?: wide)
         val ratio = if (spanRatio.isFinite() && spanRatio > 0) spanRatio else 1.0
         val w = (start.w / ratio).coerceIn(minOf(MIN_WIDTH, most), most)
         val h = w / aspect
         val px = start.x + (x0 - area.left) / area.width * start.w
         val py = start.y + (y0 - area.top) / area.height * start.h
-        val left = (px - (x - area.left) / area.width * w).coerceIn(0.0, maxOf(0.0, CANVAS_WIDTH - w))
-        val top = maxOf(0.0, py - (y - area.top) / area.height * h)
+        val left = (px - (x - area.left) / area.width * w).let { if (unbounded) it else it.coerceIn(0.0, maxOf(0.0, CANVAS_WIDTH - w)) }
+        val top = (py - (y - area.top) / area.height * h).let { if (unbounded) it else maxOf(0.0, it) }
         return CanvasRect(left, top, w, h)
     }
 }

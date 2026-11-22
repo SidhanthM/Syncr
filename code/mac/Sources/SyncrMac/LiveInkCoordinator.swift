@@ -33,6 +33,8 @@ import SyncrCore
     /// outline (nil hides it), a picture of a canvas region at a pixel width, and the page's lowest content.
     var visibleRect: () -> CGRect = { .zero }
     var scrollBy: (CGFloat, CGFloat) -> Void = { _, _ in }
+    /// Multiplies the view's zoom (Read on the pad).
+    var zoomBy: (CGFloat) -> Void = { _ in }
     var showPadFrame: (CGRect?) -> Void = { _ in }
     var padPicture: (CGRect, Int) -> CGImage? = { _, _ in nil }
     var pageBottom: () -> CGFloat = { 0 }

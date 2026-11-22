@@ -127,7 +127,8 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
     }
     func sessionViewing(_ session: LinkSession, id: String?) { main { $0.phoneViewing(id) } }
     func sessionPad(_ session: LinkSession, on: Bool) { main { $0.phonePad(on) } }
-    func sessionPadMode(_ session: LinkSession, local: Bool, pics: Bool, aspect: Double) { main { $0.phonePadMode(local: local, pics: pics, aspect: aspect) } }
+    func sessionPadMode(_ session: LinkSession, local: Bool, pics: Bool, aspect: Double, read: Bool) { main { $0.phonePadMode(local: local, pics: pics, aspect: aspect, read: read) } }
+    func sessionScroll(_ session: LinkSession, dx: Double, dy: Double, zoom: Double) { main { $0.phoneScroll(dx: dx, dy: dy, zoom: zoom) } }
     func sessionFrame(_ session: LinkSession, rect: CGRect) { main { $0.phoneFrame(rect) } }
     func sessionPointerMode(_ session: LinkSession, version: Int, on: Bool) {
         main { $0.pointerMode(session, version: version, on: on) }
@@ -189,7 +190,7 @@ private let disconnectLogger = Logger(subsystem: "dev.syncr.mac", category: "lin
     /// The pen the phone last began a stroke with (look and ink); nil until it has written something this session.
     private(set) var penBrush: Brush?
     /// What the pad asked for with `padmode`; nil until it does (an older phone never does, and gets no pad additions).
-    private(set) var padMode: (local: Bool, pics: Bool, aspect: CGFloat)?
+    private(set) var padMode: (local: Bool, pics: Bool, aspect: CGFloat, read: Bool)?
     /// The pen frame while the pad is in Local mode.
     private(set) var padFrame: PadFrame?
     /// Pad strokes saved since this phone connected: the phone drops its own drawing of them once a picture shows them.
@@ -666,22 +667,23 @@ private let disconnectLogger = Logger(subsystem: "dev.syncr.mac", category: "lin
             do { _ = try workspace.newNote() } catch { log("link: pad-note-failed reason=\(error.localizedDescription)") }
         }
         if !on { padFrame = nil; live.engine.setHoverCanvas(false) }
-        else if let mode = padMode { phonePadMode(local: mode.local, pics: mode.pics, aspect: Double(mode.aspect)); return }
+        else if let mode = padMode { phonePadMode(local: mode.local, pics: mode.pics, aspect: Double(mode.aspect), read: mode.read); return }
         publishTarget()
         pictureChanged()
     }
 
     /// The pad says how it maps. Local: the pen writes inside a pen frame the Mac draws as an outline; otherwise the
     /// pad is the whole view, as before.
-    fileprivate func phonePadMode(local: Bool, pics: Bool, aspect: Double) {
-        padMode = (local, pics, PadFrame.cleanAspect(CGFloat(aspect)))
-        if local && padOn {
+    fileprivate func phonePadMode(local: Bool, pics: Bool, aspect: Double, read: Bool = false) {
+        padMode = (local, pics, PadFrame.cleanAspect(CGFloat(aspect)), read)
+        if local && !read && padOn {
             var frame = padFrame ?? PadFrame(aspect: CGFloat(aspect))
             frame.aspect = PadFrame.cleanAspect(CGFloat(aspect))
+            frame.unbounded = isCanvas
             padFrame = frame
         } else { padFrame = nil }
         live.engine.setHoverCanvas(padFrame != nil)
-        log("link: padmode local=\(local) pics=\(pics) aspect=\(String(format: "%.3f", aspect))")
+        log("link: padmode local=\(local) read=\(read) pics=\(pics) aspect=\(String(format: "%.3f", aspect))")
         publishTarget()
         pictureChanged()
     }
@@ -690,11 +692,26 @@ private let disconnectLogger = Logger(subsystem: "dev.syncr.mac", category: "lin
     /// the answer is the next `target`.
     fileprivate func phoneFrame(_ wanted: CGRect) {
         guard padOn, var frame = padFrame else { return }
-        let sized = frame.sized(wanted, view: live.visibleRect())
-        let scroll = PadFrame.scroll(toShow: sized, view: live.visibleRect())
+        frame.unbounded = isCanvas
+        let before = live.visibleRect()
+        let sized = frame.sized(wanted, view: before)
+        let scroll = PadFrame.scroll(toShow: sized, view: before, unbounded: frame.unbounded)
         if abs(scroll.dx) > 0.5 || abs(scroll.dy) > 0.5 { live.scrollBy(scroll.dx, scroll.dy) }
-        frame.place(sized, view: live.visibleRect())
+        // A canvas camera applies its scroll a moment later: place the frame in the view the scroll will make, not the one read back now.
+        frame.place(sized, view: isCanvas ? before.offsetBy(dx: scroll.dx, dy: scroll.dy) : live.visibleRect())
         padFrame = frame
+        publishTarget()
+        pictureChanged()
+    }
+
+    /// A canvas has no edges, so the pen frame is not held to the old page width on it.
+    private var isCanvas: Bool { model.drawing?.geometry.isCanvas ?? false }
+
+    /// Read on the pad: the phone moves the Mac's view and zooms it; nothing is written. Ignored unless the pad is open in Read.
+    fileprivate func phoneScroll(dx: Double, dy: Double, zoom: Double) {
+        guard padOn, padMode?.read == true else { return }
+        if zoom != 1 { live.zoomBy(CGFloat(zoom)) }
+        if abs(dx) > 0.001 || abs(dy) > 0.001 { live.scrollBy(CGFloat(dx), CGFloat(dy)) }
         publishTarget()
         pictureChanged()
     }
@@ -707,7 +724,7 @@ private let disconnectLogger = Logger(subsystem: "dev.syncr.mac", category: "lin
     }
 
     /// Call when the active tab, its writability, the shown note or the viewport may have changed.
-    func stateChanged() { live.syncTarget(); publishTarget() }
+    func stateChanged() { padFrame?.unbounded = isCanvas; live.syncTarget(); publishTarget() }
 
     /// Only while a phone is connected: nothing is recorded or logged for an empty room.
     private func publishTarget() {
@@ -724,7 +741,8 @@ private let disconnectLogger = Logger(subsystem: "dev.syncr.mac", category: "lin
             let visible = live.visibleRect()
             target.visible = visible
             target.frame = padFrame?.rect(in: visible)
-            target.pageHeight = Double(live.pageBottom() + visible.height)
+            // A canvas has no page: no `page` in the target is how the phone knows the frame has no edge to keep inside.
+            if !isCanvas { target.pageHeight = Double(live.pageBottom() + visible.height) }
         }
         return target
     }
@@ -754,14 +772,14 @@ private let disconnectLogger = Logger(subsystem: "dev.syncr.mac", category: "lin
         if now - since < 1500, live.engine.strokeOpen || live.engine.penActive(within: 120_000_000) { schedulePicture(after: 100); return }
         guard let region = padRegion(), let image = live.padPicture(region, Self.pictureWidth) else { pictureDirtySince = nil; return }
         pictureDirtySince = nil; lastPictureAt = now
-        let rev = publisher.rev, saved = padSaved
+        let rev = publisher.rev, saved = padSaved, read = padMode?.read == true
         pictureQueue.async { [weak self] in
             guard let jpeg = PadPicture.jpeg(image) else { return }
             var hasher = Hasher()
             hasher.combine(jpeg); hasher.combine(region.minX); hasher.combine(region.minY); hasher.combine(region.width); hasher.combine(saved)
             let hash = hasher.finalize()
             DispatchQueue.main.async { MainActor.assumeIsolated {
-                guard let self, self.lastPictureHash != hash, let framed = PadPicture.framed(rev: rev, saved: saved, region: region, image: jpeg) else { return }
+                guard let self, self.lastPictureHash != hash, let framed = PadPicture.framed(rev: rev, saved: saved, region: region, image: jpeg, kind: read ? PadPicture.view : PadPicture.region) else { return }
                 self.lastPictureHash = hash
                 self.log("link: picture rev=\(rev) saved=\(saved) bytes=\(jpeg.count) region=\(Int(region.minX)),\(Int(region.minY)),\(Int(region.width)),\(Int(region.height))")
                 session.onExecutor { session.sendPicture(framed) }
@@ -772,6 +790,7 @@ private let disconnectLogger = Logger(subsystem: "dev.syncr.mac", category: "lin
     /// The canvas the pad covers: the pen frame in Local mode, else the 4800 by 3000 reference window of the view.
     private func padRegion() -> CGRect? {
         guard workspace.active != nil, model.drawing != nil else { return nil }
+        if padMode?.read == true { return live.visibleRect() }
         if let frame = padFrame { return frame.rect(in: live.visibleRect()) }
         let v = live.viewport()
         return CGRect(x: CGFloat(v.left), y: CGFloat(v.top), width: 4800 / CGFloat(v.zoom), height: 3000 / CGFloat(v.zoom))
@@ -786,12 +805,15 @@ private let disconnectLogger = Logger(subsystem: "dev.syncr.mac", category: "lin
     }
 
     /// For the debug control: what a `padmode` and a `frame` from the phone do, without a phone.
-    func debugPad(local: Bool, aspect: Double, frame: CGRect?) {
+    func debugPad(local: Bool, aspect: Double, frame: CGRect?, read: Bool = false) {
         padOn = true
-        phonePadMode(local: local, pics: true, aspect: aspect)
+        phonePadMode(local: local, pics: true, aspect: aspect, read: read)
         if let frame { phoneFrame(frame) }
         live.showPadFrame(padFrame?.rect(in: live.visibleRect()))
     }
+
+    /// For the debug control: what a `scroll` from the phone does.
+    func debugScroll(dx: Double, dy: Double, zoom: Double) { phoneScroll(dx: dx, dy: dy, zoom: zoom) }
 
     private func sendTarget(_ control: LinkControl) {
         if case .target(let info) = control {

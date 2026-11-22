@@ -103,6 +103,7 @@ class PointerActivity : ComponentActivity() {
         pad.setTrailMs(settings.trailMs)
         pad.setStream(link.streamPen)
         pad.setLocal(settings.streamLocal)
+        pad.onScroll = { dx, dy, zoom -> link.requestScroll(dx, dy, zoom) }
         pad.setPictureLarge(settings.pictureLarge)
         pad.setInk(inkColour(link.penBrush, dark = true), brushWidth(link.penBrush))
         pad.setTarget(linkUi.target)
@@ -190,23 +191,33 @@ class PointerActivity : ComponentActivity() {
         }
     }
 
+    /** Read on the pad: the Mac's view is scrolled and zoomed from here, nothing is written. Not remembered: the pad opens in Edit. */
+    private fun setRead(on: Boolean) {
+        if (on == ui.streamRead) return
+        ui = ui.copy(streamRead = on)
+        pad.setRead(on)
+        pad.setLocal(settings.streamLocal && !on)
+        frameRestored = false
+        pushPadWish()
+    }
+
     private fun setLocal(local: Boolean) {
         if (local == settings.streamLocal) return
         settings.streamLocal = local
         ui = ui.copy(streamLocal = local)
         frameRestored = false
-        pad.setLocal(local)
+        pad.setLocal(local && !ui.streamRead)
         pushPadWish()
     }
 
     /** What the pad asks of the Mac: pictures of what it covers, and its shape. Nothing before the shape is known. */
     private fun pushPadWish() {
-        link.setPadWish(if (!settings.trackpad && padAspect > 0) PadWish(settings.streamLocal, pics = true, aspect = padAspect) else null)
+        link.setPadWish(if (!settings.trackpad && padAspect > 0) PadWish(settings.streamLocal && !ui.streamRead, pics = true, aspect = padAspect, read = ui.streamRead) else null)
     }
 
     /** The Mac starts a new frame at half its view; ask once for the width used last time, around the same centre. */
     private fun restoreFrameWidth(frame: CanvasRect?) {
-        if (settings.trackpad || frame == null || frameRestored || !settings.streamLocal) return
+        if (settings.trackpad || frame == null || frameRestored || !settings.streamLocal || ui.streamRead) return
         frameRestored = true
         val w = settings.frameWidth.toDouble()
         if (w < 1 || kotlin.math.abs(w - frame.w) < 1) return
@@ -227,6 +238,7 @@ class PointerActivity : ComponentActivity() {
         open = { bubbleOpen = true; syncPadInput() },
         close = { bubbleOpen = false; syncPadInput() },
         toggleLocal = { setLocal(!settings.streamLocal) },
+        toggleRead = { setRead(!ui.streamRead) },
         toggleTrackpad = { setTrackpad(!settings.trackpad); bubbleOpen = false; syncPadInput() },
         settings = { bubbleOpen = false; openPanel() },
         leave = { finish() },

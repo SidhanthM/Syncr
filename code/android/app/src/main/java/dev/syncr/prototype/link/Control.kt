@@ -172,8 +172,13 @@ sealed class Control {
     }
 
     /** Phone: how the pad maps ([local]: onto the pen frame), whether it wants pictures, and its width over height. */
-    data class PadMode(val local: Boolean, val pics: Boolean, val aspect: Double) : Control() {
-        override fun json() = mapOf("t" to "padmode", "local" to local, "pics" to pics, "aspect" to aspect)
+    data class PadMode(val local: Boolean, val pics: Boolean, val aspect: Double, val read: Boolean = false) : Control() {
+        override fun json() = mapOf("t" to "padmode", "local" to local, "pics" to pics, "aspect" to aspect, "mode" to if (read) "read" else "edit")
+    }
+
+    /** Phone, Read on the pad: move the Mac's view by [dx], [dy] canvas units and multiply its zoom by [zoom]. */
+    data class Scroll(val dx: Double, val dy: Double, val zoom: Double) : Control() {
+        override fun json() = mapOf("t" to "scroll", "dx" to dx, "dy" to dy, "zoom" to zoom)
     }
 
     /** Phone: asks for this pen frame. The Mac clamps it and answers with `target`. */
@@ -257,7 +262,7 @@ sealed class Control {
                     else Target(note, m.optStr("sheet", 64), m.bool("writable"), m.u32("rev"),
                         m.optRect("frame"), m.optRect("view"), m.optMap("page")?.optNum("h"))
                 }
-                "padmode" -> PadMode(m.bool("local"), m.bool("pics"), m.num("aspect"))
+                "padmode" -> PadMode(m.bool("local"), m.bool("pics"), m.num("aspect"), m.optStr("mode", 8) == "read")
                 "frame" -> Frame(m.rect())
                 "udp" -> {
                     val key = m.str("key", 16)

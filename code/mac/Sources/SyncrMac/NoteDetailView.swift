@@ -540,6 +540,8 @@ import SyncrCore
 
     /// What the view shows, in canvas units.
     var visibleCanvasRect: CGRect {
+        // A canvas's camera is the truth; the viewport copy of it can lag a note switch by a step.
+        if isCanvas, canvasSession.viewSize.width > 0 { return canvasSession.camera.visibleRect(in: canvasSession.viewSize) }
         let size = viewport.visibleSize(canvas.bounds.size)
         return CGRect(x: CGFloat(viewport.left), y: CGFloat(viewport.top), width: CGFloat(size.x), height: CGFloat(size.y))
     }
@@ -549,6 +551,12 @@ import SyncrCore
         if isCanvas { let k = canvasSession.camera.pointsPerUnit; canvasSession.scroll(points: Double(dx) * k, Double(dy) * k); return }
         if dx != 0 { centred = false; slide?.invalidate(); slide = nil }
         move(Float(dx), Float(dy))
+    }
+
+    /// Read on the pad: the phone pinched; the view's zoom is multiplied about its middle.
+    func padZoom(_ factor: CGFloat) {
+        guard factor.isFinite, factor > 0 else { return }
+        if isCanvas { canvasSession.zoom(to: canvasSession.camera.zoom * Double(factor)) } else { zoom(to: viewport.zoom * Float(factor)) }
     }
 
     private func positionPadFrame() {
@@ -1097,6 +1105,7 @@ import SyncrCore
         live.onStatus = { [weak self] text in self?.onLiveStatus?(text) }
         live.visibleRect = { [weak self] in self?.visibleCanvasRect ?? .zero }
         live.scrollBy = { [weak self] dx, dy in self?.padScroll(dx: dx, dy: dy) }
+        live.zoomBy = { [weak self] factor in self?.padZoom(factor) }
         live.showPadFrame = { [weak self] rect in self?.padFrame = rect }
         live.padPicture = { [weak self] region, width in self?.padPicture(region: region, width: width) }
         live.pageBottom = { [weak self] in

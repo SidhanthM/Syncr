@@ -46,7 +46,8 @@ protocol LinkSessionHost: AnyObject {
     func sessionViewing(_ session: LinkSession, id: String?)
     func sessionPad(_ session: LinkSession, on: Bool)
     /// The pad's mapping and whether it wants pictures (rework-v1 §V).
-    func sessionPadMode(_ session: LinkSession, local: Bool, pics: Bool, aspect: Double)
+    func sessionPadMode(_ session: LinkSession, local: Bool, pics: Bool, aspect: Double, read: Bool)
+    func sessionScroll(_ session: LinkSession, dx: Double, dy: Double, zoom: Double)
     /// The phone asks for this pen frame, in canvas units.
     func sessionFrame(_ session: LinkSession, rect: CGRect)
     func sessionPointerMode(_ session: LinkSession, version: Int, on: Bool)
@@ -63,7 +64,8 @@ extension LinkSessionHost {
     func sessionPointerMode(_ session: LinkSession, version: Int, on: Bool) {}
     func sessionPointer(_ session: LinkSession, packet: PointerPacket) {}
     func sessionHeads(_ session: LinkSession, id: String, reply: @escaping @Sendable ([String: String]) -> Void) { reply([:]) }
-    func sessionPadMode(_ session: LinkSession, local: Bool, pics: Bool, aspect: Double) {}
+    func sessionPadMode(_ session: LinkSession, local: Bool, pics: Bool, aspect: Double, read: Bool) {}
+    func sessionScroll(_ session: LinkSession, dx: Double, dy: Double, zoom: Double) {}
     func sessionFrame(_ session: LinkSession, rect: CGRect) {}
 }
 
@@ -267,7 +269,8 @@ final class LinkSession: @unchecked Sendable {
             case .pointer(let packet): if peerVersion >= 1 { host?.sessionPointer(self, packet: packet) }
             case .pad(let on): padOpen = on; host?.sessionPad(self, on: on)
             case .strokeRev(let id, let rev): if peerKeep { io.expectResend?(id, rev) }
-            case .padMode(let local, let pics, let aspect): host?.sessionPadMode(self, local: local, pics: pics, aspect: aspect)
+            case .padMode(let local, let pics, let aspect, let read): host?.sessionPadMode(self, local: local, pics: pics, aspect: aspect, read: read)
+            case .scroll(let dx, let dy, let zoom): if peerVersion >= 1 { host?.sessionScroll(self, dx: dx, dy: dy, zoom: zoom) }
             case .frame(let rect): host?.sessionFrame(self, rect: rect)
             default: break  // unknown, or sent in the wrong direction: ignored
             }

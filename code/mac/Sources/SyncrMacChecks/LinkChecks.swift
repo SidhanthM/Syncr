@@ -299,13 +299,15 @@ private final class SessionRig: LinkSessionHost, @unchecked Sendable {
     var controls: [LinkControl] { controlsList(sent) }
 
     var resends: [(String, UInt32)] = []
-    var padModes: [(local: Bool, pics: Bool, aspect: Double)] = []
+    var padModes: [(local: Bool, pics: Bool, aspect: Double, read: Bool)] = []
+    var scrolls: [(dx: Double, dy: Double, zoom: Double)] = []
     var frames: [CGRect] = []
     var pointerModes: [(Int, Bool)] = []
     var pointerPackets: [PointerPacket] = []
     func sessionPointerMode(_ session: LinkSession, version: Int, on: Bool) { pointerModes.append((version, on)) }
     func sessionPointer(_ session: LinkSession, packet: PointerPacket) { pointerPackets.append(packet) }
-    func sessionPadMode(_ session: LinkSession, local: Bool, pics: Bool, aspect: Double) { padModes.append((local, pics, aspect)) }
+    func sessionPadMode(_ session: LinkSession, local: Bool, pics: Bool, aspect: Double, read: Bool) { padModes.append((local, pics, aspect, read)) }
+    func sessionScroll(_ session: LinkSession, dx: Double, dy: Double, zoom: Double) { scrolls.append((dx, dy, zoom)) }
     func sessionFrame(_ session: LinkSession, rect: CGRect) { frames.append(rect) }
 
     /// Live frames go here too, on whatever thread `run` delivers them (the bulk check times them).
@@ -1392,6 +1394,25 @@ private func padChecks() throws {
     try check(abs(frame.rect(in: after).maxY - after.maxY) < 0.01, "after the scroll the frame sits at the bottom edge")
     try check(PadFrame.cleanAspect(CGFloat.nan) == 1.6 && PadFrame.cleanAspect(99) == 4 && PadFrame.cleanAspect(0.01) == 0.25, "aspect limits")
 
+    // Shared vectors (code/shared/link-v1): a page keeps its bounds, a canvas has none.
+    let padVectors = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../shared/link-v1/pad-frame-vectors.json").standardizedFileURL
+    let padRoot = try JSONSerialization.jsonObject(with: Data(contentsOf: padVectors)) as! [String: Any]
+    func rect(_ v: Any?) -> CGRect { let n = (v as! [NSNumber]).map { CGFloat(truncating: $0) }; return CGRect(x: n[0], y: n[1], width: n[2], height: n[3]) }
+    for c in padRoot["mac_sized"] as! [[String: Any]] {
+        var f = PadFrame(aspect: CGFloat(truncating: c["aspect"] as! NSNumber))
+        f.unbounded = c["unbounded"] as! Bool
+        let got = f.sized(rect(c["wanted"]), view: rect(c["view"])), want = rect(c["expect"])
+        try check(abs(got.minX - want.minX) < 0.01 && abs(got.minY - want.minY) < 0.01 && abs(got.width - want.width) < 0.01 && abs(got.height - want.height) < 0.01,
+                  "pad vector \(c["name"]!): \(got) vs \(want)")
+    }
+    // On a canvas the frame also follows the view anywhere, and the scroll to show it is measured against the view alone.
+    var onCanvas = PadFrame(aspect: 2); onCanvas.unbounded = true
+    let farView = CGRect(x: -9000, y: -5000, width: 3200, height: 1600)
+    let farRect = onCanvas.rect(in: farView)
+    try check(farView.contains(farRect), "canvas frame sits inside a view far off the old page (\(farRect))")
+    try check(PadFrame.scroll(toShow: farRect, view: farView, unbounded: true) == .zero, "no scroll for a canvas frame in view")
+    try check(PadFrame.scroll(toShow: CGRect(x: -9000, y: -3300, width: 400, height: 200), view: farView, unbounded: true) == CGVector(dx: 0, dy: 300), "canvas scroll toward a frame below the view")
+
     // Two paths, one ordered run: each frame is handed on once, in order, whichever path brings it first.
     func f(_ n: UInt8) -> Data { Data([0x50, n]) }
     var race = PreviewRace()
@@ -1426,8 +1447,12 @@ private func padChecks() throws {
     let old = SessionRig(udp: (50_123, 7)); try old.welcome()
     try check(!old.controls.contains { if case .udp = $0 { true } else { false } }, "a v0 phone is not told about datagrams")
     // The pad's messages reach the host; an older Mac build's absence of them is the phone's concern.
-    rig.feed(.padMode(local: true, pics: true, aspect: 2.05)); rig.feed(.frame(CGRect(x: 1, y: 2, width: 300, height: 150)))
+    rig.feed(.padMode(local: true, pics: true, aspect: 2.05, read: false)); rig.feed(.frame(CGRect(x: 1, y: 2, width: 300, height: 150)))
     try check(rig.padModes.count == 1 && rig.padModes[0].aspect == 2.05 && rig.frames == [CGRect(x: 1, y: 2, width: 300, height: 150)], "padmode and frame reach the host")
+    // Read on the pad: the mode and the scroll message reach the host; nonsense is refused; an old padmode is Edit.
+    rig.feed(.padMode(local: false, pics: true, aspect: 2, read: true)); rig.feed(.scroll(dx: 0, dy: 300, zoom: 1.5))
+    try check(rig.padModes.last?.read == true && rig.scrolls.count == 1 && rig.scrolls[0].dy == 300 && rig.scrolls[0].zoom == 1.5, "padmode read and scroll reach the host")
+    if case .padMode(_, _, _, let read) = try LinkControl.parse(json: Data("{\"t\":\"padmode\",\"local\":true,\"pics\":true,\"aspect\":2}".utf8)) { try check(!read, "a padmode without a mode is Edit") }
 
     // Pointer controls cannot reach a host before pairing; v0 remains unchanged.
     let pointerRig = SessionRig()
@@ -1449,12 +1474,13 @@ private func padChecks() throws {
     let json = try JSONSerialization.data(withJSONObject: LinkControl.target(info).object)
     guard case .target(let back?) = try LinkControl.parse(json: json) else { throw CheckFailure(description: "target with additions did not parse") }
     try check(back.frame == info.frame && back.view == info.view && abs((back.pageHeight ?? 0) - 4000.3) < 0.001, "target additions round-trip to a tenth (\(back))")
-    for c in [LinkControl.padMode(local: false, pics: true, aspect: 1.9), .frame(CGRect(x: 10, y: 20.5, width: 300, height: 150)), .udp(port: 9, key: "0123456789abcdef"),
+    for c in [LinkControl.padMode(local: false, pics: true, aspect: 1.9, read: true), .scroll(dx: -12.5, dy: 400, zoom: 1.25), .frame(CGRect(x: 10, y: 20.5, width: 300, height: 150)), .udp(port: 9, key: "0123456789abcdef"),
               .pointerMode(version: 1, on: true), .pointerState(version: 1, ready: false, message: "Allow on Mac"),
               .pointer(PointerPacket(seq: 7, dx: -1.25, dy: 9, sx: 2, sy: -8.5, buttons: 1, click: 3))] {
         try check(try LinkControl.parse(json: JSONSerialization.data(withJSONObject: c.object)) == c, "\(c) round-trips")
     }
-    for bad in [#"{"t":"frame","x":0,"y":0,"w":0,"h":1}"#, #"{"t":"frame","x":true,"y":0,"w":1,"h":1}"#, #"{"t":"padmode","local":true,"pics":true,"aspect":0}"#,
+    for bad in [#"{"t":"scroll","dx":"a","dy":0}"#, #"{"t":"scroll","dx":0,"dy":1e12}"#, #"{"t":"scroll","dx":0,"dy":0,"zoom":0}"#, #"{"t":"scroll","dx":0,"dy":0,"zoom":100}"#,
+                #"{"t":"frame","x":0,"y":0,"w":0,"h":1}"#, #"{"t":"frame","x":true,"y":0,"w":1,"h":1}"#, #"{"t":"padmode","local":true,"pics":true,"aspect":0}"#,
                 #"{"t":"udp","port":70000,"key":"0123456789abcdef"}"#, #"{"t":"udp","port":9,"key":"xyz"}"#,
                 #"{"t":"pointer","v":1,"seq":0,"dx":0,"dy":0,"sx":0,"sy":0,"buttons":0,"click":0}"#,
                 #"{"t":"pointer","v":2,"seq":1,"dx":0,"dy":0,"sx":0,"sy":0,"buttons":0,"click":0}"#,

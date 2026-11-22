@@ -121,7 +121,9 @@ enum LinkControl: Equatable, Sendable {
     case target(TargetInfo?)
     /// Phone: how the pad maps (`local`: onto the pen frame, else the whole view), whether it wants pictures of what
     /// it covers, and the pad's width over height.
-    case padMode(local: Bool, pics: Bool, aspect: Double)
+    case padMode(local: Bool, pics: Bool, aspect: Double, read: Bool)
+    /// Read on the pad: move the Mac's view by canvas units and multiply its zoom (rework-v1 V.3). Only meant while the pad is in Read.
+    case scroll(dx: Double, dy: Double, zoom: Double)
     /// Phone: asks for this pen frame (canvas units). The Mac clamps it and answers with `target`.
     case frame(CGRect)
     /// Mac: preview frames may also be sent as datagrams to this port, each starting with this key (16 hex characters).
@@ -193,7 +195,8 @@ enum LinkControl: Equatable, Sendable {
             if let r = info.view { o["view"] = Self.rect(r) }
             if let h = info.pageHeight { o["page"] = ["w": 4800, "h": Self.tenth(h)] }
             return o
-        case .padMode(let local, let pics, let aspect): return ["t": "padmode", "local": local, "pics": pics, "aspect": aspect]
+        case .padMode(let local, let pics, let aspect, let read): return ["t": "padmode", "local": local, "pics": pics, "aspect": aspect, "mode": read ? "read" : "edit"]
+        case .scroll(let dx, let dy, let zoom): return ["t": "scroll", "dx": Self.tenth(dx), "dy": Self.tenth(dy), "zoom": zoom]
         case .frame(let r): return ["t": "frame", "x": Self.tenth(r.minX), "y": Self.tenth(r.minY), "w": Self.tenth(r.width), "h": Self.tenth(r.height)]
         case .udp(let port, let key): return ["t": "udp", "port": Int(port), "key": key]
         case .pointerMode(let v, let on): return ["t": "pointermode", "v": v, "on": on]
@@ -307,7 +310,12 @@ enum LinkControl: Equatable, Sendable {
             return .target(info)
         case "padmode":
             guard let local = obj["local"] as? Bool, let pics = obj["pics"] as? Bool, let aspect = Self.number(obj["aspect"]), aspect > 0 else { throw bad("local, pics or aspect") }
-            return .padMode(local: local, pics: pics, aspect: aspect)
+            return .padMode(local: local, pics: pics, aspect: aspect, read: (obj["mode"] as? String) == "read")
+        case "scroll":
+            guard let dx = Self.number(obj["dx"]), let dy = Self.number(obj["dy"]), dx.isFinite, dy.isFinite, abs(dx) <= 1e6, abs(dy) <= 1e6 else { throw bad("dx or dy") }
+            let zoom = Self.number(obj["zoom"]) ?? 1
+            guard zoom.isFinite, zoom > 0.1, zoom < 10 else { throw bad("zoom") }
+            return .scroll(dx: dx, dy: dy, zoom: zoom)
         case "frame":
             guard let r = Self.rect(obj) else { throw bad("x, y, w or h") }
             return .frame(r)

@@ -81,7 +81,7 @@ data class LinkUi(
 }
 
 /** A decoded picture of what the pad covers: the canvas [region] it shows, drawn at target [rev] with [saved] pad strokes in it. */
-class PadPicture(val rev: Long, val saved: Long, val region: CanvasRect, val bitmap: android.graphics.Bitmap)
+class PadPicture(val rev: Long, val saved: Long, val region: CanvasRect, val bitmap: android.graphics.Bitmap, val kind: Int = 1)
 
 /**
  * The app's one link to the Mac (wifi-link-v0). Owns the client, discovery and the Wi-Fi lock, and lives while the app is
@@ -216,6 +216,9 @@ class LinkController private constructor(private val app: Application) {
     /** A finger gesture on the pad moved or resized the pen frame. */
     fun requestFrame(rect: CanvasRect) { client?.requestFrame(rect) }
 
+    /** Read on the pad: a finger or the pen moved or pinched the Mac's view. */
+    fun requestScroll(dx: Double, dy: Double, zoom: Double) { client?.requestScroll(dx, dy, zoom) }
+
     /** Reader thread: keep only the newest picture and decode it off every thread the pen depends on. */
     private fun receivePicture(message: ByteArray) {
         if (newestPicture.getAndSet(message) != null) return // a decode is already queued and will take this one
@@ -225,7 +228,7 @@ class LinkController private constructor(private val app: Application) {
             val bitmap = runCatching {
                 android.graphics.BitmapFactory.decodeByteArray(bytes, Wire.PICTURE_HEADER, bytes.size - Wire.PICTURE_HEADER)
             }.getOrNull() ?: return@execute
-            if (ui.value.connected) picture.value = PadPicture(header.rev, header.saved, header.region, bitmap)
+            if (ui.value.connected) picture.value = PadPicture(header.rev, header.saved, header.region, bitmap, header.kind)
         }
     }
 

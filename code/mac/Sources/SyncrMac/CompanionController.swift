@@ -798,6 +798,12 @@ import SyncrCompanion
         try? Data(wire.utf8).write(to: url)
     }
     func debugCancel() { discardPass() }
+    /// A recorded canvas margin note at this region (canvas units), as a handwriting pass on a canvas would add it.
+    func debugCanvasCard(x: Double, y: Double, width: Double, height: Double, kind: String, text: String) {
+        guard let id = noteID else { return }
+        let region = CanvasRegion(x: x, y: y, width: width, height: height)
+        edit(id, work: { try CompanionStore.apply([.canvasNote(region: CanvasRegion(x: 0, y: 0, width: 1, height: 1), kind: kind, text: text, sources: [])], note: $0, reader: "Editor", expectedText: "", drawings: false, pageRegion: region) })
+    }
     /// Acceptance 3: a scripted hour of typing, with the host's own pause rule and the engine's, at simulated times.
     func debugHour(script: String) async -> String {
         guard snapshot != nil else { return "no note" }

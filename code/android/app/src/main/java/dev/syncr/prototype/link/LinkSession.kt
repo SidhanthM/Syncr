@@ -14,7 +14,7 @@ interface SessionEvents {
 }
 
 /** What the pad asks of the Mac with `padmode`. */
-data class PadWish(val local: Boolean, val pics: Boolean, val aspect: Double)
+data class PadWish(val local: Boolean, val pics: Boolean, val aspect: Double, val read: Boolean = false)
 
 /**
  * The client side of one connection, as a state machine (wifi-link-v0 §3). Link thread only; it never touches a socket:
@@ -114,7 +114,7 @@ class LinkSession(
             }
             is Control.PointerMode, is Control.Pointer -> Unit
             // The Mac never sends these; a confused or hostile one is ignored rather than trusted.
-            is Control.Hello, is Control.Code, is Control.Viewing, is Control.Pad, is Control.PadMode, is Control.Frame -> Unit
+            is Control.Hello, is Control.Code, is Control.Viewing, is Control.Pad, is Control.PadMode, is Control.Frame, is Control.Scroll -> Unit
         }
     }
 
@@ -150,7 +150,7 @@ class LinkSession(
 
     private fun sendPadWish() {
         val w = padWish ?: return
-        if (version >= 1) scheduler.sendControl(Control.PadMode(w.local, w.pics, w.aspect))
+        if (version >= 1) scheduler.sendControl(Control.PadMode(w.local, w.pics, w.aspect, w.read))
     }
 
     private fun onBye(c: Control.Bye) {
@@ -231,6 +231,11 @@ class LinkSession(
     /** Asks the Mac for this pen frame (a finger gesture on the pad). */
     fun requestFrame(rect: CanvasRect) {
         if (phase == Phase.CONNECTED && padOn && version >= 1) scheduler.sendControl(Control.Frame(rect))
+    }
+
+    /** Read on the pad: moves the Mac's view by canvas units and multiplies its zoom. */
+    fun requestScroll(dx: Double, dy: Double, zoom: Double) {
+        if (phase == Phase.CONNECTED && padOn && version >= 1 && padWish?.read == true) scheduler.sendControl(Control.Scroll(dx, dy, zoom))
     }
 
     /** The app's wishes survive a reconnect: [viewing] and [pad] are re-sent after the next welcome. */

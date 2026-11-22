@@ -45,6 +45,7 @@ class TabletBubbleActions(
     val open: () -> Unit,
     val close: () -> Unit,
     val toggleLocal: () -> Unit,
+    val toggleRead: () -> Unit,
     val toggleTrackpad: () -> Unit,
     val settings: () -> Unit,
     val leave: () -> Unit,
@@ -95,7 +96,7 @@ fun TabletBubble(state: TabletUiState, open: Boolean, actions: TabletBubbleActio
 private fun BubbleBarScope.TabletBar(state: TabletUiState, actions: TabletBubbleActions) {
     val pen = !state.trackpad
     val heads = if (pen) PenLook.entries.size else 0
-    val count = if (state.trackpad) 3 else 4 + heads
+    val count = if (state.trackpad) 3 else 5 + heads
     val context = LocalContext.current
     val ink by remember(context) { InkPreferencesStore.state(context) }.collectAsState()
     Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -109,7 +110,11 @@ private fun BubbleBarScope.TabletBar(state: TabletUiState, actions: TabletBubble
         }
         BubbleChip(if (state.trackpad) "Trackpad" else "Pen", heads, count,
             description = "Switch between pen tablet and finger trackpad", onClick = actions.toggleTrackpad)
-        if (!state.trackpad) BubbleChip(if (state.streamLocal) "Local" else "Whole view", heads + 1, count,
+        if (!state.trackpad) BubbleChip(if (state.streamRead) "Read" else "Edit", heads + 1, count,
+            description = if (state.streamRead) "The pad shows the Mac's view: a finger or the pen scrolls it, two fingers zoom it, nothing is written. Switch to Edit"
+            else "The pad writes into the Mac's note. Switch to Read, which scrolls and zooms the Mac's view without writing",
+            onClick = actions.toggleRead)
+        if (!state.trackpad) BubbleChip(if (state.streamLocal) "Local" else "Whole view", heads + 2, count,
             description = if (state.streamLocal) "The pad writes inside a frame on the Mac's page; two fingers move it, a pinch resizes it. Switch to the whole view"
             else "The pad covers the Mac's whole view. Switch to Local, a frame you move with two fingers",
             onClick = actions.toggleLocal)

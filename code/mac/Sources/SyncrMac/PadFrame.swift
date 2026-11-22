@@ -18,13 +18,16 @@ struct PadFrame: Equatable, Sendable {
     /// Position as fractions of the room left over: 0 is the left or top edge of the view, 1 the right or bottom.
     var fx: CGFloat = 0.5
     var fy: CGFloat = 0
+    /// A canvas has no edges: the frame is limited to the visible view only. A page keeps 0...4800 across and 0 down.
+    var unbounded = false
 
     init(aspect: CGFloat) { self.aspect = Self.cleanAspect(aspect) }
 
     static func cleanAspect(_ a: CGFloat) -> CGFloat { a.isFinite ? min(4, max(0.25, a)) : 1.6 }
 
     /// The part of the view that is paper: the canvas is 0...4800 across and starts at 0 down.
-    static func usable(_ view: CGRect) -> CGRect {
+    static func usable(_ view: CGRect, unbounded: Bool = false) -> CGRect {
+        if unbounded { return CGRect(x: view.minX, y: view.minY, width: max(1, view.width), height: max(1, view.height)) }
         let left = max(0, view.minX), top = max(0, view.minY)
         return CGRect(x: left, y: top, width: max(1, min(view.maxX, canvasWidth) - left), height: max(1, view.maxY - top))
     }
@@ -36,7 +39,7 @@ struct PadFrame: Equatable, Sendable {
 
     /// The frame in canvas units for this visible view.
     func rect(in view: CGRect) -> CGRect {
-        let u = Self.usable(view)
+        let u = Self.usable(view, unbounded: unbounded)
         let w = width(in: u, wanted: widthFraction * view.width), h = w / aspect
         return CGRect(x: u.minX + fx * (u.width - w), y: u.minY + fy * (u.height - h), width: w, height: h)
     }
@@ -44,14 +47,15 @@ struct PadFrame: Equatable, Sendable {
     /// The size the phone's request gets in this view, keeping its centre.
     func sized(_ wanted: CGRect, view: CGRect) -> CGRect {
         guard wanted.width.isFinite, wanted.midX.isFinite, wanted.midY.isFinite else { return rect(in: view) }
-        let w = width(in: Self.usable(view), wanted: wanted.width), h = w / aspect
+        let w = width(in: Self.usable(view, unbounded: unbounded), wanted: wanted.width), h = w / aspect
+        if unbounded { return CGRect(x: wanted.midX - w / 2, y: wanted.midY - h / 2, width: w, height: h) }
         let x = min(max(0, wanted.midX - w / 2), Self.canvasWidth - w)
         return CGRect(x: x, y: max(0, wanted.midY - h / 2), width: w, height: h)
     }
 
     /// How far the view has to scroll, in canvas units, for `rect` to be inside it.
-    static func scroll(toShow rect: CGRect, view: CGRect) -> CGVector {
-        let u = usable(view)
+    static func scroll(toShow rect: CGRect, view: CGRect, unbounded: Bool = false) -> CGVector {
+        let u = usable(view, unbounded: unbounded)
         var dx: CGFloat = 0, dy: CGFloat = 0
         if rect.minX < u.minX { dx = rect.minX - u.minX } else if rect.maxX > u.maxX { dx = rect.maxX - u.maxX }
         if rect.minY < u.minY { dy = rect.minY - u.minY } else if rect.maxY > u.maxY { dy = rect.maxY - u.maxY }
@@ -60,7 +64,7 @@ struct PadFrame: Equatable, Sendable {
 
     /// Adopts `rect` (already sized, the view already scrolled): the fractions that reproduce it, clamped into the view.
     mutating func place(_ rect: CGRect, view: CGRect) {
-        let u = Self.usable(view)
+        let u = Self.usable(view, unbounded: unbounded)
         let w = width(in: u, wanted: rect.width), h = w / aspect
         widthFraction = w / max(1, view.width)
         fx = u.width - w > 0.5 ? min(1, max(0, (rect.minX - u.minX) / (u.width - w))) : 0.5
@@ -132,13 +136,15 @@ struct PreviewRace {
 /// then a JPEG. Never split: an image that would not fit is encoded smaller.
 enum PadPicture {
     static let kind: UInt8 = 0x53
+    /// Picture kinds: 1 what the pen frame covers (the snippet), 2 the page map (not sent: the phone draws it from `target`), 3 the Mac's whole visible view (Read).
     static let region: UInt8 = 1
+    static let view: UInt8 = 3
     static let maxImage = 65_000
 
     /// The whole message with its length prefix, or nil when the image is too large.
-    static func framed(rev: UInt32, saved: UInt32, region: CGRect, image: Data) -> Data? {
+    static func framed(rev: UInt32, saved: UInt32, region: CGRect, image: Data, kind: UInt8 = PadPicture.region) -> Data? {
         guard !image.isEmpty, image.count <= maxImage else { return nil }
-        var body = Data([kind, Self.region])
+        var body = Data([Self.kind, kind])
         for v in [rev, saved] { body.append(contentsOf: [UInt8(v >> 24 & 255), UInt8(v >> 16 & 255), UInt8(v >> 8 & 255), UInt8(v & 255)]) }
         for v in [region.minX, region.minY, region.width, region.height] {
             let bits = Float(v).bitPattern
