@@ -155,9 +155,10 @@ import SyncrCore
             })
         }
     }
-    func addFree(note: String, x: CGFloat, y: CGFloat, text: String = "") {
+    func addFree(note: String, x: CGFloat, y: CGFloat, text: String = "", sheet sheetId: String? = nil) {
         model.editNote(id: note, work: { handle in
-            guard let sheet = try handle.snapshot().sheets.first else { throw ViewerError.unknownSheet }
+            let sheets = try handle.snapshot().sheets
+            guard let sheet = sheetId.flatMap({ id in sheets.first { $0.id == id } }) ?? sheets.first else { throw ViewerError.unknownSheet }
             _ = try handle.submit(command: Command(operationId: newId(), dependencies: [sheet.creationOperationId], body: .marks(mutations: [
                 .addText(markId: newId(), sheetId: sheet.id, role: .free, originX: Float(x), originY: Float(y), width: 1000, text: text, style: TextStyle(size: .medium, colour: .ink))
             ])))

@@ -106,6 +106,10 @@ struct KeyBinding: Codable, Hashable, Sendable {
         case .zoomIn: KeyBinding("=", [.command, .shift])
         case .zoomOut: KeyBinding("-")
         case .fit: KeyBinding("0")
+        case .toggleThumbnails: KeyBinding("1", [.command, .option])
+        case .addPage: KeyBinding("\r", [.command, .shift])
+        case .nextPage: KeyBinding("]", [.command, .option])
+        case .previousPage: KeyBinding("[", [.command, .option])
         case .importExport: KeyBinding("i", [.command, .shift])
         case .chooseFolder: KeyBinding("o", [.command, .shift])
         default: nil

@@ -13,6 +13,8 @@ struct DrawStroke: Sendable {
     /// The stroke this was built from and the operation it was built at, when known: a reload keeps the mesh while both match.
     var markId: String? = nil
     var head: String? = nil
+    /// The sheet (page) it is drawn on; the renderer places it by that page's rectangle.
+    var sheetId: String = ""
 }
 
 /// Mutated only on the main thread; stable ID allows progressive GPU uploads.
@@ -23,8 +25,30 @@ final class Drawing {
     var lowestInk: Float
     /// The sheet live ink lands on (the first sheet), once known.
     var sheetId: String?
-    /// Where the paper is; `.legacy` until the snapshot says otherwise.
-    var geometry = NoteGeometry.legacy
+    /// Where the paper is; `.legacy` (which draws no paper) until the snapshot says otherwise.
+    private(set) var geometry = NoteGeometry.legacy
+    private var pages: [PageView] = []
+    private var kind = NoteKind.note
+    /// Takes the pages of a snapshot, laid out in `view`.
+    func adopt(_ snapshot: NoteSnapshot, view: NoteGeometry.View) {
+        pages = snapshot.pages; kind = snapshot.kind
+        relayout(view)
+    }
+    func relayout(_ view: NoteGeometry.View) {
+        var next = NoteGeometry(kind: kind, pages: pages, view: view)
+        // The old page is as tall as its content really is, which only the editor knows.
+        if let h = legacyHeight, next.hasLegacyPage { next.setLegacyHeight(h) }
+        geometry = next
+    }
+    /// The old page's real height (the text and ink below the core's estimate); nil until the editor says.
+    private var legacyHeight: CGFloat?
+    func setLegacyHeight(_ height: CGFloat) {
+        guard legacyHeight != height else { return }
+        legacyHeight = height
+        var next = geometry; next.setLegacyHeight(height)
+        if next != geometry { geometry = next }
+    }
+    var pageViews: [PageView] { pages }
     var textBlocks: [TextBlockView] = []
     init(title: String, strokes: [DrawStroke], lowestInk: Float) {
         self.title = title; self.strokes = strokes; self.lowestInk = lowestInk
@@ -155,6 +179,52 @@ private final class LoadToken: @unchecked Sendable {
         try refresh()
         onCommit?(id)
         return id
+    }
+
+    /// A Note of one page of the chosen size, ruled as chosen. The note is made like any other, then its first page is
+    /// resized and the note's page style set; both queue behind each other on the worker, so opening it afterwards sees them.
+    @discardableResult func createPagedNote(_ options: NewNoteOptions, notebook: String?) throws -> String {
+        guard let extent = options.extent else { throw ViewerError.badName }
+        let id = try createNote(title: options.title, notebook: notebook)
+        saveNewNoteOptions(options)
+        editNote(id: id, work: { note in
+            guard let first = try note.snapshot().pages.first(where: { !$0.tombstone }) else { throw ViewerError.unknownSheet }
+            try PageActions.resize(note, sheet: first.sheetId, width: extent.width, height: extent.height)
+            try PageActions.setStyle(note, template: options.pattern, paper: options.paperColour,
+                                     patternColour: options.pattern == .none ? nil : options.ruleColour, spacing: nil)
+        }, completion: { [weak self] result in
+            switch result {
+            case .success(let snapshot): self?.publishPages(snapshot)
+            case .failure(let error): self?.error = error.localizedDescription; self?.onChange?()
+            }
+        })
+        return id
+    }
+    func newNoteOptions() -> NewNoteOptions {
+        readState("newnote.json").flatMap { try? JSONDecoder().decode(NewNoteOptions.self, from: $0) } ?? NewNoteOptions()
+    }
+    private func saveNewNoteOptions(_ options: NewNoteOptions) {
+        var remembered = options; remembered.title = "Untitled"
+        if let data = try? JSONEncoder().encode(remembered) { writeState("newnote.json", data) }
+    }
+
+    /// Runs a page command on a note; the shown note then takes the new pages (and, for commands that change ink, reloads).
+    func editPages(id: String, reloadInk: Bool = false, work: @escaping @Sendable (Note) throws -> Void,
+                   completion: @escaping @MainActor (Result<Void, Error>) -> Void = { _ in }) {
+        editNote(id: id, work: work, completion: { [weak self] result in
+            switch result {
+            case .success(let snapshot):
+                self?.publishPages(snapshot)
+                if reloadInk { self?.reloadInPlace(id: id) }
+                completion(.success(()))
+            case .failure(let error): completion(.failure(error))
+            }
+        })
+    }
+
+    func publishPages(_ snapshot: NoteSnapshot) {
+        publishText(snapshot)
+        if shownNote == snapshot.noteId { drawing?.adopt(snapshot, view: pageView(for: snapshot.noteId)); onChange?() }
     }
 
     private static func clean(_ text: String, fallback: String) -> String {
@@ -412,7 +482,7 @@ private final class LoadToken: @unchecked Sendable {
         guard mesh.rendererVersion == meshRendererVersion() else { throw ViewerError.invalidSource }
         return DrawStroke(mesh: mesh, originX: sheet.originX, originY: sheet.originY,
                           colour: mark.brush.colour, highlighter: mesh.discardSelfOverlap, custom: mark.brush.customInk,
-                          markId: mark.id, head: mark.head.operationId)
+                          markId: mark.id, head: mark.head.operationId, sheetId: mark.sheetId)
     }
 
     /// Synchronous path for disposable fixture checks only; the GUI uses openAsync.
@@ -429,7 +499,7 @@ private final class LoadToken: @unchecked Sendable {
         drawing = Drawing(title: snapshot.title, strokes: strokes,
                           lowestInk: strokes.map { $0.originY + $0.mesh.maxY }.max() ?? 0)
         drawing?.sheetId = snapshot.sheets.first?.id
-        drawing?.geometry = NoteGeometry(snapshot: snapshot)
+        drawing?.adopt(snapshot, view: pageView(for: id))
         drawing?.textBlocks = snapshot.textBlocks
         error = nil
     }
@@ -451,7 +521,7 @@ private final class LoadToken: @unchecked Sendable {
                     guard !token.cancelled else { return }
                     self?.drawing = Drawing(title: snapshot.title, strokes: [], lowestInk: 0)
                     self?.drawing?.sheetId = snapshot.sheets.first?.id
-                    self?.drawing?.geometry = NoteGeometry(snapshot: snapshot)
+                    self?.drawing?.adopt(snapshot, view: self?.pageView(for: id) ?? NoteGeometry.View())
                     self?.drawing?.textBlocks = snapshot.textBlocks
                     self?.onChange?()
                 }
@@ -480,6 +550,27 @@ private final class LoadToken: @unchecked Sendable {
         }
     }
 
+    // MARK: Page view (single, double or cover; scroll or flip), per note and per device, never in the note
+
+    private var pageViews: [String: NoteGeometry.View]?
+    func pageView(for id: String) -> NoteGeometry.View {
+        if pageViews == nil {
+            let raw = readState("pageview.json").flatMap { try? JSONDecoder().decode([String: [String]].self, from: $0) } ?? [:]
+            pageViews = raw.compactMapValues { v in
+                guard let mode = v.first.flatMap(NoteGeometry.LayoutMode.init(rawValue:)) else { return nil }
+                return NoteGeometry.View(mode: mode, flip: v.dropFirst().first == "flip")
+            }
+        }
+        return pageViews?[id] ?? NoteGeometry.View()
+    }
+    func setPageView(_ view: NoteGeometry.View, for id: String) {
+        _ = pageView(for: id)
+        pageViews?[id] = view
+        let raw = (pageViews ?? [:]).mapValues { [$0.mode.rawValue, $0.flip ? "flip" : "scroll"] }
+        if let data = try? JSONEncoder().encode(raw) { writeState("pageview.json", data) }
+        if shownNote == id { drawing?.relayout(view); onChange?() }
+    }
+
     // MARK: Reload in place
 
     /// Reads the note again (after a newer copy was installed) on the tessellation queue and swaps the
@@ -495,7 +586,7 @@ private final class LoadToken: @unchecked Sendable {
         // A merge of text (or anything but ink) leaves the strokes as they were: their meshes are kept, not rebuilt from samples.
         let kept = Dictionary((drawing?.strokes ?? []).compactMap { s in s.markId.map { ($0, s) } }, uniquingKeysWith: { a, _ in a })
         worker.async { [weak self] in
-            let built = Result { () -> (strokes: [DrawStroke], title: String, sheet: String?, ids: Set<String>, text: [TextBlockView], geometry: NoteGeometry) in
+            let built = Result { () -> (strokes: [DrawStroke], title: String, sheet: String?, ids: Set<String>, text: [TextBlockView], snapshot: NoteSnapshot) in
                 let note = try library.openNote(noteId: id)
                 defer { try? note.closeNote() }
                 let snapshot = try note.snapshot()
@@ -507,14 +598,14 @@ private final class LoadToken: @unchecked Sendable {
                     if let old = kept[mark.id], old.head == mark.head.operationId { return old }
                     return try Self.stroke(mark, note: note, sheets: sheets)
                 }, snapshot.title,
-                        snapshot.sheets.first?.id, Set(snapshot.strokes.map(\.id)), snapshot.textBlocks, NoteGeometry(snapshot: snapshot))
+                        snapshot.sheets.first?.id, Set(snapshot.strokes.map(\.id)), snapshot.textBlocks, snapshot)
             }
             DispatchQueue.main.async { MainActor.assumeIsolated {
                 guard let self, !token.cancelled, self.generation == started, self.shownNote == id else { return }
                 switch built {
                 case .success(let b):
                     let new = Drawing(title: b.title, strokes: b.strokes, lowestInk: b.strokes.map { $0.originY + $0.mesh.maxY }.max() ?? 0)
-                    new.sheetId = b.sheet; new.textBlocks = b.text; new.geometry = b.geometry
+                    new.sheetId = b.sheet; new.textBlocks = b.text; new.adopt(b.snapshot, view: self.pageView(for: id))
                     self.generation += 1
                     self.drawing = new; self.loading = false; self.error = nil
                     swapped(b.ids)
@@ -576,24 +667,37 @@ private final class LoadToken: @unchecked Sendable {
         guard let library, isWritable(commit.noteId) else {
             completion(.failure(library == nil ? ViewerError.unavailable : ViewerError.readOnly)); return
         }
+        // The page the pen came down on is read now, from the layout on screen.
+        let geometry = shownNote == commit.noteId ? drawing?.geometry : nil
         worker.async {
-            let result = Result { try Self.write(commit, view: view, library: library) }
+            let result = Result { try Self.write(commit, view: view, library: library, geometry: geometry) }
             DispatchQueue.main.async { MainActor.assumeIsolated { if case .success = result { self.onCommit?(commit.noteId) }; completion(result) } }
         }
     }
 
-    nonisolated private static func write(_ commit: StrokeCommit, view: Viewport, library: SyncrLibrary) throws -> DrawStroke {
+    nonisolated private static func write(_ commit: StrokeCommit, view: Viewport, library: SyncrLibrary, geometry: NoteGeometry?) throws -> DrawStroke {
         let note = try library.openNote(noteId: commit.noteId)
         defer { try? note.closeNote() }
         let snapshot = try note.snapshot()
-        guard let sheet = snapshot.sheets.first(where: { $0.id == commit.sheetId }) else { throw ViewerError.unknownSheet }
         // Stored samples are local to the sheet: canvas coordinates minus its origin.
         var channels = try decodeSamples(blob: commit.samples)
-        for i in 0..<channels.x.count {
-            let (x, y) = commit.space == .viewRelative ? view.canvasPoint(channels.x[i], channels.y[i]) : (channels.x[i], channels.y[i])
-            channels.x[i] = x - sheet.originX; channels.y[i] = y - sheet.originY
+        var canvas = channels
+        for i in 0..<channels.x.count where commit.space == .viewRelative {
+            (canvas.x[i], canvas.y[i]) = view.canvasPoint(channels.x[i], channels.y[i])
         }
-        let blob = commit.space == .canvas && sheet.originX == 0 && sheet.originY == 0
+        // With pages the ink belongs to the page under the pen's first point (the nearest one when it came down off the paper),
+        // and its samples are relative to that page's corner. The old page and a note without pages: the sheet it was sent to.
+        var place = CGPoint.zero
+        var target = commit.sheetId
+        if let geometry, geometry.drawsPaper, !geometry.hasLegacyPage || geometry.pages.count > 1, let first = canvas.x.first, let y = canvas.y.first,
+           let page = geometry.page(at: CGPoint(x: CGFloat(first), y: CGFloat(y))), snapshot.sheets.contains(where: { $0.id == page.sheetId }) {
+            target = page.sheetId; place = page.rect.origin
+        }
+        guard let sheet = snapshot.sheets.first(where: { $0.id == target }) else { throw ViewerError.unknownSheet }
+        for i in 0..<channels.x.count {
+            channels.x[i] = canvas.x[i] - sheet.originX - Float(place.x); channels.y[i] = canvas.y[i] - sheet.originY - Float(place.y)
+        }
+        let blob = commit.space == .canvas && sheet.originX == 0 && sheet.originY == 0 && place == .zero
             ? commit.samples : try encodeSamples(channels: channels)
         _ = try note.submit(command: Command(operationId: newId(), dependencies: [sheet.creationOperationId],
             body: .marks(mutations: [.addStroke(markId: commit.strokeId, sheetId: sheet.id, samples: blob, brush: commit.brush)])))
@@ -601,7 +705,7 @@ private final class LoadToken: @unchecked Sendable {
             style: defaultStrokeStyle(brush: commit.brush), transform: Affine(a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0))
         guard mesh.rendererVersion == meshRendererVersion() else { throw ViewerError.invalidSource }
         return DrawStroke(mesh: mesh, originX: sheet.originX, originY: sheet.originY,
-                          colour: commit.brush.colour, highlighter: mesh.discardSelfOverlap, custom: commit.brush.customInk)
+                          colour: commit.brush.colour, highlighter: mesh.discardSelfOverlap, custom: commit.brush.customInk, sheetId: sheet.id)
     }
 
     /// Adds a freshly written stroke to the shown note (main thread, same block as removing its preview).

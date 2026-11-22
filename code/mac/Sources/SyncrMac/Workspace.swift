@@ -127,7 +127,9 @@ struct SessionState: Codable, Equatable {
         if active != nil { set.formUnion([.findInNote, .exportMarkdown, .documentView, .outline]) }
         if activeIsWritable { set.formUnion([.askSyncr, .drawSelection, .askAllReaders, .undoCompanion, .redoCompanion, .undo, .redo, .bold, .italic, .insertLink, .toggleTask, .slashMenu, .freeText]) }
         if hasPairedPhones { set.insert(.forgetPhone) }
-        if active != nil { set.formUnion([.deleteNote, .closeTab, .zoomIn, .zoomOut, .fit]) }
+        if active != nil { set.formUnion([.deleteNote, .closeTab, .zoomIn, .zoomOut, .fit, .toggleThumbnails, .fitPage, .fitPageWidth, .fitPageHeight,
+                                           .layoutSingle, .layoutDouble, .layoutCover, .toggleFlip, .nextPage, .previousPage]) }
+        if activeIsWritable { set.insert(.addPage) }
         if activeIsWritable { set.formUnion([.renameNote, .moveNote]) }
         if debugCommands && active != nil { set.formUnion([.replayTestStroke, .replayHighlighter, .replayCancelled, .replayViewRelative, .simulateDisconnect]) }
         if tabs.count > 1 { set.formUnion([.nextTab, .previousTab]) }
@@ -172,6 +174,13 @@ struct SessionState: Codable, Equatable {
 
     @discardableResult func newNote() throws -> String {
         let id = try model.createNote(notebook: selectedNotebook)
+        open(id, newTab: true)
+        return id
+    }
+
+    /// A paged note, as the New note sheet chose it.
+    @discardableResult func newNote(_ options: NewNoteOptions) throws -> String {
+        let id = try model.createPagedNote(options, notebook: selectedNotebook)
         open(id, newTab: true)
         return id
     }

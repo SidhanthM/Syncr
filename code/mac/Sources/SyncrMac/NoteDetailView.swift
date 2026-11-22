@@ -18,6 +18,7 @@ import SyncrCore
             live?.viewChanged(viewport)
             if renderer == nil { displayedViewport = viewport; positionText() }
             stickyScrolled()
+            notePage()
         }
     }
     // The sticky title (look-and-ink v1 §4.2): shows once the page's own title has scrolled off, steps aside for typing
@@ -28,6 +29,28 @@ import SyncrCore
     private var stickyTracking: NSTrackingArea?
     /// Where the paper is: the pages of a Note, or nothing for a Canvas.
     private var geometry: NoteGeometry { model.drawing?.geometry ?? .legacy }
+    /// A note was just opened: its first view is fitted to the page width as soon as its pages are known (old notes keep the
+    /// centred document view instead).
+    private var pendingFit = false
+    /// The row a flipped (paginated) note shows.
+    private var flipRow = 0
+    /// The thumbnail sidebar and the renderer that draws its pictures (apart from the window's, so neither rebuilds the other's targets).
+    private let strip = PageStrip()
+    private var stripShown = false
+    private var stripToEdge: NSLayoutConstraint!, stripToStrip: NSLayoutConstraint!
+    private var thumbRenderer: MeshRenderer?
+    private var stripTimer: Timer?
+    /// The pull past the end that adds a page: how far the view is stretched (points), whether the trigger was passed.
+    private var pullY: CGFloat = 0, pullX: CGFloat = 0
+    private var pullArmed = false
+    private var pullTimer: Timer?
+    static let pullResist: CGFloat = 0.5, pullMax: CGFloat = 320, pullTrigger: CGFloat = 250
+    /// Add a page after the last one (the pull past the end), and the thumbnail sidebar's actions.
+    var onAddPageAtEnd: (() -> Void)?
+    var onPageAction: ((PageStripAction, [String]) -> Void)?
+    var onMovePages: (([String], String?) -> Void)?
+    /// The page most in view, as the strip and the page commands see it.
+    private(set) var currentSheet: String? { didSet { if currentSheet != oldValue { strip.reload(items: strip.items, current: currentSheet) } } }
     private var pinchStart: Viewport?
     private var pinchAnchor = SIMD2<Float>(0.5, 0.5)
     /// The document view keeps the text column in the middle of the window by showing space left of the canvas (a
@@ -112,6 +135,7 @@ import SyncrCore
         canvas.enableSetNeedsDisplay = true
         canvas.delegate = self
         canvas.onScroll = { [weak self] x, y in self?.scroll(x: x, y: y) }
+        canvas.onScrollEnded = { [weak self] in self?.scrollEnded() }
         let pinch = NSMagnificationGestureRecognizer(target: self, action: #selector(magnifyNote(_:)))
         addGestureRecognizer(pinch)
         documentEditor.onScroll = canvas.onScroll
@@ -163,16 +187,24 @@ import SyncrCore
             cardStack.leadingAnchor.constraint(equalTo: pairingCard.leadingAnchor), cardStack.trailingAnchor.constraint(equalTo: pairingCard.trailingAnchor),
             cardStack.topAnchor.constraint(equalTo: pairingCard.topAnchor), cardStack.bottomAnchor.constraint(equalTo: pairingCard.bottomAnchor)
         ])
-        for view in [tabBar, companionStrip, canvas, textLayer, stickyTitle, emptyArt, empty, pairingCard] as [NSView] {
+        stripToEdge = canvas.leadingAnchor.constraint(equalTo: leadingAnchor)
+        stripToStrip = canvas.leadingAnchor.constraint(equalTo: strip.trailingAnchor)
+        strip.isHidden = true
+        strip.onSelect = { [weak self] in self?.goToPage($0) }
+        strip.onMenu = { [weak self] in self?.onPageAction?($0, $1) }
+        strip.onMove = { [weak self] in self?.onMovePages?($0, $1) }
+        strip.picture = { [weak self] id, size in self?.thumbnail(sheet: id, pixels: size) }
+        for view in [tabBar, companionStrip, strip, canvas, textLayer, stickyTitle, emptyArt, empty, pairingCard] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
         NSLayoutConstraint.activate([
+            strip.topAnchor.constraint(equalTo: companionStrip.bottomAnchor), strip.leadingAnchor.constraint(equalTo: leadingAnchor), strip.bottomAnchor.constraint(equalTo: bottomAnchor),
             tabBar.topAnchor.constraint(equalTo: topAnchor), tabBar.leadingAnchor.constraint(equalTo: leadingAnchor),
             tabBar.trailingAnchor.constraint(equalTo: trailingAnchor), tabBar.heightAnchor.constraint(equalToConstant: 32),
             companionStrip.topAnchor.constraint(equalTo: tabBar.bottomAnchor), companionStrip.leadingAnchor.constraint(equalTo: leadingAnchor),
             companionStrip.trailingAnchor.constraint(equalTo: trailingAnchor), companionStrip.height,
-            canvas.topAnchor.constraint(equalTo: companionStrip.bottomAnchor), canvas.leadingAnchor.constraint(equalTo: leadingAnchor),
+            canvas.topAnchor.constraint(equalTo: companionStrip.bottomAnchor), stripToEdge,
             canvas.trailingAnchor.constraint(equalTo: trailingAnchor), canvas.bottomAnchor.constraint(equalTo: bottomAnchor),
             textLayer.topAnchor.constraint(equalTo: canvas.topAnchor), textLayer.leadingAnchor.constraint(equalTo: canvas.leadingAnchor),
             textLayer.trailingAnchor.constraint(equalTo: canvas.trailingAnchor), textLayer.bottomAnchor.constraint(equalTo: canvas.bottomAnchor),
@@ -208,7 +240,32 @@ import SyncrCore
         pairingCaption.stringValue = "“\(info.phone)” wants to pair.\nType this code on the phone within 2 minutes."
     }
 
-    func noteChanged() { requestRedraw() }
+    func noteChanged() {
+        updateLegacyHeight()
+        if pendingFit, let drawing = model.drawing, drawing.geometry.drawsPaper {
+            pendingFit = false
+            if !drawing.geometry.hasLegacyPage, let first = drawing.geometry.pages.first {
+                centred = false; slide?.invalidate(); slide = nil
+                viewport = drawing.geometry.fitting(first, .width, view: canvas.bounds.size); move(0, 0)
+            }
+        }
+        if stripShown { scheduleStrip() }
+        notePage()
+        requestRedraw()
+    }
+
+    /// The old page is as tall as its content really is, which only the editor can measure.
+    private func updateLegacyHeight() {
+        guard let drawing = model.drawing, drawing.geometry.hasLegacyPage else { return }
+        let before = drawing.geometry
+        drawing.setLegacyHeight(CGFloat(max(drawing.lowestInk, documentVisible ? Float(documentEditor.textView.frame.maxY) : 0)))
+        if drawing.geometry != before { requestRedraw() }
+    }
+    /// The page most in view.
+    private func notePage() {
+        let g = geometry
+        currentSheet = g.currentPage(in: visibleCanvasRect)?.sheetId
+    }
 
     func updateHotkeys(_ store: HotkeyStore) {
         let hints = [(AppCommand.newNote, "new note"), (.quickSwitcher, "open note"), (.commandPalette, "commands")].compactMap { command, title in
@@ -846,7 +903,7 @@ import SyncrCore
         desc.usage = [.renderTarget, .shaderRead]; desc.storageMode = .shared
         guard let texture = device.makeTexture(descriptor: desc) else { return nil }
         let view = Viewport(left: viewport.left, top: viewport.top, zoom: viewport.zoom)
-        do { try renderer.render(model.drawing, wet: live?.engine.currentFrame, viewport: view, dark: false, target: texture) }
+        do { try renderer.render(model.drawing, wet: live?.engine.currentFrame, viewport: view, dark: false, target: texture, paperless: true) }
         catch { return nil }
         var bytes = [UInt8](repeating: 0, count: w * h * 4)
         texture.getBytes(&bytes, bytesPerRow: w * 4, from: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0)
@@ -857,7 +914,12 @@ import SyncrCore
     }
     /// The canvas as the owner sees it, for check screenshots: `visibleCanvasRect` drawn the way the pad's picture is.
     func debugShot(width: Int) -> CGImage? { padPicture(region: visibleCanvasRect, width: width) }
-    func resetViewport() { centred = false; slide?.invalidate(); slide = nil; viewport = Viewport(); requestRedraw() }
+    /// `opening`: a note was just activated; once its pages are known the view fits the first page's width.
+    func resetViewport(opening: Bool = false) {
+        centred = false; slide?.invalidate(); slide = nil; viewport = Viewport(); flipRow = 0; pullY = 0; pullX = 0
+        pendingFit = opening
+        requestRedraw()
+    }
 
     /// With live ink wired, every draw goes through the display link: a layer driven by a
     /// CAMetalDisplayLink must not have `nextDrawable` called by anyone else (MTKView would trap). The
@@ -1012,9 +1074,17 @@ import SyncrCore
         let minLeft = documentVisible
             ? min(centredLeft(zoom: next.zoom), Float(documentEditor.columnLeft - 140 - MarginCard.width - 20))
             : 0
-        next.clamp(pixels: canvas.drawableSize, geometry: geometry, scrollBottom: max(model.drawing?.lowestInk ?? 0, documentVisible ? Float(documentEditor.textView.frame.maxY) : 0), minLeft: minLeft)
+        let stretch = next.scrollOffset(x: Float(pullX), y: Float(pullY), viewSize: canvas.bounds.size)
+        next.clamp(pixels: canvas.drawableSize, geometry: geometry, scrollBottom: max(model.drawing?.lowestInk ?? 0, documentVisible ? Float(documentEditor.textView.frame.maxY) : 0),
+                   minLeft: minLeft, region: flipRegion, stretch: stretch.y, stretchX: stretch.x)
         if next != viewport { viewport = next }
         requestRedraw()
+    }
+    /// The row a flipped note is on: the view stays inside it.
+    private var flipRegion: CGRect? {
+        guard geometry.view.flip, !geometry.isCanvas else { return nil }
+        let rows = geometry.rows
+        return rows.isEmpty ? nil : rows[min(flipRow, rows.count - 1)]
     }
     private func scroll(x: Float, y: Float) {
         // A direct gesture owns both axes. Do not suppress diagonal deltas or let
@@ -1022,11 +1092,173 @@ import SyncrCore
         guard x != 0 || y != 0 else { return }
         centred = false
         slide?.invalidate(); slide = nil
+        if pull(x: x, y: y) { return }
         // NSEvent deltas are logical points, not backing pixels. Using drawableSize
         // here makes a Retina canvas travel at 1 / backingScaleFactor of the gesture.
         let offset = viewport.scrollOffset(x: x, y: y, viewSize: canvas.bounds.size)
         move(offset.x, offset.y)
     }
+
+    // MARK: Pull past the end (adds a page) and the flip of a paginated note
+
+    /// Whether the view is against the last bit of the document it may show, in each direction.
+    private var edges: (right: Bool, left: Bool, bottom: Bool) {
+        guard let r = geometry.scrollRange(size: viewport.visibleSize(canvas.bounds.size), scrollBottom: max(model.drawing?.lowestInk ?? 0, documentVisible ? Float(documentEditor.textView.frame.maxY) : 0),
+                                           minLeft: 0, region: flipRegion) else { return (false, false, false) }
+        return (viewport.left >= r.left.upperBound - 0.5, viewport.left <= r.left.lowerBound + 0.5, viewport.top >= r.top.upperBound - 0.5)
+    }
+    private var isLastRow: Bool { flipRow >= geometry.rows.count - 1 }
+
+    /// A gesture that goes on past an edge stretches the view instead (resisting by half) until it is let go. Returns true when
+    /// it took the movement. A scroll note adds a page after a long pull at its end; a flipped note flips (or adds a page at
+    /// its last row) after a long pull sideways.
+    private func pull(x: Float, y: Float) -> Bool {
+        guard !geometry.isCanvas else { return false }
+        let touching = !canvas.scrollIsMomentum
+        let e = edges
+        if geometry.view.flip {
+            let towards = CGFloat(x)
+            if pullX != 0 || (touching && ((towards > 0 && e.right) || (towards < 0 && e.left)) && abs(x) >= abs(y)) {
+                guard touching || pullX != 0 else { return false }
+                let before = pullX
+                pullX = min(max(pullX + towards * Self.pullResist, -canvas.bounds.width * 0.4), canvas.bounds.width * 0.4)
+                if before != 0 && pullX * before < 0 { pullX = 0 }
+                move(0, 0)
+                return true
+            }
+            return false
+        }
+        guard y != 0 else { return false }
+        if pullY > 0 || (touching && y > 0 && e.bottom && abs(y) >= abs(x)) {
+            guard touching || pullY > 0 else { return false }
+            pullY = min(max(pullY + CGFloat(y) * Self.pullResist, 0), Self.pullMax)
+            if pullY >= Self.pullTrigger, !pullArmed {
+                pullArmed = true
+                NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .now)
+            } else if pullY < Self.pullTrigger { pullArmed = false }
+            move(0, 0)
+            return true
+        }
+        return false
+    }
+
+    /// The fingers came off the trackpad: a pull that passed its trigger acts, and the view springs back either way.
+    fileprivate func scrollEnded() {
+        let y = pullY, x = pullX
+        guard y != 0 || x != 0 else { return }
+        pullArmed = false
+        if y >= Self.pullTrigger { onAddPageAtEnd?() }
+        if x != 0 {
+            let width = canvas.bounds.width
+            let zoomPercent = NoteGeometry.percent(zoom: viewport.zoom, view: canvas.bounds.size)
+            // xnotes' PaginatedFlipPolicy: max(75, 9% of the width), 1.2 times that between 125% and 250% zoom; 22% adds a page.
+            let flipAt = max(75, width * 0.09) * (zoomPercent >= 125 && zoomPercent <= 250 ? 1.2 : 1)
+            if x > 0, isLastRow, x >= width * 0.22 { onAddPageAtEnd?() }
+            else if x > 0, !isLastRow, x >= flipAt { showRow(flipRow + 1) }
+            else if x < 0, flipRow > 0, -x >= flipAt { showRow(flipRow - 1) }
+        }
+        springBack()
+    }
+    private func springBack() {
+        pullTimer?.invalidate()
+        let fromY = pullY, fromX = pullX, start = CACurrentMediaTime()
+        guard !AppPreferences.shared.reducedMotion else { pullY = 0; pullX = 0; move(0, 0); return }
+        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] timer in
+            let done = MainActor.assumeIsolated { () -> Bool in
+                guard let self else { return true }
+                let t = min(1, (CACurrentMediaTime() - start) / 0.2), k = CGFloat(1 - (1 - t) * (1 - t) * (1 - t))
+                self.pullY = fromY * (1 - k); self.pullX = fromX * (1 - k)
+                if t >= 1 { self.pullY = 0; self.pullX = 0 }
+                self.move(0, 0)
+                return t >= 1
+            }
+            if done { timer.invalidate() }
+        }
+        RunLoop.main.add(timer, forMode: .common); pullTimer = timer
+    }
+
+    // MARK: Pages: fit, go to, layout
+
+    /// The page the view treats as current (the one most in view), or the first.
+    private var activePage: NoteGeometry.Page? { geometry.currentPage(in: visibleCanvasRect) ?? geometry.pages.first }
+
+    /// Fit whole page, fit page width or fit page height, on the current page.
+    func fitPage(_ fit: NoteGeometry.Fit) {
+        guard let page = activePage, canvas.bounds.width > 0 else { return }
+        centred = false; slide?.invalidate(); slide = nil
+        if geometry.hasLegacyPage, page.autoHeight, fit != .height { resetViewport(); return }
+        glide(to: geometry.fitting(page, fit, view: canvas.bounds.size))
+    }
+
+    /// Brings a page into view at the current zoom (scrolling down to it, or flipping to its row).
+    func goToPage(_ sheet: String) {
+        guard let page = geometry.page(forSheet: sheet) else { return }
+        centred = false; slide?.invalidate(); slide = nil
+        if geometry.view.flip { showRow(page.row, animated: true); return }
+        var target = viewport
+        let size = viewport.visibleSize(canvas.bounds.size)
+        target.top = Float(page.rect.minY - NoteGeometry.verticalMargin)
+        target.left = Float(page.rect.midX) - size.x / 2
+        if page.rect.height + 2 * NoteGeometry.verticalMargin < CGFloat(size.y) { target.top = Float(page.rect.midY) - size.y / 2 }
+        glide(to: target)
+    }
+    func stepPage(_ delta: Int) {
+        guard let current = currentSheet, let i = geometry.index(ofSheet: current) else { return }
+        let next = min(max(0, i + delta), geometry.pages.count - 1)
+        goToPage(geometry.pages[next].sheetId)
+    }
+    /// A flipped note shows one row: fit to it.
+    private func showRow(_ row: Int, animated: Bool = true) {
+        let rows = geometry.rows
+        guard !rows.isEmpty else { return }
+        flipRow = min(max(0, row), rows.count - 1)
+        let r = rows[flipRow]
+        let probe = NoteGeometry.Page(sheetId: "", rect: r, row: flipRow, autoHeight: false)
+        var target = geometry.fitting(probe, .whole, view: canvas.bounds.size)
+        // Keep the zoom the reader chose when it is closer than the fit; the row is centred.
+        if viewport.zoom > target.zoom {
+            target.zoom = viewport.zoom
+            let size = target.visibleSize(canvas.bounds.size)
+            target.left = Float(r.midX) - size.x / 2; target.top = Float(r.minY - NoteGeometry.verticalMargin)
+        }
+        if animated { glide(to: target) } else { viewport = target; move(0, 0) }
+    }
+
+    /// Eases the view to `target` (or jumps with reduced motion).
+    private func glide(to target: Viewport) {
+        slide?.invalidate(); slide = nil
+        let from = viewport, start = CACurrentMediaTime()
+        guard window != nil, !AppPreferences.shared.reducedMotion else { viewport = target; move(0, 0); return }
+        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] timer in
+            let done = MainActor.assumeIsolated { () -> Bool in
+                guard let self else { return true }
+                let t = min(1, (CACurrentMediaTime() - start) / 0.24), k = Float(1 - pow(1 - t, 3))
+                var v = from
+                v.left = from.left + (target.left - from.left) * k; v.top = from.top + (target.top - from.top) * k
+                v.zoom = from.zoom + (target.zoom - from.zoom) * k
+                self.viewport = v; self.move(0, 0)
+                if t >= 1 { self.slide = nil }
+                return t >= 1
+            }
+            if done { timer.invalidate() }
+        }
+        RunLoop.main.add(timer, forMode: .common); slide = timer
+    }
+
+    /// The layout (single, double, cover) and the flip are per note, per device. The view stays on the current page.
+    func setPageView(_ view: NoteGeometry.View) {
+        guard let id = model.shownNote, let page = currentSheet else { return }
+        model.setPageView(view, for: id)
+        if let p = geometry.page(forSheet: page) { flipRow = p.row }
+        DispatchQueue.main.async { [weak self] in MainActor.assumeIsolated { self?.fitPage(.whole); self?.goToPage(page) } }
+    }
+    var pageView: NoteGeometry.View { geometry.view }
+    /// Debug control: a scroll gesture's deltas (points) and the fingers coming off.
+    func debugScroll(x: Float, y: Float) { canvas.scrollIsMomentum = false; scroll(x: x, y: y) }
+    func debugScrollEnd() { scrollEnded() }
+    /// The page a new text box goes on: the one most in view.
+    var currentPageForText: NoteGeometry.Page? { activePage }
+
     @objc private func magnifyNote(_ gesture: NSMagnificationGestureRecognizer) {
         if gesture.state == .began {
             guard !canvas.isHidden, canvas.bounds.width > 0, canvas.bounds.height > 0 else { return }
@@ -1042,21 +1274,96 @@ import SyncrCore
             move(0, 0)
         } else if gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed {
             pinchStart = nil
+            // Let go near the page width and the view settles on it.
+            if !geometry.hasLegacyPage, !geometry.isCanvas {
+                let snapped = limited(viewport.zoom)
+                if snapped != viewport.zoom { viewport = viewport.zoomed(to: snapped, around: pinchAnchor, pixels: canvas.bounds.size, limits: geometry.zoomRange(view: canvas.bounds.size)); move(0, 0) }
+            }
         }
     }
-    @objc func zoomIn() { zoom(to: viewport.zoom * 1.25) }
-    @objc func zoomOut() { zoom(to: viewport.zoom / 1.25) }
+    @objc func zoomIn() { zoom(to: viewport.zoom * NoteGeometry.zoomStep) }
+    @objc func zoomOut() { zoom(to: viewport.zoom / NoteGeometry.zoomStep) }
+    /// The zoom within the limits; within 5% of fitting the current page's width it snaps to the fit (not on the old page, whose
+    /// width is the window's own zoom 1).
+    private func limited(_ value: Float) -> Float {
+        let range = geometry.zoomRange(view: canvas.bounds.size)
+        var zoom = min(range.upperBound, max(range.lowerBound, value))
+        if !geometry.isCanvas, !geometry.hasLegacyPage, let page = activePage {
+            let fit = NoteGeometry.zoom(visibleWidth: Float(page.rect.width + 2 * NoteGeometry.sideMargin), view: canvas.bounds.size)
+            if abs(zoom / fit - 1) < 0.05 { zoom = fit }
+        }
+        return zoom
+    }
     private func zoom(to value: Float) {
         slide?.invalidate(); slide = nil
-        var next = viewport
-        let limits = geometry.zoomRange(view: canvas.bounds.size)
-        next.zoom = min(limits.upperBound, max(limits.lowerBound, value))
-        let value = next.zoom
-        if centred { next.left = centredLeft(zoom: value) }
-        viewport = next
+        let value = limited(value)
+        if geometry.hasLegacyPage || geometry.isCanvas {
+            var next = viewport
+            next.zoom = value
+            if centred { next.left = centredLeft(zoom: value) }
+            viewport = next
+        } else {
+            // About the middle of the view, so the page stays where the reader is looking.
+            viewport = viewport.zoomed(to: value, around: SIMD2(0.5, 0.5), pixels: canvas.bounds.size, limits: geometry.zoomRange(view: canvas.bounds.size))
+        }
         move(0, 0)
     }
-    @objc func fit() { resetViewport() }
+    /// Fit to window: the whole page of a Note (the old page keeps its zoom 1 view).
+    @objc func fit() { fitPage(.whole) }
+
+    // MARK: Thumbnail sidebar
+
+    var thumbnailsShown: Bool { stripShown }
+    func setThumbnails(_ on: Bool) {
+        guard on != stripShown else { return }
+        stripShown = on
+        strip.isHidden = !on
+        stripToEdge.isActive = !on; stripToStrip.isActive = on
+        if on { refreshStrip(); if let current = currentSheet { strip.reveal(current) } }
+        needsLayout = true
+        requestRedraw()
+    }
+    private func scheduleStrip() {
+        stripTimer?.invalidate()
+        let timer = Timer(timeInterval: 0.25, repeats: false) { [weak self] _ in MainActor.assumeIsolated { self?.refreshStrip() } }
+        RunLoop.main.add(timer, forMode: .common); stripTimer = timer
+    }
+    private func refreshStrip() {
+        guard stripShown else { return }
+        let g = geometry
+        guard !g.isCanvas, let drawing = model.drawing else { strip.reload(items: [], current: nil); return }
+        var counts: [String: Int] = [:]
+        for stroke in drawing.strokes { counts[stroke.sheetId, default: 0] += 1 }
+        let items = g.pages.map { page -> PageStrip.Item in
+            var h = Hasher()
+            h.combine(counts[page.sheetId] ?? 0); h.combine(Int(page.rect.width)); h.combine(Int(page.rect.height))
+            h.combine(page.style.pattern); h.combine(page.style.spacing); h.combine(page.style.paper.map { Int($0.x) << 16 | Int($0.y) << 8 | Int($0.z) } ?? -1)
+            h.combine(page.style.patternColour.x); h.combine(page.style.patternColour.w)
+            h.combine(drawing.id)
+            return PageStrip.Item(sheetId: page.sheetId, width: page.rect.width, height: page.rect.height, signature: h.finalize())
+        }
+        strip.reload(items: items, current: currentSheet)
+    }
+    /// A page of the note drawn small: paper, ruling and ink (the typed text is not part of it).
+    private func thumbnail(sheet: String, pixels: CGSize) -> CGImage? {
+        guard let device, let drawing = model.drawing, let page = drawing.geometry.page(forSheet: sheet) else { return nil }
+        if thumbRenderer == nil { thumbRenderer = try? MeshRenderer(device: device, dryCache: false) }
+        guard let renderer = thumbRenderer else { return nil }
+        let w = max(16, Int(pixels.width)), h = max(16, Int((CGFloat(w) * page.rect.height / page.rect.width).rounded()))
+        let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: w, height: h, mipmapped: false)
+        desc.usage = [.renderTarget, .shaderRead]; desc.storageMode = .shared
+        guard let texture = device.makeTexture(descriptor: desc),
+              let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue),
+              let bytes = ctx.data else { return nil }
+        let reference = canvasSize()
+        let fit = min(Float(w) / reference.width, Float(h) / reference.viewHeight)
+        let view = Viewport(left: Float(page.rect.minX), top: Float(page.rect.minY), zoom: Float(w) / (fit * Float(page.rect.width)))
+        let dark = canvas.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        do { try renderer.render(drawing, wet: nil, viewport: view, dark: dark, target: texture) } catch { return nil }
+        texture.getBytes(bytes, bytesPerRow: w * 4, from: MTLRegionMake2D(0, 0, w, h), mipmapLevel: 0)
+        return ctx.makeImage()
+    }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) { requestRedraw() }
     func draw(in view: MTKView) {
@@ -1090,6 +1397,10 @@ private final class CanvasTextLayer: NSView {
 
 private final class CanvasView: MTKView {
     var onScroll: ((Float, Float) -> Void)?
+    /// The fingers came off the trackpad (what a pull past the end waits for).
+    var onScrollEnded: (() -> Void)?
+    /// The event being delivered is the trackpad's coasting after the fingers left.
+    var scrollIsMomentum = false
     var onDoubleClick: ((CGPoint) -> Void)?
     override func mouseDown(with event: NSEvent) {
         if event.clickCount == 2 {
@@ -1099,7 +1410,9 @@ private final class CanvasView: MTKView {
     }
     override func scrollWheel(with event: NSEvent) {
         let (x, y) = AppPreferences.shared.canvasScroll(event)
+        scrollIsMomentum = !event.momentumPhase.isEmpty
         onScroll?(x, y)
+        if event.phase == .ended || event.phase == .cancelled { onScrollEnded?() }
     }
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()

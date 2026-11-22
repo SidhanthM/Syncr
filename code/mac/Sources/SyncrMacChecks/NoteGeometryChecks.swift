@@ -19,5 +19,24 @@ import SyncrCore
     try check(abs(NoteGeometry.percent(zoom: zoom, view: view) - 100) < 0.01, "zoom percent round-trips")
     let range = NoteGeometry.canvas.zoomRange(view: view)
     try check(abs(NoteGeometry.percent(zoom: range.lowerBound, view: view) - 2) < 0.01 && abs(NoteGeometry.percent(zoom: range.upperBound, view: view) - 6400) < 0.5, "canvas zoom is 2% to 6400%")
-    try check(legacy.zoomRange(view: view) == 1...8, "a note keeps 1x to 8x for now")
+    let notes = legacy.zoomRange(view: view)
+    try check(abs(NoteGeometry.percent(zoom: notes.lowerBound, view: view) - 12) < 0.01 && abs(NoteGeometry.percent(zoom: notes.upperBound, view: view) - 1600) < 1, "a note is 12% to 1600%")
+    let fitted = two.fitting(two.pages[0], .width, view: view)
+    try check(abs(fitted.visibleSize(view).x - Float(1600 + 2 * NoteGeometry.sideMargin)) < 0.1, "fit width shows the page and its side margins")
+    try check(two.currentPage(in: CGRect(x: 1700, y: 0, width: 800, height: 600))?.sheetId == "p2", "the current page is the one most in view")
+
+    var inside = Viewport(left: -900, top: -900, zoom: 2)
+    inside.clamp(pixels: view, geometry: two, scrollBottom: 0)
+    try check(inside.top == Float(-NoteGeometry.verticalMargin) && inside.left > -900, "a page view stops a margin above the first row")
+    let flat = NoteGeometry(pages: [NoteGeometry.Page(sheetId: "a", rect: CGRect(x: 0, y: 0, width: 1600, height: 2263), row: 0, autoHeight: false)])
+    var wide = Viewport(left: 5, top: 0, zoom: 0.2)
+    wide.clamp(pixels: view, geometry: flat, scrollBottom: 0)
+    try check(abs((wide.left + wide.visibleSize(view).x / 2) - 800) < 0.1, "a page narrower than the view is centred")
+
+    var options = NewNoteOptions()
+    try check(abs((options.extent?.width ?? 0) - 1600) < 0.1 && abs((options.extent?.height ?? 0) - 2262.9) < 0.2, "the New note sheet defaults to A4 portrait")
+    options.landscape = true
+    try check(abs((options.extent?.width ?? 0) - 2262.9) < 0.2, "landscape swaps the sides")
+    options.size = "Custom"; options.customWidthMM = 5
+    try check(options.extent == nil, "a custom side under 10 mm is refused")
 }

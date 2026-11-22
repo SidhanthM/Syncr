@@ -91,7 +91,7 @@ final class MeshRenderer {
 
     /// The committed ink, rendered once and resolved, so a wet frame only has to copy it and draw the live strokes
     /// (`render(... cacheDry:)`). `SYNCR_MAC_DRY_CACHE=0` turns it off and every frame draws as it always did.
-    private struct DryKey: Equatable { var drawing: UUID?; var strokes: Int; var width: Int; var height: Int; var viewport: Viewport; var dark: Bool }
+    private struct DryKey: Equatable { var drawing: UUID?; var strokes: Int; var width: Int; var height: Int; var viewport: Viewport; var dark: Bool; var geometry: NoteGeometry; var paper: Bool }
     let dryCacheEnabled: Bool
     private var dryTexture: MTLTexture?
     private var dryKey: DryKey?
@@ -179,6 +179,30 @@ final class MeshRenderer {
         }
     }
 
+    /// The paper of one page size and ruling, uploaded once: the sheet quad first, then the ruling's triangles.
+    private struct PaperKey: Hashable { var width: UInt32; var height: UInt32; var pattern: UInt8; var spacing: UInt32 }
+    private struct PaperBuffers { let positions: MTLBuffer; let sheetIndices: MTLBuffer; let ruling: (indices: MTLBuffer, count: Int)? }
+    private var paperCache: [PaperKey: PaperBuffers] = [:]
+    private func paperMesh(width: Float, height: Float, style: NoteGeometry.Style) -> PaperBuffers {
+        let key = PaperKey(width: width.bitPattern, height: height.bitPattern, pattern: style.pattern, spacing: style.spacing.bitPattern)
+        if let cached = paperCache[key] { return cached }
+        var mesh = PagePaper.sheet(width: width, height: height)
+        let sheetIndices = mesh.indices
+        var ruling: [UInt32] = []
+        if let extra = PagePaper.ruling(pattern: style.pattern, width: width, height: height, spacing: style.spacing) {
+            let base = UInt32(mesh.positions.count)
+            mesh.positions += extra.positions
+            ruling = extra.indices.map { $0 + base }
+        }
+        let positions = device.makeBuffer(bytes: mesh.positions, length: mesh.positions.count * MemoryLayout<SIMD2<Float>>.stride)!
+        let sheet = device.makeBuffer(bytes: sheetIndices, length: sheetIndices.count * 4)!
+        let rulingBuffer = ruling.isEmpty ? nil : device.makeBuffer(bytes: ruling, length: ruling.count * 4)
+        let made = PaperBuffers(positions: positions, sheetIndices: sheet, ruling: rulingBuffer.map { ($0, ruling.count) })
+        if paperCache.count > 48 { paperCache.removeAll() }
+        paperCache[key] = made
+        return made
+    }
+
     /// A single 4x MSAA pass for either output. Pass a drawable to present without blocking;
     /// without one, wait for offscreen pixel inspection. No per-stroke render passes.
     /// `wet` is the live-ink layer: drawn after the committed strokes in this same pass, continuing
@@ -192,12 +216,18 @@ final class MeshRenderer {
                 presenting drawable: MTLDrawable? = nil,
                 completion: (@Sendable (String?) -> Void)? = nil,
                 stage: (@Sendable (String, UInt64) -> Void)? = nil,
-                afterScheduled: Bool = false, cacheDry: Bool = false) throws {
+                afterScheduled: Bool = false, cacheDry: Bool = false, paperless: Bool = false) throws {
         let started = monotonicNs()
         try prepare(drawing, width: target.width, height: target.height)
         guard let buffer = queue.makeCommandBuffer() else { throw RendererError.unavailable }
         let visible = viewport.visibleSize(CGSize(width: target.width, height: target.height))
-        let paper = NotePalette.rgba(ThemeTokens.page(dark))
+        let geometry = drawing?.geometry ?? .legacy
+        let showPaper = geometry.drawsPaper && !paperless
+        let pageColour = NotePalette.rgba(ThemeTokens.page(dark))
+        // With pages the window behind them is the desk; without (a drawing with no snapshot) the whole view is paper.
+        let paper = showPaper ? NotePalette.rgba(ThemeTokens.well(dark)) : pageColour
+        let origins = Dictionary(geometry.pages.map { ($0.sheetId, SIMD2(Float($0.rect.minX), Float($0.rect.minY))) }, uniquingKeysWith: { a, _ in a })
+        let target0 = SIMD2<Float>(Float(target.width), Float(target.height))
         func passDescriptor(resolving resolve: MTLTexture, clearing: Bool) -> MTLRenderPassDescriptor {
             let pass = MTLRenderPassDescriptor()
             pass.colorAttachments[0].texture = colourTarget
@@ -243,26 +273,85 @@ final class MeshRenderer {
                 encoder.setVertexBytes(&uniforms, length: MemoryLayout<MeshUniforms>.stride, index: 2)
                 encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: count)
             }
+            let full = MTLScissorRect(x: 0, y: 0, width: target.width, height: target.height)
+            /// Confines drawing to a page's rectangle (ink outside a page is kept but clipped); false when none of it is on screen.
+            func clip(to rect: CGRect?) -> Bool {
+                guard let rect else { encoder.setScissorRect(full); return true }
+                let x0 = max(0, ((Float(rect.minX) - viewport.left) / visible.x * target0.x).rounded(.down))
+                let y0 = max(0, ((Float(rect.minY) - viewport.top) / visible.y * target0.y).rounded(.down))
+                let x1 = min(target0.x, ((Float(rect.maxX) - viewport.left) / visible.x * target0.x).rounded(.up))
+                let y1 = min(target0.y, ((Float(rect.maxY) - viewport.top) / visible.y * target0.y).rounded(.up))
+                guard x1 > x0, y1 > y0 else { return false }
+                encoder.setScissorRect(MTLScissorRect(x: Int(x0), y: Int(y0), width: Int(x1 - x0), height: Int(y1 - y0)))
+                return true
+            }
+            if committed && showPaper {
+                let unitsPerPixel = visible.x / target0.x
+                var borders = PagePaper.Mesh()
+                let line = max(1, unitsPerPixel)
+                for page in geometry.pages where visibleBounds(Float(page.rect.minX), Float(page.rect.minY), Float(page.rect.maxX), Float(page.rect.maxY)) {
+                    let sheet = paperMesh(width: Float(page.rect.width), height: Float(page.rect.height), style: page.style)
+                    let origin = SIMD2(Float(page.rect.minX), Float(page.rect.minY))
+                    let fill = page.style.paper.map { NotePalette.rgba(UInt32($0.w) << 24 | UInt32($0.x) << 16 | UInt32($0.y) << 8 | UInt32($0.z)) } ?? pageColour
+                    bind(false)
+                    draw(sheet.positions, sheet.sheetIndices, count: 6, origin: origin, colour: SIMD4(fill.x, fill.y, fill.z, 1))
+                    if let ruling = sheet.ruling {
+                        let c = page.style.patternColour
+                        bind(true)   // one stencil reference per page: crossings of a grid do not blend twice
+                        encoder.setVertexBuffer(sheet.positions, offset: 0, index: 0)
+                        encoder.setVertexBuffer(ruling.indices, offset: 0, index: 1)
+                        var u = MeshUniforms(origin: origin, viewport: SIMD2(viewport.left, viewport.top), size: visible,
+                                             colour: SIMD4(Float(c.x), Float(c.y), Float(c.z), Float(c.w)) / 255)
+                        encoder.setVertexBytes(&u, length: MemoryLayout<MeshUniforms>.stride, index: 2)
+                        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: ruling.count)
+                    }
+                    let r = page.rect
+                    borders.quad(Float(r.minX) - line, Float(r.minY) - line, Float(r.maxX) + line, Float(r.minY))
+                    borders.quad(Float(r.minX) - line, Float(r.maxY), Float(r.maxX) + line, Float(r.maxY) + line)
+                    borders.quad(Float(r.minX) - line, Float(r.minY), Float(r.minX), Float(r.maxY))
+                    borders.quad(Float(r.maxX), Float(r.minY), Float(r.maxX) + line, Float(r.maxY))
+                }
+                if !borders.indices.isEmpty,
+                   let v = device.makeBuffer(bytes: borders.positions, length: borders.positions.count * MemoryLayout<SIMD2<Float>>.stride),
+                   let i = device.makeBuffer(bytes: borders.indices, length: borders.indices.count * 4) {
+                    let edge = NotePalette.rgba(ThemeTokens.muted(dark))
+                    bind(true)
+                    draw(v, i, count: borders.indices.count, origin: .zero, colour: SIMD4(edge.x, edge.y, edge.z, 0.45))
+                }
+            }
             if committed {
                 for upload in uploads {
                     let stroke = upload.stroke, mesh = stroke.mesh
-                    guard visibleBounds(mesh.minX + stroke.originX, mesh.minY + stroke.originY,
-                                        mesh.maxX + stroke.originX, mesh.maxY + stroke.originY) else { continue }
+                    if showPaper && geometry.hidden.contains(stroke.sheetId) { continue }
+                    let place = origins[stroke.sheetId] ?? origins[geometry.pages.first?.sheetId ?? ""] ?? .zero
+                    let ox = stroke.originX + place.x, oy = stroke.originY + place.y
+                    guard visibleBounds(mesh.minX + ox, mesh.minY + oy, mesh.maxX + ox, mesh.maxY + oy) else { continue }
+                    // A page clips its ink; the old auto-height page and the sheets inside it never did.
+                    if showPaper { guard clip(to: geometry.page(forSheet: stroke.sheetId).flatMap { $0.autoHeight ? nil : $0.rect }) else { continue } }
                     bind(stroke.highlighter)
-                    draw(upload.vertices, upload.indices, count: mesh.indices.count / 4, origin: SIMD2(stroke.originX, stroke.originY),
+                    draw(upload.vertices, upload.indices, count: mesh.indices.count / 4, origin: SIMD2(ox, oy),
                          colour: MeshRenderer.colour(stroke.colour, custom: stroke.custom, dark: dark, highlighter: stroke.highlighter))
                 }
+                if showPaper { _ = clip(to: nil) }
             }
             guard wetLayer else { return }
-            // Wet layer. Sheet origin is zero: only the first sheet of a Mac note takes live ink.
+            // Wet layer, in note units. The first sheet of an old note takes live ink as it always did; with pages the ink
+            // belongs to the page under the pen's first point and is clipped to it.
             for stroke in wet?.strokes ?? [] {
                 var bound = false
                 for piece in stroke.pieces where visibleBounds(piece.minX, piece.minY, piece.maxX, piece.maxY) {
-                    if !bound { bind(stroke.highlighter); bound = true }
+                    if !bound {
+                        if showPaper {
+                            let first = CGPoint(x: Double(piece.minX + piece.maxX) / 2, y: Double(piece.minY + piece.maxY) / 2)
+                            guard clip(to: geometry.page(at: first).flatMap { $0.autoHeight ? nil : $0.rect }) else { break }
+                        }
+                        bind(stroke.highlighter); bound = true
+                    }
                     draw(piece.vertices, piece.indices, count: piece.indexCount, origin: .zero,
                          colour: MeshRenderer.colour(stroke.colour, custom: stroke.custom, dark: dark, highlighter: stroke.highlighter))
                 }
             }
+            if showPaper { _ = clip(to: nil) }
             if let hover = wet?.hover {
                 // A fixed on-screen size whatever the zoom: 5 px radius.
                 let radius = 5 * visible.x / Float(target.width)
@@ -282,7 +371,7 @@ final class MeshRenderer {
         if cacheDry && dryCacheEnabled {
             // Still view: the committed ink comes from the cache, rebuilt (in this same command buffer) only when the
             // drawing, viewport, size or theme changed. The wet pass starts by copying the cache into its 4x target.
-            let key = DryKey(drawing: drawingID, strokes: uploads.count, width: target.width, height: target.height, viewport: viewport, dark: dark)
+            let key = DryKey(drawing: drawingID, strokes: uploads.count, width: target.width, height: target.height, viewport: viewport, dark: dark, geometry: geometry, paper: showPaper)
             if dryKey != key || dryTexture == nil {
                 if dryTexture?.width != target.width || dryTexture?.height != target.height {
                     let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: target.width, height: target.height, mipmapped: false)

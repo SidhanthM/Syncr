@@ -194,6 +194,17 @@ import SyncrCore
                 view.cacheDisplay(in: view.bounds, to: rep)
                 do { try rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: words[1])); say("snapshot ok") } catch { say("snapshot failed") }
             }
+        case "newpaged":
+            // `newpaged <size> <landscape 0|1> <template none|lines|dots|grid> [paper rrggbb] [title…]`
+            var o = NewNoteOptions()
+            if words.count >= 2 { o.size = words[1].replacingOccurrences(of: "_", with: " ") }
+            if words.count >= 3 { o.landscape = words[2] == "1" }
+            if words.count >= 4 { o.template = words[3] }
+            if words.count >= 5, words[4].count == 6, let v = UInt32(words[4], radix: 16) { o.paper = [UInt8(v >> 16 & 255), UInt8(v >> 8 & 255), UInt8(v & 255)] }
+            if words.count >= 6 { o.title = words.dropFirst(5).joined(separator: " ") }
+            do { let id = try workspace.newNote(o); say("ack newpaged \(id)") } catch { say("newpaged-failed \(error.localizedDescription)") }
+        case "pageop", "pages", "strip", "fit", "layout", "go", "scrollby", "scrollend":
+            notebookAction(words[0], words.dropFirst().joined(separator: " "))
         case "shot":
             // `shot <png path> [width]`: what the canvas shows, ink and text together (the Metal view is not part of `snapshot`).
             if words.count >= 2, let image = detail.debugShot(width: words.count > 2 ? Int(words[2]) ?? 1400 : 1400) {

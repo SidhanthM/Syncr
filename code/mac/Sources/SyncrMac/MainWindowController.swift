@@ -113,6 +113,12 @@ import UniformTypeIdentifiers
         detail.companionStrip.onBudget = { [weak self] text, tip, paused in self?.statusBar.show(budget: text, tooltip: tip, paused: paused) }
         sidebar.delegate = self
         detail.onError = { [weak self] in self?.fail($0) }
+        detail.onAddPageAtEnd = { [weak self] in
+            if self?.live?.debug == true { FileHandle.standardError.write(Data("link: pull-add\n".utf8)) }
+            self?.addPage(after: self?.model.drawing?.geometry.pages.last?.sheetId)
+        }
+        detail.onPageAction = { [weak self] action, ids in self?.pageAction(action, ids) }
+        detail.onMovePages = { [weak self] ids, after in self?.movePages(ids, after: after) }
         detail.tabBar.onSelect = { [weak self] in self?.workspace.activate($0) }
         detail.tabBar.onClose = { [weak self] in self?.workspace.closeTab($0) }
         workspace.onChange = { [weak self] in self?.refresh() }
@@ -121,7 +127,7 @@ import UniformTypeIdentifiers
             self.detail.flushText(); self.notebook.flushAll()
             self.displayedDocument = nil; self.freeRevision = ""
             self.detail.showDocument(nil, title: ""); self.detail.showFree([])
-            if let id { self.detail.resetViewport(); self.model.openAsync(id: id) } else { self.model.clearDrawing() }
+            if let id { self.detail.resetViewport(opening: true); self.model.openAsync(id: id) } else { self.model.clearDrawing() }
         }
         model.onChange = { [weak self] in
             guard let self else { return }
@@ -154,13 +160,27 @@ import UniformTypeIdentifiers
         detail.documentEditor.slashCommands = notebook.slashCommands
         detail.documentEditor.onAsk = { [weak self] draw in self?.companion.ask(draw: draw) }
         detail.documentEditor.onLink = { [weak self] title, newTab in self?.attempt { try self?.notebook.openLink(title, newTab: newTab) } }
-        detail.onFreeText = { [weak self] x, y in guard let self, let id = self.workspace.active else { return }; self.notebook.addFree(note: id, x: x, y: y) }
-        detail.onFreeMove = { [weak self] index, x, y in
+        detail.onFreeText = { [weak self] x, y in
             guard let self, let id = self.workspace.active else { return }
-            let blocks = self.model.drawing?.textBlocks.filter { $0.role == .free && !$0.tombstone } ?? []
-            if index < blocks.count { self.notebook.moveFree(note: id, block: blocks[index], x: x, y: y) }
+            // On a page, the box belongs to the page under the click and sits where it was clicked on that page.
+            if let g = self.model.drawing?.geometry, g.drawsPaper, let page = g.page(at: CGPoint(x: x, y: y)) {
+                self.notebook.addFree(note: id, x: x - page.rect.minX, y: y - page.rect.minY, sheet: page.sheetId)
+            } else { self.notebook.addFree(note: id, x: x, y: y) }
+        }
+        detail.onFreeMove = { [weak self] index, x, y in
+            guard let self, let id = self.workspace.active, let drawing = self.model.drawing else { return }
+            let blocks = Self.liveFree(drawing)
+            if index < blocks.count {
+                let o = drawing.geometry.origin(ofSheet: blocks[index].sheetId)
+                self.notebook.moveFree(note: id, block: blocks[index], x: x - o.x, y: y - o.y)
+            }
         }
         companion.onShowSettings = { [weak self] in self?.settingsWindow.show(page: .companion) }
+    }
+
+    /// The free text boxes that are shown: those of pages that were not deleted.
+    private static func liveFree(_ drawing: Drawing) -> [TextBlockView] {
+        drawing.textBlocks.filter { $0.role == .free && !$0.tombstone && !drawing.geometry.hidden.contains($0.sheetId) }
     }
 
     private func syncNotebook() {
@@ -168,17 +188,22 @@ import UniformTypeIdentifiers
         guard let id = workspace.active, model.shownNote == id, let drawing = model.drawing else { companion.observe(); return }
         let block = drawing.textBlocks.first { $0.role == .document && !$0.tombstone }
         let debugNoDocument = LiveInkCoordinator.debugRequested && ProcessInfo.processInfo.environment["SYNCR_MAC_DEBUG_NO_DOCUMENT"] == "1"
-        let show = block != nil || (model.isWritable(id) && !debugNoDocument)
+        // Only the old page has the document column; pages made since hold free text boxes.
+        let show = block != nil || (model.isWritable(id) && !debugNoDocument && drawing.geometry.hasLegacyPage)
         let opening = displayedDocument != id
         displayedDocument = id
         detail.showDocument(show ? notebook.document(note: id, block: block) : nil, title: workspace.title(of: id), width: CGFloat(block?.width ?? 1600), opening: opening)
         showSaveState(notebook.status(note: id))
         if opening && model.isWritable(id) && show { window.makeFirstResponder(detail.documentEditor.textView) }
-        let free = drawing.textBlocks.filter { $0.role == .free && !$0.tombstone }
-        let revision = id + free.map { $0.id + $0.head.operationId }.joined()
+        let free = Self.liveFree(drawing)
+        let g = drawing.geometry
+        let revision = id + free.map { $0.id + $0.head.operationId }.joined() + g.pages.map { "\($0.sheetId)\($0.rect.minX),\($0.rect.minY)" }.joined()
         if revision != freeRevision {
             freeRevision = revision
-            detail.showFree(free.map { (CGFloat($0.originX) + CGFloat($0.transform.tx), CGFloat($0.originY) + CGFloat($0.transform.ty), CGFloat($0.width), notebook.document(note: id, block: $0)) })
+            detail.showFree(free.map { b in
+                let o = g.origin(ofSheet: b.sheetId)
+                return (CGFloat(b.originX) + CGFloat(b.transform.tx) + o.x, CGFloat(b.originY) + CGFloat(b.transform.ty) + o.y, CGFloat(b.width), notebook.document(note: id, block: b))
+            })
             detail.onFreeEnd = { [weak self] index in
                 if index < free.count { self?.notebook.deleteEmptyFree(note: id, block: free[index]) }
             }
@@ -313,7 +338,10 @@ import UniformTypeIdentifiers
         }
     }
 
-    private func fail(_ error: Error) { window.presentError(error) }
+    private func fail(_ error: Error) {
+        if live?.debug == true { FileHandle.standardError.write(Data("link: error \(error.localizedDescription)\n".utf8)) }
+        window.presentError(error)
+    }
     private func attempt(_ work: () throws -> Void) { do { try work() } catch { fail(error) } }
 
     // MARK: Commands
@@ -378,7 +406,12 @@ import UniformTypeIdentifiers
         case .importMarkdown: importMarkdown()
         case .exportMarkdown: exportMarkdown()
         case .slashMenu: slashMenu()
-        case .freeText: if let id = workspace.active { notebook.addFree(note: id, x: 3400, y: 200); detail.fit() }
+        case .freeText:
+            guard let id = workspace.active else { break }
+            if let g = model.drawing?.geometry, g.drawsPaper, !g.hasLegacyPage || g.pages.count > 1, let page = detail.currentPageForText {
+                let at = detail.visibleCanvasRect
+                notebook.addFree(note: id, x: min(max(0, at.midX - page.rect.minX - 300), page.rect.width - 400), y: min(max(0, at.midY - page.rect.minY - 100), page.rect.height - 200), sheet: page.sheetId)
+            } else { notebook.addFree(note: id, x: 3400, y: 200); detail.fit() }
         case .newNote: newNote()
         case .newNotebook: newNotebook()
         case .quickSwitcher: openSwitcher()
@@ -393,6 +426,18 @@ import UniformTypeIdentifiers
         case .zoomIn: detail.zoomIn()
         case .zoomOut: detail.zoomOut()
         case .fit: detail.fit()
+        case .fitPage: detail.fitPage(.whole)
+        case .fitPageWidth: detail.fitPage(.width)
+        case .fitPageHeight: detail.fitPage(.height)
+        case .toggleThumbnails: detail.setThumbnails(!detail.thumbnailsShown)
+        case .addPage: addPage(after: nil)
+        case .layoutSingle, .layoutDouble, .layoutCover:
+            var view = detail.pageView
+            view.mode = command == .layoutDouble ? .double : command == .layoutCover ? .cover : .single
+            detail.setPageView(view)
+        case .toggleFlip: var view = detail.pageView; view.flip.toggle(); detail.setPageView(view)
+        case .nextPage: detail.stepPage(1)
+        case .previousPage: detail.stepPage(-1)
         case .phoneLink: link?.setEnabled(!(link?.enabled ?? true))
         case .followPhone: link?.setFollow(!(link?.follow ?? true))
         case .forgetPhone: pickPhone()
@@ -469,9 +514,120 @@ import UniformTypeIdentifiers
                                         case "palette": self.palette.debugQuery(argument)
                                         case "accept": self.palette.debugAccept()
                                         case "tag-open": self.sidebarOpen(note: "tag:" + argument, newTab: false)
+                                        case "pageop", "pages", "strip", "fit", "layout", "go", "scrollby", "scrollend": self.debugPages(action, argument)
                                         default: break
                                         }
                                     }, forgetPhones: { [weak self] in self?.debugForgetAllPhones() })
+    }
+
+    // MARK: Pages
+
+    private final class Box<T>: @unchecked Sendable { var value: T? }
+
+    /// Adds a page after `sheet` (the page in view when nil) and goes to it.
+    func addPage(after sheet: String?) {
+        guard let id = workspace.active, model.isWritable(id) else { return }
+        flushText()
+        let after = sheet ?? detail.currentSheet
+        let made = Box<String>()
+        model.editPages(id: id, work: { note in made.value = try PageActions.add(note, after: after) }, completion: { [weak self] result in
+            switch result {
+            case .success: if let new = made.value { DispatchQueue.main.async { MainActor.assumeIsolated { self?.detail.goToPage(new) } } }
+            case .failure(let error): self?.fail(error)
+            }
+        })
+    }
+    private func flushText() { detail.flushText(); notebook.flushAll() }
+
+    /// What the thumbnail sidebar's menu and the multi-select bar ask for.
+    private func pageAction(_ action: PageStripAction, _ ids: [String]) {
+        guard let id = workspace.active, model.isWritable(id), !ids.isEmpty else { return }
+        flushText()
+        let done: @MainActor (Result<Void, Error>) -> Void = { [weak self] result in if case .failure(let error) = result { self?.fail(error) } }
+        switch action {
+        case .add: addPage(after: ids.last)
+        case .duplicate: model.editPages(id: id, reloadInk: true, work: { try PageActions.duplicate($0, sheets: ids) }, completion: done)
+        case .rotate(let quarters): model.editPages(id: id, reloadInk: true, work: { note in for s in ids { try PageActions.rotate(note, sheet: s, quarters: quarters) } }, completion: done)
+        case .delete: model.editPages(id: id, work: { try PageActions.delete($0, sheets: ids) }, completion: done)
+        case .size:
+            guard let extent = askPageSize() else { return }
+            model.editPages(id: id, work: { note in for s in ids { try PageActions.resize(note, sheet: s, width: extent.0, height: extent.1) } }, completion: done)
+        }
+    }
+    func movePages(_ ids: [String], after: String?) {
+        guard let id = workspace.active, model.isWritable(id) else { return }
+        flushText()
+        model.editPages(id: id, work: { try PageActions.move($0, sheets: ids, after: after) }, completion: { [weak self] result in
+            if case .failure(let error) = result { self?.fail(error) }
+        })
+    }
+
+    /// "Page size…": a named size and orientation, or millimetres.
+    private func askPageSize() -> (Float, Float)? {
+        let alert = NSAlert()
+        alert.messageText = "Page size"
+        alert.informativeText = "The content is not scaled or moved."
+        alert.addButton(withTitle: "Set Size"); alert.addButton(withTitle: "Cancel")
+        let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        let names = pageSizes().map(\.name) + ["Custom (mm)"]
+        popup.addItems(withTitles: names)
+        let orientation = NSSegmentedControl(labels: ["Portrait", "Landscape"], trackingMode: .selectOne, target: nil, action: nil)
+        orientation.selectedSegment = 0
+        let w = NSTextField(string: "210"), h = NSTextField(string: "297")
+        for f in [w, h] { f.alignment = .right; f.widthAnchor.constraint(equalToConstant: 60).isActive = true }
+        let custom = NSStackView(views: [NSTextField(labelWithString: "Width"), w, NSTextField(labelWithString: "Height"), h]); custom.spacing = 6
+        let stack = NSStackView(views: [popup, orientation, custom]); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 8
+        stack.frame = NSRect(x: 0, y: 0, width: 260, height: 100)
+        alert.accessoryView = stack
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        if popup.indexOfSelectedItem == names.count - 1 {
+            guard NewNoteOptions.customRange.contains(w.doubleValue), NewNoteOptions.customRange.contains(h.doubleValue) else {
+                fail(NSError(domain: "Syncr", code: 1, userInfo: [NSLocalizedDescriptionKey: "Each side between 10 and 2000 mm"])); return nil
+            }
+            return (Float(w.doubleValue) * NewNoteOptions.unitsPerMM, Float(h.doubleValue) * NewNoteOptions.unitsPerMM)
+        }
+        let size = pageSizes()[popup.indexOfSelectedItem]
+        return orientation.selectedSegment == 1 ? (size.height, size.width) : (size.width, size.height)
+    }
+
+    /// Debug control only: drives the page features without a pointer. Indices count pages from 1.
+    private func debugPages(_ action: String, _ argument: String) {
+        let words = argument.split(separator: " ").map(String.init)
+        let pages = model.drawing?.geometry.pages ?? []
+        func sheet(_ w: String) -> String? { Int(w).flatMap { $0 >= 1 && $0 <= pages.count ? pages[$0 - 1].sheetId : nil } }
+        func say(_ line: String) { FileHandle.standardError.write(Data(("link: " + line + "\n").utf8)) }
+        switch action {
+        case "pages":
+            let g = model.drawing?.geometry
+            say("pages kind=\(g?.isCanvas == true ? "canvas" : "note") legacy=\(g?.hasLegacyPage == true) flip=\(g?.view.flip == true) mode=\(g?.view.mode.rawValue ?? "-") current=\(detail.currentSheet.flatMap { id in pages.firstIndex { $0.sheetId == id }.map { $0 + 1 } } ?? 0) " +
+                pages.enumerated().map { i, p in "\(i + 1):\(Int(p.rect.minX)),\(Int(p.rect.minY)),\(Int(p.rect.width))x\(Int(p.rect.height))\(p.autoHeight ? "a" : "")p\(p.style.pattern)" }.joined(separator: " "))
+        case "strip": detail.setThumbnails(words.first != "off"); say("ack strip")
+        case "fit": detail.fitPage(words.first == "width" ? .width : words.first == "height" ? .height : .whole); say("ack fit")
+        case "layout":
+            var v = detail.pageView
+            switch words.first { case "double": v.mode = .double; case "cover": v.mode = .cover; case "single": v.mode = .single; case "flip": v.flip = true; case "scroll": v.flip = false; default: break }
+            detail.setPageView(v); say("ack layout")
+        case "go": if let id = words.first.flatMap(sheet) { detail.goToPage(id); say("ack go") }
+        case "scrollby": if words.count == 2, let x = Float(words[0]), let y = Float(words[1]) { detail.debugScroll(x: x, y: y); say("ack scrollby") }
+        case "scrollend": detail.debugScrollEnd(); say("ack scrollend")
+        default:  // pageop
+            guard let op = words.first else { return }
+            let rest = Array(words.dropFirst())
+            switch op {
+            case "add": addPage(after: rest.first.flatMap(sheet))
+            case "dup": pageAction(.duplicate, rest.compactMap(sheet))
+            case "delete": pageAction(.delete, rest.compactMap(sheet))
+            case "rotate": if let id = rest.first.flatMap(sheet), rest.count == 2, let q = Int(rest[1]) { pageAction(.rotate(q), [id]) }
+            case "size":
+                if let id = rest.first.flatMap(sheet), rest.count == 3, let w = Float(rest[1]), let h = Float(rest[2]), let note = workspace.active {
+                    model.editPages(id: note, work: { try PageActions.resize($0, sheet: id, width: w * NewNoteOptions.unitsPerMM, height: h * NewNoteOptions.unitsPerMM) }) { r in say("size \(r)") }
+                }
+            case "move":  // move <i,j,k> <after index | 0>
+                if rest.count == 2 { movePages(rest[0].split(separator: ",").compactMap { sheet(String($0)) }, after: sheet(rest[1])) }
+            default: break
+            }
+            say("ack pageop \(op)")
+        }
     }
 
     private func pickPhone() {
@@ -518,9 +674,16 @@ import UniformTypeIdentifiers
         })
     }
 
+    /// The New note sheet (sidebar button, Cmd-N, the palette). Creating opens the note in a new tab.
+    private var newNoteSheet: NewNoteSheet?
     private func newNote() {
-        attempt {
-            _ = try workspace.newNote()
+        guard newNoteSheet == nil else { return }
+        let sheet = NewNoteSheet(options: model.newNoteOptions(), notebook: workspace.selectedNotebook)
+        newNoteSheet = sheet
+        sheet.present(over: window) { [weak self] options in
+            guard let self else { return }
+            self.newNoteSheet = nil
+            if let options { self.attempt { _ = try self.workspace.newNote(options) } }
         }
     }
 
@@ -613,7 +776,7 @@ import UniformTypeIdentifiers
         attempt {
             let added = try model.importCopy(from: url)
             workspace.libraryChanged()
-            if workspace.tabs.contains(added.id) { model.openAsync(id: added.id); detail.resetViewport() }
+            if workspace.tabs.contains(added.id) { model.openAsync(id: added.id); detail.resetViewport(opening: true) }
             else { workspace.open(added.id) }
         }
     }

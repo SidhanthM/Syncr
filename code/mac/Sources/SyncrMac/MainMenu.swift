@@ -36,7 +36,8 @@ import AppKit
             command(.toggleSidebar), command(.commandPalette), .separator(),
             command(.showLeftSidebar), command(.hideLeftSidebar), .separator(),
             command(.nextTab), command(.previousTab), .separator(),
-            command(.zoomIn), command(.zoomOut), command(.fit), command(.documentView)
+            command(.zoomIn), command(.zoomOut), command(.fit), command(.fitPageWidth), command(.fitPageHeight), command(.documentView), .separator(),
+            command(.toggleThumbnails), command(.layoutSingle), command(.layoutDouble), command(.layoutCover), command(.toggleFlip), command(.nextPage), command(.previousPage), command(.addPage)
         ])
         add("Companion", [command(.askSyncr), command(.drawSelection), command(.askAllReaders), .separator(), command(.undoCompanion), command(.redoCompanion), .separator(), command(.lastCompanionRequest), command(.companionSettings)])
         add("Phone", [command(.phoneLink), command(.followPhone), .separator(), command(.forgetPhone)])

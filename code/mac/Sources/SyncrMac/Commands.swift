@@ -12,6 +12,9 @@ enum AppCommand: String, CaseIterable, Sendable {
     case undo, redo, browseTags, outline
     case bold, italic, insertLink, toggleTask, findInNote, searchNotes, dailyNote, documentView
     case importMarkdown, exportMarkdown, slashMenu, freeText
+    /// Pages of a Note: the thumbnail sidebar, adding a page, the fit commands, layout and flip, and moving between pages.
+    case toggleThumbnails, addPage, fitPage, fitPageWidth, fitPageHeight
+    case layoutSingle, layoutDouble, layoutCover, toggleFlip, nextPage, previousPage
     /// The phone link: on/off, Follow phone, and forgetting a paired phone.
     case phoneLink, followPhone, forgetPhone
     /// Debug-only (launch flag): in-process live-ink replays. Listed only when `Workspace.debugCommands` is set.
@@ -47,7 +50,18 @@ enum AppCommand: String, CaseIterable, Sendable {
         case .exportMarkdown: "Export Markdown…"
         case .slashMenu: "Insert Slash Command…"
         case .freeText: "New Free Text Block"
-        case .newNote: "New Note"
+        case .toggleThumbnails: "Toggle Page Thumbnails"
+        case .addPage: "Add Page"
+        case .fitPage: "Fit Whole Page"
+        case .fitPageWidth: "Fit Page Width"
+        case .fitPageHeight: "Fit Page Height"
+        case .layoutSingle: "Pages: Single"
+        case .layoutDouble: "Pages: Double"
+        case .layoutCover: "Pages: Cover"
+        case .toggleFlip: "Pages: Scroll or Flip"
+        case .nextPage: "Next Page"
+        case .previousPage: "Previous Page"
+        case .newNote: "New Note…"
         case .newNotebook: "New Notebook"
         case .quickSwitcher: "Open Note…"
         case .renameNote: "Rename Note"
@@ -88,10 +102,11 @@ enum AppCommand: String, CaseIterable, Sendable {
         switch self {
         case .settings, .hotkeys, .commandPalette: "Application"
         case .showLeftSidebar, .hideLeftSidebar,
-             .toggleSidebar, .nextTab, .previousTab, .zoomIn, .zoomOut, .fit, .documentView: "Workspace"
+             .toggleSidebar, .nextTab, .previousTab, .zoomIn, .zoomOut, .fit, .documentView,
+             .toggleThumbnails, .fitPage, .fitPageWidth, .fitPageHeight, .layoutSingle, .layoutDouble, .layoutCover, .toggleFlip, .nextPage, .previousPage: "Workspace"
         case .askSyncr, .drawSelection, .askAllReaders, .companionSettings, .lastCompanionRequest, .undoCompanion, .redoCompanion: "Companion"
         case .phoneLink, .followPhone, .forgetPhone: "Phone"
-        case .undo, .redo, .bold, .italic, .insertLink, .toggleTask, .slashMenu, .freeText: "Editor"
+        case .undo, .redo, .bold, .italic, .insertLink, .toggleTask, .slashMenu, .freeText, .addPage: "Editor"
         default: "Notes"
         }
     }
