@@ -8,6 +8,18 @@ final class TraceLines: @unchecked Sendable {
     var lines: [String] { lock.lock(); defer { lock.unlock() }; return values }
 }
 /// Passes its filter at once and holds the geometry check until told, to prove a step is shown before its check finishes.
+final class HeldCheckInspector: PictureInspector, @unchecked Sendable {
+    private let base = ReferencePictureInspector(); let released = DispatchSemaphore(value: 0)
+    private let lock = NSLock(); private var timedOut = false, failChecks: Bool
+    init(failChecks: Bool = false) { self.failChecks = failChecks }
+    var checkWaitedForShow: Bool { lock.lock(); defer { lock.unlock() }; return !timedOut }
+    func filter(svg: String) throws -> String { try base.filter(svg: svg) }
+    func displayList(svg: String) throws -> PictureDisplayList {
+        if released.wait(timeout: .now() + 3) == .timedOut { lock.lock(); timedOut = true; lock.unlock() }
+        if failChecks { throw CompanionError.invalid("held check fails") }
+        return try base.displayList(svg: svg)
+    }
+}
 
 func runSpeedChecks(tmp: URL) async throws {
     func run(_ engine: CompanionEngine, _ event: EngineEvent, at time: TimeInterval = 0) async throws -> [EngineOutput] {
@@ -17,6 +29,15 @@ func runSpeedChecks(tmp: URL) async throws {
     let note = "A zebra-quartz claim about the cache."
     let margin = "{\"type\":\"margin\",\"quote\":\"zebra-quartz claim\",\"kind\":\"question\",\"text\":\"Which walrus-lantern invalidates it?\"}\n"
     let input = RequestInput(markdown: note, selection: ByteSpan(start: 2, end: 20), instruction: "Explain marmalade-sonata")
+
+    // Pictures off: the same protocol without picture house style or examples.
+    var textOnly = input; textOnly.pictures = false
+    let full = try StreamRequest(model: "m", input: input), lean = try StreamRequest(model: "m", input: textOnly)
+    check(full.system.contains("Picture house style") && !full.prefix.isEmpty, "pictures on keeps the picture prompt")
+    check(!lean.system.contains("Picture house style") && !lean.system.contains("data-step") && lean.prefix.isEmpty && lean.system.contains("\"type\":\"margin\""), "pictures off drops picture style and examples, keeps the item protocol")
+    check(lean.wirePreview.utf8.count + 4000 < full.wirePreview.utf8.count, "pictures off cuts the prompt by several KB")
+    check(try JSONDecoder().decode(RequestInput.self, from: Data("{\"markdown\":\"x\"}".utf8)).pictures, "old request JSON decodes with pictures on")
+    check(try JSONDecoder().decode(RequestInput.self, from: JSONEncoder().encode(textOnly)).pictures == false, "pictures flag round-trips")
 
     // The trace: opt-in, fixed stages, numbers only.
     let lines = TraceLines()
@@ -33,6 +54,25 @@ func runSpeedChecks(tmp: URL) async throws {
     let quiet = CompanionEngine(provider: RecordedStreamProvider(passes: [RecordedStreamPass(text: margin)]), models: ModelSettings(gate: "g", answer: "a"), trace: nil)
     await quiet.configure(mode: .whenAsked, unpinnedNotes: 0)
     check(try await run(quiet, .ask(input)).contains { if case .finished = $0 { return true }; return false }, "pass without a trace sink is unchanged")
+
+    // A step is shown before its geometry check ends; a failing check takes it back.
+    let svg = "{\"type\":\"picture\",\"quote\":\"zebra-quartz claim\",\"title\":\"Flow\"}\n<svg viewBox=\"0 0 320 120\" fill=\"none\">\n<g data-step=\"1\" data-caption=\"One box.\"><rect x=\"20\" y=\"20\" width=\"80\" height=\"40\" stroke=\"var(--ink)\" stroke-width=\"1.25\"/><text x=\"30\" y=\"44\" fill=\"var(--ink)\" font-family=\"var(--font-sans)\" font-size=\"12\">Cache</text></g>\n<g data-step=\"2\" data-caption=\"A second.\"><rect x=\"160\" y=\"20\" width=\"80\" height=\"40\" stroke=\"var(--ink)\" stroke-width=\"1.25\"/><text x=\"170\" y=\"44\" fill=\"var(--ink)\" font-family=\"var(--font-sans)\" font-size=\"12\">Source</text></g>\n</svg>\n"
+    for failing in [false, true] {
+        let inspector = HeldCheckInspector(failChecks: failing)
+        let engine = CompanionEngine(provider: RecordedStreamProvider(passes: [RecordedStreamPass(frames: [RecordedStreamFrame(.text(svg)), RecordedStreamFrame(.usage(Usage(input: 1, output: 1)))]), RecordedStreamPass(text: "")]), models: ModelSettings(gate: "g", answer: "a"), inspector: inspector, trace: nil)
+        await engine.configure(mode: .whenAsked, unpinnedNotes: 0)
+        var seen: [String] = []
+        for await v in try await engine.events(for: .ask(input), at: 0) {
+            switch v {
+            case .pictureStep(_, _, let n): seen.append("step\(n)"); inspector.released.signal(); inspector.released.signal()
+            case .pictureReplace(_, nil, _): seen.append("withdrawn")
+            default: break
+            }
+        }
+        check(inspector.checkWaitedForShow, "the first step reaches the host before its geometry check completes")
+        check(seen.first == "step1", "first picture step is shown (\(failing))")
+        if failing { let w = seen.firstIndex(of: "withdrawn"); check(w != nil && w! > 0 && !seen[w!...].contains { $0.hasPrefix("step") }, "a step whose check fails is taken back, and nothing is shown after") }
+    }
 
     // The provider process is started before the ask: typing warms it, and cancelling leaves the next one starting.
     let script = tmp.appendingPathComponent("pi-speed.py")
@@ -55,5 +95,5 @@ func runSpeedChecks(tmp: URL) async throws {
     try await Task.sleep(nanoseconds: 600_000_000)
     _ = try await run(warmed, .ask(pi), at: 30); check(cold(t3) == "0", "a cancelled pass leaves a warm process for the next ask")
     await warmed.shutdown()
-    print("PASS speed: trace stages bounded and free of text, warm provider process after typing and after cancel")
+    print("PASS speed: trace stages bounded and free of text, prompt cut with pictures off, step shown before its check, warm provider process after typing and after cancel")
 }

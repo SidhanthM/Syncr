@@ -335,7 +335,7 @@ import SyncrCompanion
         }
         if !preferences.drawings { instruction += " Answer in words only; do not draw a picture." }
         var input = RequestInput(tell: settings.tell, reader: reader, markdown: text, changed: nil, selection: passage ?? selection(in: text),
-                                 threads: conversations(s, text: text), instruction: instruction, web: settings.web, pagePNG: nil, askThreadID: askThread)
+                                 threads: conversations(s, text: text), instruction: instruction, web: settings.web, pagePNG: nil, askThreadID: askThread, pictures: preferences.drawings)
         let state = CompanionPass(noteID: id, reader: reader, text: text, generation: requestGeneration, reading: reading)
         state.done = done
         if let askThread, let span = input.selection {

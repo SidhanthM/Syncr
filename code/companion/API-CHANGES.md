@@ -20,9 +20,13 @@ Public v2 entry points (implemented in corresponding Swift files):
 Streaming pictures are not enabled for storage without a production inspector. A rejected/check-failing picture falls back to words; the host need not link the core into this package.
 
 ## Speed round (companion-speed, 2026-11-22)
+
 - `CompanionEngine(..., trace: TraceSink? = TraceSink.fromEnvironment())`: opt-in stage trace. Off unless a sink is given or `SYNCR_COMPANION_TRACE=<file>` is set; then one JSON line per pass: stage times in milliseconds since `ask` (`started`, `answer.request_built`, `answer.provider_start`, `answer.child_ready`, `answer.prompt_sent`, `answer.first_record`, `answer.first_text`, `answer.first_byte`, `text_shown`, `picture_step_parsed`, `picture_step_shown`, `done`, and the same under `gate.` / `repair.`) and a few short facts (`answer.cold` 1 when the provider process had to be started, `answer.promptBytes`, `step.filter_ms`, `step.check_ms`, `outcome`). Fixed names, numbers only: never prompt, note or answer text.
 - `StreamRequest.trace` (set by the engine) lets a provider mark its own stages.
-- `swift run SyncrCompanionReplay`: the replay harness (README, "Speed").
 - `CompanionProvider.warmUp()` (default no-op): start the provider's process before an ask. The engine calls it on `configure` (unless Off), on every `activity`, and after a cancel. `CodexProvider` starts `pi` and resets its session in the background, off the caller's thread.
+- `RequestInput.pictures` (default true, absent in old JSON = true): false leaves the picture protocol, house style and examples out of the prompt (about 5 KB). Hosts with pictures off should set it.
+- `CompanionRequest.validate(_:)`: the request limits alone; the streaming path no longer builds the v1 prompt just to check them.
+- A picture step is shown as soon as the filter passes it; the geometry check runs beside the stream and takes the step back (`pictureReplace(nil)`) if it fails. The final check and repair are unchanged.
+- `swift run SyncrCompanionReplay`: the replay harness (README, "Speed").
 - `SYNCR_CODEX_THINKING=off|minimal|low|medium|high` (default `low`): pi's reasoning level for every pass, to try whether less reasoning gets the first words out sooner. Not exposed in settings.
 - pi's `new_session` was measured to put its thinking level back to `medium`, so the provider re-sends its settings after every reset; a pass on a fresh, already-configured child sends nothing before the prompt.

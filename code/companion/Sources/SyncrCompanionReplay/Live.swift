@@ -27,7 +27,7 @@ func liveRun(_ options: Options, _ fixtures: Fixtures) async -> Never {
             let url = URL(fileURLWithPath: ledger); try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             if let handle = try? FileHandle(forWritingTo: url) { _ = try? handle.seekToEnd(); try? handle.write(contentsOf: Data((line + "\n").utf8)); try? handle.close() } else { try? Data((line + "\n").utf8).write(to: url) }
         }
-        let input = RequestInput(tell: scenario.tell, markdown: scenario.markdown, selection: nil, instruction: options.picture ? "Explain this passage using a step-by-step picture, then two or three sentences on how to read it." : "Asked directly: explain.")
+        let input = RequestInput(tell: scenario.tell, markdown: scenario.markdown, selection: nil, instruction: options.picture ? "Explain this passage using a step-by-step picture, then two or three sentences on how to read it." : "Asked directly: explain.", pictures: options.picture)
         clock += 40
         let start = Date(); var text: Double?, step: Double?
         do {

@@ -20,7 +20,8 @@ public actor CompanionEngine {
     private var trigger = TriggerMachine(); private var budget: BudgetMeter
     private var task: Task<Void, Never>?; private var active: UUID?; private var cancelling = false; private var readingPass = false
     private var sink: AsyncStream<EngineOutput>.Continuation?
-    private var previews = Set<String>(); private var lastStep: CompanionStep?
+    private var previews = Set<String>(); private var withdrawn = Set<String>(); private var lastStep: CompanionStep?
+    private var pinnedCache: (Date?, [PicturePattern])?; private var logWrites: Task<Void, Never>?
     public private(set) var lastRequest: String?
     private let traceSink: TraceSink?; private var pass: PassTrace?
     public init(provider: CompanionProvider, models: ModelSettings, inspector: PictureInspector? = nil, stateFolder: URL? = nil, budget: BudgetMeter = BudgetMeter(day: BudgetMeter.dayKey()), trace: TraceSink? = TraceSink.fromEnvironment()) {
@@ -58,7 +59,7 @@ public actor CompanionEngine {
         if reading {
             guard trigger.tick(at: time) else { return AsyncStream { $0.finish() } }
         } else { try trigger.ask(at: time, confirmedBudget: confirmedBudget) }
-        let id = UUID(); active = id; readingPass = reading; lastStep = nil
+        let id = UUID(); active = id; readingPass = reading; lastStep = nil; withdrawn = []
         pass = traceSink == nil ? nil : PassTrace(purpose: reading ? "read" : "ask"); pass?.mark(.ask)
         return AsyncStream { continuation in
             sink = continuation
@@ -93,19 +94,18 @@ public actor CompanionEngine {
                 request.trace = pass?.leg("gate"); request.trace?.mark(.requestBuilt)
                 let text = try await collect(request, id: id, limit: 2048)
                 let decision = try GateDecision.decode(text); let elapsed = Date().timeIntervalSince(start)
-                try await log?.append(LocalLogEntry(event: "gate", passage: selected(input), model: models.gate, gate: decision, seconds: elapsed))
+                record(LocalLogEntry(event: "gate", passage: selected(input), model: models.gate, gate: decision, seconds: elapsed))
                 try emit(.gate(decision, seconds: elapsed), id: id)
-                if !decision.speaks { try emit(.item(.quiet), id: id); finish(id); return }
+                if !decision.speaks { try emit(.item(.quiet), id: id); await flushLog(); finish(id); return }
                 // Budget includes the gate. Never silently run an answer beyond its limit.
                 if budget.reached { throw CompanionError.budget }
                 input.instruction = "Read along: add at most one margin note. Give a \(decision.kind) about this passage. " + input.instruction
             } else if let thread = input.askThreadID {
-                input.instruction = "Asked directly in thread \(thread): answer with reply items whose threadID is \"\(thread)\", not margin items. At most about 400 words in all: short paragraphs, lists, inline code and fenced code blocks with a language tag; split a longer walkthrough into several reply items in order. Add a picture only if it helps; margin items only for brief side notes of at most 60 words. " + input.instruction
+                input.instruction = "Asked directly in thread \(thread): answer with reply items whose threadID is \"\(thread)\", not margin items. At most about 400 words in all: short paragraphs, lists, inline code and fenced code blocks with a language tag; split a longer walkthrough into several reply items in order. \(input.pictures ? "Add a picture only if it helps; margin items" : "Margin items") only for brief side notes of at most 60 words. " + input.instruction
             } else {
                 input.instruction = "Asked directly: answer in margin items of at most 150 words each, kind explanation; split a longer walkthrough into several in order. " + input.instruction
             }
-            let pinned = try stateFolder.map { try PatternBook.loadPinned(at: $0) } ?? []
-            let patterns = PatternBook.closest(to: input.instruction, additional: pinned)
+            let patterns = input.pictures ? PatternBook.closest(to: input.instruction, additional: try pinnedPatterns()) : []
             var request = try StreamRequest(model: models.answer, input: input, patterns: patterns)
             request.trace = pass?.leg("answer"); request.trace?.mark(.requestBuilt)
             var parser = ItemStreamParser(input: input, marginWords: reading || input.askThreadID != nil ? 60 : 150); var pending: [StreamItem] = []; var deferred = false; var marginCount = 0
@@ -146,10 +146,11 @@ public actor CompanionEngine {
                     if case .margin = item { marginCount += 1 }
                 }
             }
-            finish(id)
+            await flushLog(); finish(id)
         } catch is CancellationError {
             if active == id { await cancel() }
         } catch {
+            await flushLog()
             guard active == id else { return }
             for pictureID in previews { sink?.yield(.pictureReplace(id: pictureID, svg: nil, findings: [])) }; previews = []
             sink?.yield(.failed(String(describing: error))); finish(id, success: false)
@@ -162,8 +163,20 @@ public actor CompanionEngine {
             case .pictureStart: try step(.sketching, id: id)
             case .pictureStep(let pictureID, let svg, let step):
                 pass?.mark(.pictureStepParsed)
-                if let inspector, let clean = try? inspector.filter(svg: svg), let list = try? inspector.displayList(svg: clean), PictureCheck.acceptable(PictureCheck.inspect(list)) {
-                    previews.insert(pictureID); try emit(.pictureStep(id: pictureID, svg: clean, step: step), id: id)
+                // The filter is the safety boundary, so it runs before anything is shown. The geometry check does not gate the
+                // first look: show the step, then check it; a step that fails is taken back, and the final check and repair still run.
+                guard let inspector, !withdrawn.contains(pictureID) else { break }
+                let began = DispatchTime.now().uptimeNanoseconds
+                guard let clean = try? inspector.filter(svg: svg) else { break }
+                pass?.fact("step.filter_ms", Self.milliseconds(since: began))
+                previews.insert(pictureID); try emit(.pictureStep(id: pictureID, svg: clean, step: step), id: id)
+                // Off the actor, so the stream keeps being read while the geometry is measured; a failure comes back through `withdraw`.
+                let trace = pass
+                Task.detached { [weak self] in
+                    let began = DispatchTime.now().uptimeNanoseconds
+                    let ok = (try? inspector.displayList(svg: clean)).map { PictureCheck.acceptable(PictureCheck.inspect($0)) } ?? false
+                    trace?.fact("step.check_ms", Self.milliseconds(since: began))
+                    if !ok { await self?.withdraw(pictureID, pass: id) }
                 }
             case .item(let item):
                 switch item { case .margin, .reply: try step(.writing, id: id); default: break }
@@ -200,7 +213,7 @@ public actor CompanionEngine {
             try step(.checking, id: id)
             do { clean = try inspector.filter(svg: clean); findings = PictureCheck.inspect(try inspector.displayList(svg: clean), commentary: commentary) }
             catch { findings = [PictureFinding(rule: "filter", step: 0, items: [], detail: "Picture filter rejected the SVG.")] }
-            try await log?.append(LocalLogEntry(event: "picture-check", passage: quote, itemID: pictureID, findings: findings))
+            record(LocalLogEntry(event: "picture-check", passage: quote, itemID: pictureID, findings: findings))
             if findings.isEmpty || round == 1 { break }
             try step(.fixing, id: id)
             var repair = input
@@ -228,6 +241,28 @@ public actor CompanionEngine {
             if allowFallbackMargin { try emit(.item(.margin(quote: quote, kind: "explanation", text: message)), id: id) }
             return allowFallbackMargin
         }
+    }
+    private static func milliseconds(since start: UInt64) -> String { String(format: "%.1f", Double(DispatchTime.now().uptimeNanoseconds - start) / 1e6) }
+    /// A shown step whose geometry check failed is taken back. The final check and repair of the whole picture still run.
+    private func withdraw(_ pictureID: String, pass id: UUID) {
+        guard active == id, previews.remove(pictureID) != nil else { return }
+        withdrawn.insert(pictureID); sink?.yield(.pictureReplace(id: pictureID, svg: nil, findings: []))
+    }
+    /// The decision log is bookkeeping: write it behind the pass, not between the gate and the answer.
+    /// It is all written before the pass reports `.finished`, so a host reading the log after that sees every line.
+    private func record(_ entry: LocalLogEntry) {
+        guard let log else { return }
+        let previous = logWrites
+        logWrites = Task.detached(priority: .utility) { await previous?.value; try? await log.append(entry) }
+    }
+    private func flushLog() async { let last = logWrites; logWrites = nil; await last?.value }
+    /// Pinned patterns are read again only when their file changed.
+    private func pinnedPatterns() throws -> [PicturePattern] {
+        guard let stateFolder else { return [] }
+        let url = stateFolder.appendingPathComponent("companion-patterns.json")
+        let modified = (try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date) ?? nil
+        if let cached = pinnedCache, cached.0 == modified { return cached.1 }
+        let loaded = try PatternBook.loadPinned(at: stateFolder); pinnedCache = (modified, loaded); return loaded
     }
     private func finish(_ id: UUID, success: Bool = true) {
         guard active == id else { return }

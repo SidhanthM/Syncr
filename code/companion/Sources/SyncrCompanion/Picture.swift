@@ -177,10 +177,12 @@ public struct PicturePattern: Codable, Equatable, Sendable {
     public init(id: String, description: String, tags: [String], svg: String) { self.id = id; self.description = description; self.tags = tags; self.svg = svg }
 }
 public enum PatternBook {
-    public static var all: [PicturePattern] {
+    public static var all: [PicturePattern] { bundled }
+    /// Decoded once: it is bundled and does not change.
+    private static let bundled: [PicturePattern] = {
         guard let url = Bundle.module.url(forResource: "patterns", withExtension: "json", subdirectory: "patterns"), let data = try? Data(contentsOf: url), let patterns = try? JSONDecoder().decode([PicturePattern].self, from: data) else { return [] }
         return patterns
-    }
+    }()
     public static func loadPinned(at stateFolder: URL) throws -> [PicturePattern] {
         let url=stateFolder.appendingPathComponent("companion-patterns.json")
         guard FileManager.default.fileExists(atPath: url.path) else { return [] }
