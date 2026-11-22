@@ -18,6 +18,7 @@ usage() {
     '  connect HOST:PORT  Connect using the phone debugging port (NOT pairing port)' \
     '  build              Rebuild the core, then build the debug APK' \
     '  test               Run Android unit tests' \
+    '  check [STEP...]    Build and test everything (core bindings android mac companion); touches no device' \
     '  app_update         Rebuild the core, build, install and open the app on the selected device' \
     '  launch             Open the already-installed app' \
     '  logcat             Stream SyncrHid status and Android crashes (Ctrl+C to stop)' \
@@ -55,11 +56,71 @@ select_device() {
   fi
 }
 
+# Everything every round should prove, in dependency order, on this machine only: no device is touched. Each step's
+# output goes to a log; the summary names the failures. Android counts only fresh test results, because a compile
+# failure otherwise leaves the last run's XML behind and it reads as green.
+CHECK_STEPS=(core bindings android mac companion)
+check_step() {
+  local java=/opt/homebrew/opt/openjdk@21
+  case "$1" in
+    core) (cd "$ROOT/code/core" && cargo test --locked) ;;
+    bindings)
+      (cd "$ROOT/code/core" && JAVA_HOME="$java/libexec/openjdk.jdk/Contents/Home" scripts/generate-bindings.sh) || return 1
+      # The generated bindings are committed: regenerating them must change nothing.
+      local stale; stale="$(git -C "$ROOT" status --porcelain -- code/core/generated/kotlin code/core/generated/swift)"
+      [[ -z "$stale" ]] || { printf 'Bindings are stale; commit the regenerated files:\n%s\n' "$stale"; return 1; }
+      ;;
+    android)
+      build_core || return 1
+      local results="$ANDROID/app/build/test-results/testDebugUnitTest"
+      rm -rf "$results"
+      (cd "$ANDROID" && JAVA_HOME="$java" ./gradlew --console=plain testDebugUnitTest -PsyncrNativeHost=true \
+        assembleDebug assembleDebugAndroidTest) || return 1
+      python3 - "$results" <<'PY'
+import glob, sys, xml.etree.ElementTree as T
+tests = failed = 0
+for path in glob.glob(sys.argv[1] + "/*.xml"):
+    r = T.parse(path).getroot(); tests += int(r.get("tests")); failed += int(r.get("failures")) + int(r.get("errors"))
+print(f"Android unit tests: {tests} run, {failed} failed")
+sys.exit(1 if tests == 0 or failed else 0)
+PY
+      ;;
+    mac)
+      (cd "$ROOT/code/mac" && sh prepare.sh && swift build && swift run SyncrMacChecks && swift run SyncrMacChecks --dry-cache \
+        && swift run SyncrMacChecks --round2 && swift run SyncrMacChecks --companion-v2) ;;
+    companion) (cd "$ROOT/code/companion" && swift build && swift run SyncrCompanionChecks) ;;
+  esac
+}
+run_check() {
+  local steps=("$@") logs="$ROOT/code/.check-logs" failed=() step start free
+  [[ ${#steps[@]} -gt 0 ]] || steps=("${CHECK_STEPS[@]}")
+  for step in "${steps[@]}"; do
+    [[ " ${CHECK_STEPS[*]} " == *" $step "* ]] || fail "Unknown check '$step'. Steps: ${CHECK_STEPS[*]}"
+  done
+  free="$(df -g /System/Volumes/Data | awk 'NR == 2 { print $4 }')"
+  [[ "$free" -ge 4 ]] || fail "Only ${free} GB free; builds need at least 4 GB."
+  mkdir -p "$logs"
+  for step in "${steps[@]}"; do
+    start=$SECONDS
+    printf '%-10s … ' "$step"
+    if check_step "$step" >"$logs/$step.log" 2>&1; then
+      printf 'ok (%ss)\n' $((SECONDS - start))
+    else
+      printf 'FAILED (%ss) — %s\n' $((SECONDS - start)) "$logs/$step.log"
+      tail -n 15 "$logs/$step.log" | sed 's/^/    /'
+      failed+=("$step")
+    fi
+  done
+  [[ ${#failed[@]} -eq 0 ]] || fail "check failed: ${failed[*]}"
+  printf 'All checks passed. Logs: %s\n' "$logs"
+}
+
 [[ $# -gt 0 ]] || { usage; exit 0; }
 command="$1"
 shift
 case "$command" in
   help|-h|--help) usage ;;
+  check) run_check "$@" ;;
   devices) [[ $# -eq 0 ]] || fail 'devices takes no arguments'; need_adb; adb devices -l ;;
   emulator)
     [[ $# -eq 0 ]] || fail 'emulator takes no arguments'

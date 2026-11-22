@@ -47,3 +47,6 @@ CLAUDE.md
 .env.*
 !.env.example
 !.env.*.example
+
+# ./syncr check logs
+code/.check-logs/
