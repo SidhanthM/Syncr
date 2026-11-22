@@ -135,9 +135,8 @@ internal class EditorStyler(dark: Boolean, private val columnWidth: Float) {
     private class Applied(val key: Int, val spans: List<Any>)
 
     private val painter = TextPainter(dark, emptyMap())
-    private val typeset = Typeset(object : dev.syncr.prototype.notes.Shaper {
-        override fun shape(text: String, runs: List<Run>, width: Float) = emptyList<dev.syncr.prototype.notes.ShapedLine>()
-    })
+    /** Measures with the reading layer's own line breaking, so a caret line can keep the lines the rendered note has. */
+    private val typeset = Typeset(dev.syncr.prototype.notes.AndroidShaper())
     private val applied = ArrayList<Applied>()
     var extras = EditorExtras()
     /** Called on the main thread when a large code block's colours have arrived and the text still asks for them. */
@@ -166,7 +165,7 @@ internal class EditorStyler(dark: Boolean, private val columnWidth: Float) {
 
     private fun build(edit: Editable, line: MdLine, show: Boolean, gap: Float, embed: Float?, code: List<LineSpan>): List<Any> {
         val out = ArrayList<Any>()
-        val attrs = if (embed != null) Array(line.text.length) { Attr(tok = if (show) Tok.MUTED else Tok.CLEAR) } else typeset.attributes(line, show, code)
+        val attrs = if (embed != null) Array(line.text.length) { Attr(tok = if (show) Tok.MUTED else Tok.CLEAR) } else typeset.attributesFitting(line, show, code, columnWidth)
         // Off the caret a number stays as typed, faint, where the reading layer draws its label over it.
         if (!show && embed == null && line.kind is MdKind.Numbered) for (i in 0 until minOf(line.prefixLength, attrs.size)) attrs[i] = attrs[i].copy(tok = Tok.MUTED)
         val runs = typeset.compress(attrs)

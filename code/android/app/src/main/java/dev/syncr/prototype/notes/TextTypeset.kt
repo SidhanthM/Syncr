@@ -142,7 +142,7 @@ internal class Typeset(private val shaper: Shaper) {
             val raw = line.text.trim()
             val embedId = if (raw.startsWith("![[syncr-drawing:") && raw.endsWith("]]")) raw.drop(17).dropLast(2) else null
             val embedHeight = embedId?.let { heights[it] }
-            val attrs = attributes(line, index in shown, code[index].orEmpty())
+            val attrs = attributesFitting(line, index in shown, code[index].orEmpty(), width)
             val runs = compress(attrs)
             val shaped = if (embedHeight != null) listOf(ShapedLine(0, 0, emptyList())) else shaper.shape(line.text, runs, width)
             var firstFragment: FloatArray? = null
@@ -217,7 +217,7 @@ internal class Typeset(private val shaper: Shaper) {
      * holds the caret or is selected) the syntax keeps its size and takes the faint colour instead, so the line's own
      * glyph sizes, and with them its height, do not change.
      */
-    fun attributes(line: MdLine, shown: Boolean = false, code: List<LineSpan> = emptyList()): Array<Attr> {
+    fun attributes(line: MdLine, shown: Boolean = false, code: List<LineSpan> = emptyList(), hideTargets: Boolean = false): Array<Attr> {
         val n = line.text.length
         val a = Array(n) { Attr() }
         fun set(range: IntRange, f: (Attr) -> Attr) {
@@ -254,9 +254,26 @@ internal class Typeset(private val shaper: Shaper) {
                 SpanKind.CODE -> set(r) { it.copy(size = 44f, family = Family.MONO, background = Tok.INLINE_CODE) }
                 SpanKind.LINK, SpanKind.WIKI, SpanKind.TAG -> set(r) { it.copy(tok = Tok.INK, underline = true) }
             }
-            span.syntax.forEach { hide(rel(it)) }
+            // A link's own syntax (its target) can be long: [hideTargets] keeps it hidden even on a line that shows the rest.
+            val quiet = hideTargets && (span.kind == SpanKind.LINK || span.kind == SpanKind.WIKI)
+            span.syntax.forEach { if (quiet) set(rel(it)) { a -> a.copy(size = MacMetrics.HIDDEN, tok = Tok.CLEAR) } else hide(rel(it)) }
         }
         return a
+    }
+
+    /**
+     * [attributes] for a line that may show its syntax, held to the rule that showing it never breaks the line anywhere
+     * else than the rendered note does (§5.1). When the shown syntax of a link or note link (a long target) would add a
+     * visual line at [width], that syntax stays hidden; if even then the line would grow, the line stays as it reads.
+     */
+    fun attributesFitting(line: MdLine, shown: Boolean, code: List<LineSpan>, width: Float): Array<Attr> {
+        val full = attributes(line, shown, code)
+        if (!shown || line.spans.none { (it.kind == SpanKind.LINK || it.kind == SpanKind.WIKI) && it.syntax.isNotEmpty() }) return full
+        fun count(a: Array<Attr>) = shaper.shape(line.text, compress(a), width).size
+        val reading = count(attributes(line, false, code))
+        if (count(full) <= reading) return full
+        val short = attributes(line, true, code, hideTargets = true)
+        return if (count(short) <= reading) short else attributes(line, false, code)
     }
 
     fun compress(attrs: Array<Attr>): List<Run> {

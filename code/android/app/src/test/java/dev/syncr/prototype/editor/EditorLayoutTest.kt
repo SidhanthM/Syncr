@@ -108,12 +108,44 @@ class EditorLayoutTest {
         assertEquals(setOf(4, 5), Reveal.lines(fixture, a, b, lines))
     }
 
-    /** Known limit (owner list): a long link target shows with the caret line and can reflow it; the fixture keeps targets short. */
-    @Test fun aLongLinkTargetReflowsTheCaretLine_knownLimit() {
-        val text = "A paragraph of plain words with a [link](https://example.com/a/very/long/target/path/that/goes/on) in it."
+    /** §5.1: showing a link's syntax on the caret line never breaks that line anywhere else than the rendered note does. */
+    private val longLink = "A paragraph of plain words with a [link](https://example.com/a/very/long/target/path/that/goes/on/and/on/and/on/for/a/while/longer) in it."
+    private fun lineCount(text: String, shown: Set<Int>) = Typeset(FakeShaper()).document(text, 100f, 260f, 1400f, shown = shown).vlines.size
+
+    @Test fun aLongLinkTargetDoesNotReflowTheCaretLine() {
+        val lines = TextMarkdown.lines(longLink)
+        val reading = lineCount(longLink, emptySet())
+        // Unfitted, showing the target does add lines (so this test is about something).
+        val unfitted = Typeset(FakeShaper()).let { t -> t.compress(t.attributes(lines[0], true)) }
+        assertTrue(FakeShaper().shape(lines[0].text, unfitted, 1400f).size > reading)
+        for (caret in listOf(0, 5, 36, longLink.length / 2, longLink.length)) {
+            assertEquals("caret at $caret", reading, lineCount(longLink, Reveal.lines(longLink, caret, caret, lines)))
+        }
+    }
+
+    @Test fun aLongWikiTargetDoesNotReflowEither() {
+        val text = "Words before [[A note with a really quite long title that goes on and on and on for a good while|short]] and words after it to fill the line out."
         val lines = TextMarkdown.lines(text)
-        val reading = Typeset(FakeShaper()).document(text, 100f, 260f, 1400f).vlines.size
-        val editing = Typeset(FakeShaper()).document(text, 100f, 260f, 1400f, shown = Reveal.lines(text, 5, 5, lines)).vlines.size
-        assertTrue("showing the target adds lines: $reading -> $editing", editing > reading)
+        assertEquals(lineCount(text, emptySet()), lineCount(text, Reveal.lines(text, 3, 3, lines)))
+    }
+
+    @Test fun aShortLinkStillShowsItsSyntaxOnTheCaretLine() {
+        val text = "See [a link](x.io) here."
+        val t = Typeset(FakeShaper())
+        val line = TextMarkdown.lines(text)[0]
+        val attrs = t.attributesFitting(line, true, emptyList(), 1400f)
+        // The brackets are faint and sized as the text, not hidden.
+        assertEquals(dev.syncr.prototype.notes.Tok.MUTED, attrs[text.indexOf('[')].tok)
+        assertEquals(dev.syncr.prototype.notes.Tok.MUTED, attrs[text.indexOf("(x")].tok)
+        assertFalse(attrs[text.indexOf("(x")].hidden)
+    }
+
+    @Test fun aLinkTargetStaysHiddenOnlyWhenShowingItWouldReflow() {
+        val t = Typeset(FakeShaper())
+        val line = TextMarkdown.lines(longLink)[0]
+        val attrs = t.attributesFitting(line, true, emptyList(), 1400f)
+        assertTrue(attrs[longLink.indexOf("(https")].hidden)
+        // The words and the opening bracket are as on any other caret line.
+        assertEquals(dev.syncr.prototype.notes.Tok.INK, attrs[longLink.indexOf("plain")].tok)
     }
 }
