@@ -7,7 +7,7 @@ private func temp() -> URL { FileManager.default.temporaryDirectory.appendingPat
 private func phoneExport(into dir: URL, title: String) throws -> (id: String, file: URL) {
     let source = try openLibrary(rootPath: dir.appendingPathComponent("phone-\(UUID().uuidString)").path)
     let id = newId()
-    _ = try source.createNote(request: CreateNoteRequest(operationId: newId(), noteId: id, firstSheetId: newId(), title: title, notebook: "Phone"))
+    _ = try source.createNote(request: CreateNoteRequest(operationId: newId(), noteId: id, firstSheetId: newId(), title: title, notebook: "Phone", kind: .note))
     let note = try source.openNote(noteId: id)
     let file = dir.appendingPathComponent("\(id)-export.syncr")
     _ = try note.exportCopy(destinationPath: file.path)
@@ -157,7 +157,7 @@ private func phoneExport(into dir: URL, title: String) throws -> (id: String, fi
 
     // A different note under a Mac-created note's ID must not replace it (the merge refuses a different creation).
     let source = try openLibrary(rootPath: dir.appendingPathComponent("clash").path)
-    _ = try source.createNote(request: CreateNoteRequest(operationId: newId(), noteId: mac, firstSheetId: newId(), title: "Impostor", notebook: nil))
+    _ = try source.createNote(request: CreateNoteRequest(operationId: newId(), noteId: mac, firstSheetId: newId(), title: "Impostor", notebook: nil, kind: .note))
     let clashNote = try source.openNote(noteId: mac)
     let clash = dir.appendingPathComponent("clash.syncr")
     _ = try clashNote.exportCopy(destinationPath: clash.path); try clashNote.closeNote()

@@ -2272,6 +2272,149 @@ public func FfiConverterTypeBrush_lower(_ value: Brush) -> RustBuffer {
 
 
 /**
+ * The background of a Canvas, resolved, with the head `SetCanvasBackground` bases on.
+ */
+public struct CanvasBackgroundView: Equatable, Hashable {
+    public var pattern: PagePattern
+    public var patternColour: Rgba
+    public var spacing: Float
+    /**
+     * None = the theme paper.
+     */
+    public var paper: Rgba?
+    public var head: EntityHead
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(pattern: PagePattern, patternColour: Rgba, spacing: Float, 
+        /**
+         * None = the theme paper.
+         */paper: Rgba?, head: EntityHead) {
+        self.pattern = pattern
+        self.patternColour = patternColour
+        self.spacing = spacing
+        self.paper = paper
+        self.head = head
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension CanvasBackgroundView: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCanvasBackgroundView: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CanvasBackgroundView {
+        return
+            try CanvasBackgroundView(
+                pattern: FfiConverterTypePagePattern.read(from: &buf), 
+                patternColour: FfiConverterTypeRgba.read(from: &buf), 
+                spacing: FfiConverterFloat.read(from: &buf), 
+                paper: FfiConverterOptionTypeRgba.read(from: &buf), 
+                head: FfiConverterTypeEntityHead.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CanvasBackgroundView, into buf: inout [UInt8]) {
+        FfiConverterTypePagePattern.write(value.pattern, into: &buf)
+        FfiConverterTypeRgba.write(value.patternColour, into: &buf)
+        FfiConverterFloat.write(value.spacing, into: &buf)
+        FfiConverterOptionTypeRgba.write(value.paper, into: &buf)
+        FfiConverterTypeEntityHead.write(value.head, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCanvasBackgroundView_lift(_ buf: RustBuffer) throws -> CanvasBackgroundView {
+    return try FfiConverterTypeCanvasBackgroundView.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCanvasBackgroundView_lower(_ value: CanvasBackgroundView) -> RustBuffer {
+    return FfiConverterTypeCanvasBackgroundView.lower(value)
+}
+
+
+public struct CanvasCard: Equatable, Hashable {
+    public var id: String
+    /**
+     * The `CardAnchor::id` it hangs from. An unknown anchor places the card at the origin.
+     */
+    public var anchorId: String
+    public var width: Float
+    public var height: Float
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, 
+        /**
+         * The `CardAnchor::id` it hangs from. An unknown anchor places the card at the origin.
+         */anchorId: String, width: Float, height: Float) {
+        self.id = id
+        self.anchorId = anchorId
+        self.width = width
+        self.height = height
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension CanvasCard: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCanvasCard: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CanvasCard {
+        return
+            try CanvasCard(
+                id: FfiConverterString.read(from: &buf), 
+                anchorId: FfiConverterString.read(from: &buf), 
+                width: FfiConverterFloat.read(from: &buf), 
+                height: FfiConverterFloat.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CanvasCard, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.anchorId, into: &buf)
+        FfiConverterFloat.write(value.width, into: &buf)
+        FfiConverterFloat.write(value.height, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCanvasCard_lift(_ buf: RustBuffer) throws -> CanvasCard {
+    return try FfiConverterTypeCanvasCard.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCanvasCard_lower(_ value: CanvasCard) -> RustBuffer {
+    return FfiConverterTypeCanvasCard.lower(value)
+}
+
+
+/**
  * A note is one canvas, `width` note units wide, growing downward without pages.
  * `view_height` is the Mac's 16:10 window over the full width; `phone_column` is the
  * part of the width an upright phone shows at its default zoom.
@@ -2331,6 +2474,133 @@ public func FfiConverterTypeCanvasSize_lift(_ buf: RustBuffer) throws -> CanvasS
 #endif
 public func FfiConverterTypeCanvasSize_lower(_ value: CanvasSize) -> RustBuffer {
     return FfiConverterTypeCanvasSize.lower(value)
+}
+
+
+/**
+ * The text an annotation card hangs from, as a canvas rectangle.
+ */
+public struct CardAnchor: Equatable, Hashable {
+    public var id: String
+    public var x: Float
+    public var y: Float
+    public var width: Float
+    public var height: Float
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, x: Float, y: Float, width: Float, height: Float) {
+        self.id = id
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension CardAnchor: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCardAnchor: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CardAnchor {
+        return
+            try CardAnchor(
+                id: FfiConverterString.read(from: &buf), 
+                x: FfiConverterFloat.read(from: &buf), 
+                y: FfiConverterFloat.read(from: &buf), 
+                width: FfiConverterFloat.read(from: &buf), 
+                height: FfiConverterFloat.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CardAnchor, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterFloat.write(value.x, into: &buf)
+        FfiConverterFloat.write(value.y, into: &buf)
+        FfiConverterFloat.write(value.width, into: &buf)
+        FfiConverterFloat.write(value.height, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCardAnchor_lift(_ buf: RustBuffer) throws -> CardAnchor {
+    return try FfiConverterTypeCardAnchor.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCardAnchor_lower(_ value: CardAnchor) -> RustBuffer {
+    return FfiConverterTypeCardAnchor.lower(value)
+}
+
+
+public struct CardPlacement: Equatable, Hashable {
+    public var id: String
+    public var x: Float
+    public var y: Float
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, x: Float, y: Float) {
+        self.id = id
+        self.x = x
+        self.y = y
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension CardPlacement: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCardPlacement: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CardPlacement {
+        return
+            try CardPlacement(
+                id: FfiConverterString.read(from: &buf), 
+                x: FfiConverterFloat.read(from: &buf), 
+                y: FfiConverterFloat.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CardPlacement, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterFloat.write(value.x, into: &buf)
+        FfiConverterFloat.write(value.y, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCardPlacement_lift(_ buf: RustBuffer) throws -> CardPlacement {
+    return try FfiConverterTypeCardPlacement.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCardPlacement_lower(_ value: CardPlacement) -> RustBuffer {
+    return FfiConverterTypeCardPlacement.lower(value)
 }
 
 
@@ -2873,15 +3143,25 @@ public struct CreateNoteRequest: Equatable, Hashable {
     public var firstSheetId: String
     public var title: String
     public var notebook: String?
+    /**
+     * Note or Canvas. A Note is created with creation tag 3, a Canvas with tag 4. UniFFI cannot
+     * default an enum, so every constructor names it (serde defaults it to Note for stored JSON).
+     */
+    public var kind: NoteKind
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(operationId: String, noteId: String, firstSheetId: String, title: String, notebook: String?) {
+    public init(operationId: String, noteId: String, firstSheetId: String, title: String, notebook: String?, 
+        /**
+         * Note or Canvas. A Note is created with creation tag 3, a Canvas with tag 4. UniFFI cannot
+         * default an enum, so every constructor names it (serde defaults it to Note for stored JSON).
+         */kind: NoteKind) {
         self.operationId = operationId
         self.noteId = noteId
         self.firstSheetId = firstSheetId
         self.title = title
         self.notebook = notebook
+        self.kind = kind
     }
 
     
@@ -2904,7 +3184,8 @@ public struct FfiConverterTypeCreateNoteRequest: FfiConverterRustBuffer {
                 noteId: FfiConverterString.read(from: &buf), 
                 firstSheetId: FfiConverterString.read(from: &buf), 
                 title: FfiConverterString.read(from: &buf), 
-                notebook: FfiConverterOptionString.read(from: &buf)
+                notebook: FfiConverterOptionString.read(from: &buf), 
+                kind: FfiConverterTypeNoteKind.read(from: &buf)
         )
     }
 
@@ -2914,6 +3195,7 @@ public struct FfiConverterTypeCreateNoteRequest: FfiConverterRustBuffer {
         FfiConverterString.write(value.firstSheetId, into: &buf)
         FfiConverterString.write(value.title, into: &buf)
         FfiConverterOptionString.write(value.notebook, into: &buf)
+        FfiConverterTypeNoteKind.write(value.kind, into: &buf)
     }
 }
 
@@ -3903,13 +4185,50 @@ public struct NoteSnapshot: Equatable, Hashable {
     public var companionItems: [CompanionItemView]
     public var companionSettings: CompanionSettingsView?
     public var images: [ImageMarkView]
+    /**
+     * A Note's pages in order, tombstoned ones included (`layout_pages` skips them). A note
+     * written before pages reports one auto-height page, 4800 wide. Empty for a Canvas.
+     */
+    public var pages: [PageView]
+    /**
+     * Some for a Note.
+     */
+    public var pageStyle: PageStyleView?
+    /**
+     * Some for a Canvas.
+     */
+    public var canvasBackground: CanvasBackgroundView?
+    /**
+     * Some for a Canvas.
+     */
+    public var waypoints: WaypointsView?
+    /**
+     * Fixed at creation. Required (UniFFI cannot default an enum), so it comes last.
+     */
+    public var kind: NoteKind
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init(noteId: String, title: String, notebook: String?, metadataHead: EntityHead, structureHead: EntityHead, sheets: [SheetView], strokes: [StrokeView], localSequence: UInt64, cursor: EventCursor, undoTarget: String?, redoTarget: String?, undoDependencies: [String], redoDependencies: [String], 
         /**
          * Metadata, like `notebook`; changed by SetArchived. Trailing with a default.
-         */archived: Bool = false, textBlocks: [TextBlockView] = [], companionItems: [CompanionItemView] = [], companionSettings: CompanionSettingsView? = nil, images: [ImageMarkView] = []) {
+         */archived: Bool = false, textBlocks: [TextBlockView] = [], companionItems: [CompanionItemView] = [], companionSettings: CompanionSettingsView? = nil, images: [ImageMarkView] = [], 
+        /**
+         * A Note's pages in order, tombstoned ones included (`layout_pages` skips them). A note
+         * written before pages reports one auto-height page, 4800 wide. Empty for a Canvas.
+         */pages: [PageView] = [], 
+        /**
+         * Some for a Note.
+         */pageStyle: PageStyleView? = nil, 
+        /**
+         * Some for a Canvas.
+         */canvasBackground: CanvasBackgroundView? = nil, 
+        /**
+         * Some for a Canvas.
+         */waypoints: WaypointsView? = nil, 
+        /**
+         * Fixed at creation. Required (UniFFI cannot default an enum), so it comes last.
+         */kind: NoteKind) {
         self.noteId = noteId
         self.title = title
         self.notebook = notebook
@@ -3928,6 +4247,11 @@ public struct NoteSnapshot: Equatable, Hashable {
         self.companionItems = companionItems
         self.companionSettings = companionSettings
         self.images = images
+        self.pages = pages
+        self.pageStyle = pageStyle
+        self.canvasBackground = canvasBackground
+        self.waypoints = waypoints
+        self.kind = kind
     }
 
     
@@ -3963,7 +4287,12 @@ public struct FfiConverterTypeNoteSnapshot: FfiConverterRustBuffer {
                 textBlocks: FfiConverterSequenceTypeTextBlockView.read(from: &buf), 
                 companionItems: FfiConverterSequenceTypeCompanionItemView.read(from: &buf), 
                 companionSettings: FfiConverterOptionTypeCompanionSettingsView.read(from: &buf), 
-                images: FfiConverterSequenceTypeImageMarkView.read(from: &buf)
+                images: FfiConverterSequenceTypeImageMarkView.read(from: &buf), 
+                pages: FfiConverterSequenceTypePageView.read(from: &buf), 
+                pageStyle: FfiConverterOptionTypePageStyleView.read(from: &buf), 
+                canvasBackground: FfiConverterOptionTypeCanvasBackgroundView.read(from: &buf), 
+                waypoints: FfiConverterOptionTypeWaypointsView.read(from: &buf), 
+                kind: FfiConverterTypeNoteKind.read(from: &buf)
         )
     }
 
@@ -3986,6 +4315,11 @@ public struct FfiConverterTypeNoteSnapshot: FfiConverterRustBuffer {
         FfiConverterSequenceTypeCompanionItemView.write(value.companionItems, into: &buf)
         FfiConverterOptionTypeCompanionSettingsView.write(value.companionSettings, into: &buf)
         FfiConverterSequenceTypeImageMarkView.write(value.images, into: &buf)
+        FfiConverterSequenceTypePageView.write(value.pages, into: &buf)
+        FfiConverterOptionTypePageStyleView.write(value.pageStyle, into: &buf)
+        FfiConverterOptionTypeCanvasBackgroundView.write(value.canvasBackground, into: &buf)
+        FfiConverterOptionTypeWaypointsView.write(value.waypoints, into: &buf)
+        FfiConverterTypeNoteKind.write(value.kind, into: &buf)
     }
 }
 
@@ -4023,6 +4357,10 @@ public struct NoteSummary: Equatable, Hashable {
      * like `notebook`. Trailing with a default so existing positional constructors compile.
      */
     public var archived: Bool
+    /**
+     * Fixed at creation.
+     */
+    public var kind: NoteKind
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -4036,7 +4374,10 @@ public struct NoteSummary: Equatable, Hashable {
         /**
          * Archived notes stay in the library but are hidden from normal views. Note metadata,
          * like `notebook`. Trailing with a default so existing positional constructors compile.
-         */archived: Bool = false) {
+         */archived: Bool = false, 
+        /**
+         * Fixed at creation.
+         */kind: NoteKind) {
         self.id = id
         self.title = title
         self.localSequence = localSequence
@@ -4044,6 +4385,7 @@ public struct NoteSummary: Equatable, Hashable {
         self.createdAtMs = createdAtMs
         self.modifiedAtMs = modifiedAtMs
         self.archived = archived
+        self.kind = kind
     }
 
     
@@ -4068,7 +4410,8 @@ public struct FfiConverterTypeNoteSummary: FfiConverterRustBuffer {
                 notebook: FfiConverterOptionString.read(from: &buf), 
                 createdAtMs: FfiConverterInt64.read(from: &buf), 
                 modifiedAtMs: FfiConverterInt64.read(from: &buf), 
-                archived: FfiConverterBool.read(from: &buf)
+                archived: FfiConverterBool.read(from: &buf), 
+                kind: FfiConverterTypeNoteKind.read(from: &buf)
         )
     }
 
@@ -4080,6 +4423,7 @@ public struct FfiConverterTypeNoteSummary: FfiConverterRustBuffer {
         FfiConverterInt64.write(value.createdAtMs, into: &buf)
         FfiConverterInt64.write(value.modifiedAtMs, into: &buf)
         FfiConverterBool.write(value.archived, into: &buf)
+        FfiConverterTypeNoteKind.write(value.kind, into: &buf)
     }
 }
 
@@ -4212,6 +4556,473 @@ public func FfiConverterTypeOklch_lift(_ buf: RustBuffer) throws -> Oklch {
 #endif
 public func FfiConverterTypeOklch_lower(_ value: Oklch) -> RustBuffer {
     return FfiConverterTypeOklch.lower(value)
+}
+
+
+/**
+ * One live page's size. The caller leaves tombstoned pages out.
+ */
+public struct PageExtent: Equatable, Hashable {
+    public var sheetId: String
+    public var width: Float
+    public var height: Float
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(sheetId: String, width: Float, height: Float) {
+        self.sheetId = sheetId
+        self.width = width
+        self.height = height
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PageExtent: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePageExtent: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PageExtent {
+        return
+            try PageExtent(
+                sheetId: FfiConverterString.read(from: &buf), 
+                width: FfiConverterFloat.read(from: &buf), 
+                height: FfiConverterFloat.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PageExtent, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.sheetId, into: &buf)
+        FfiConverterFloat.write(value.width, into: &buf)
+        FfiConverterFloat.write(value.height, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePageExtent_lift(_ buf: RustBuffer) throws -> PageExtent {
+    return try FfiConverterTypePageExtent.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePageExtent_lower(_ value: PageExtent) -> RustBuffer {
+    return FfiConverterTypePageExtent.lower(value)
+}
+
+
+public struct PageRect: Equatable, Hashable {
+    public var sheetId: String
+    /**
+     * Row index, top to bottom.
+     */
+    public var row: UInt32
+    public var x: Float
+    public var y: Float
+    public var width: Float
+    public var height: Float
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(sheetId: String, 
+        /**
+         * Row index, top to bottom.
+         */row: UInt32, x: Float, y: Float, width: Float, height: Float) {
+        self.sheetId = sheetId
+        self.row = row
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PageRect: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePageRect: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PageRect {
+        return
+            try PageRect(
+                sheetId: FfiConverterString.read(from: &buf), 
+                row: FfiConverterUInt32.read(from: &buf), 
+                x: FfiConverterFloat.read(from: &buf), 
+                y: FfiConverterFloat.read(from: &buf), 
+                width: FfiConverterFloat.read(from: &buf), 
+                height: FfiConverterFloat.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PageRect, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.sheetId, into: &buf)
+        FfiConverterUInt32.write(value.row, into: &buf)
+        FfiConverterFloat.write(value.x, into: &buf)
+        FfiConverterFloat.write(value.y, into: &buf)
+        FfiConverterFloat.write(value.width, into: &buf)
+        FfiConverterFloat.write(value.height, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePageRect_lift(_ buf: RustBuffer) throws -> PageRect {
+    return try FfiConverterTypePageRect.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePageRect_lower(_ value: PageRect) -> RustBuffer {
+    return FfiConverterTypePageRect.lower(value)
+}
+
+
+/**
+ * A named paper size in note units, portrait (short side first).
+ */
+public struct PageSize: Equatable, Hashable {
+    public var name: String
+    public var mmWidth: Float
+    public var mmHeight: Float
+    public var width: Float
+    public var height: Float
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(name: String, mmWidth: Float, mmHeight: Float, width: Float, height: Float) {
+        self.name = name
+        self.mmWidth = mmWidth
+        self.mmHeight = mmHeight
+        self.width = width
+        self.height = height
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PageSize: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePageSize: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PageSize {
+        return
+            try PageSize(
+                name: FfiConverterString.read(from: &buf), 
+                mmWidth: FfiConverterFloat.read(from: &buf), 
+                mmHeight: FfiConverterFloat.read(from: &buf), 
+                width: FfiConverterFloat.read(from: &buf), 
+                height: FfiConverterFloat.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PageSize, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterFloat.write(value.mmWidth, into: &buf)
+        FfiConverterFloat.write(value.mmHeight, into: &buf)
+        FfiConverterFloat.write(value.width, into: &buf)
+        FfiConverterFloat.write(value.height, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePageSize_lift(_ buf: RustBuffer) throws -> PageSize {
+    return try FfiConverterTypePageSize.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePageSize_lower(_ value: PageSize) -> RustBuffer {
+    return FfiConverterTypePageSize.lower(value)
+}
+
+
+/**
+ * A style as stored. Missing parts fall back, per the resolution order page, note, default.
+ */
+public struct PageStyle: Equatable, Hashable {
+    public var template: PagePattern
+    /**
+     * None = the theme paper.
+     */
+    public var paper: Rgba?
+    /**
+     * None = rgba(150,150,150,128).
+     */
+    public var patternColour: Rgba?
+    /**
+     * None = 82.6 units. Resolved values are clamped to 20.6..258.
+     */
+    public var spacing: Float?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(template: PagePattern, 
+        /**
+         * None = the theme paper.
+         */paper: Rgba?, 
+        /**
+         * None = rgba(150,150,150,128).
+         */patternColour: Rgba?, 
+        /**
+         * None = 82.6 units. Resolved values are clamped to 20.6..258.
+         */spacing: Float?) {
+        self.template = template
+        self.paper = paper
+        self.patternColour = patternColour
+        self.spacing = spacing
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PageStyle: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePageStyle: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PageStyle {
+        return
+            try PageStyle(
+                template: FfiConverterTypePagePattern.read(from: &buf), 
+                paper: FfiConverterOptionTypeRgba.read(from: &buf), 
+                patternColour: FfiConverterOptionTypeRgba.read(from: &buf), 
+                spacing: FfiConverterOptionFloat.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PageStyle, into buf: inout [UInt8]) {
+        FfiConverterTypePagePattern.write(value.template, into: &buf)
+        FfiConverterOptionTypeRgba.write(value.paper, into: &buf)
+        FfiConverterOptionTypeRgba.write(value.patternColour, into: &buf)
+        FfiConverterOptionFloat.write(value.spacing, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePageStyle_lift(_ buf: RustBuffer) throws -> PageStyle {
+    return try FfiConverterTypePageStyle.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePageStyle_lower(_ value: PageStyle) -> RustBuffer {
+    return FfiConverterTypePageStyle.lower(value)
+}
+
+
+/**
+ * The note-wide page style with the head a `SetPageStyle` without `sheet_id` bases on.
+ */
+public struct PageStyleView: Equatable, Hashable {
+    /**
+     * None until a style was set.
+     */
+    public var style: PageStyle?
+    public var resolved: ResolvedPageStyle
+    public var head: EntityHead
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * None until a style was set.
+         */style: PageStyle?, resolved: ResolvedPageStyle, head: EntityHead) {
+        self.style = style
+        self.resolved = resolved
+        self.head = head
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PageStyleView: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePageStyleView: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PageStyleView {
+        return
+            try PageStyleView(
+                style: FfiConverterOptionTypePageStyle.read(from: &buf), 
+                resolved: FfiConverterTypeResolvedPageStyle.read(from: &buf), 
+                head: FfiConverterTypeEntityHead.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PageStyleView, into buf: inout [UInt8]) {
+        FfiConverterOptionTypePageStyle.write(value.style, into: &buf)
+        FfiConverterTypeResolvedPageStyle.write(value.resolved, into: &buf)
+        FfiConverterTypeEntityHead.write(value.head, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePageStyleView_lift(_ buf: RustBuffer) throws -> PageStyleView {
+    return try FfiConverterTypePageStyleView.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePageStyleView_lower(_ value: PageStyleView) -> RustBuffer {
+    return FfiConverterTypePageStyleView.lower(value)
+}
+
+
+/**
+ * One page of a Note. A page is a sheet; strokes, text and pictures stay sheet-local.
+ */
+public struct PageView: Equatable, Hashable {
+    public var sheetId: String
+    public var width: Float
+    /**
+     * For an `auto_height` page this is `max(3000, content_bottom + 1000)`, computed by the
+     * core in the snapshot.
+     */
+    public var height: Float
+    public var autoHeight: Bool
+    public var tombstone: Bool
+    /**
+     * The head `ResizePage`, `MovePage`, `DeletePage` and `RestorePage` base on.
+     */
+    public var head: EntityHead
+    /**
+     * This page's own style override, if any; the head to change it is `style_head`.
+     */
+    public var style: PageStyle?
+    public var styleHead: EntityHead
+    /**
+     * Page, then note, then default.
+     */
+    public var resolvedStyle: ResolvedPageStyle
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(sheetId: String, width: Float, 
+        /**
+         * For an `auto_height` page this is `max(3000, content_bottom + 1000)`, computed by the
+         * core in the snapshot.
+         */height: Float, autoHeight: Bool, tombstone: Bool, 
+        /**
+         * The head `ResizePage`, `MovePage`, `DeletePage` and `RestorePage` base on.
+         */head: EntityHead, 
+        /**
+         * This page's own style override, if any; the head to change it is `style_head`.
+         */style: PageStyle?, styleHead: EntityHead, 
+        /**
+         * Page, then note, then default.
+         */resolvedStyle: ResolvedPageStyle) {
+        self.sheetId = sheetId
+        self.width = width
+        self.height = height
+        self.autoHeight = autoHeight
+        self.tombstone = tombstone
+        self.head = head
+        self.style = style
+        self.styleHead = styleHead
+        self.resolvedStyle = resolvedStyle
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PageView: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePageView: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PageView {
+        return
+            try PageView(
+                sheetId: FfiConverterString.read(from: &buf), 
+                width: FfiConverterFloat.read(from: &buf), 
+                height: FfiConverterFloat.read(from: &buf), 
+                autoHeight: FfiConverterBool.read(from: &buf), 
+                tombstone: FfiConverterBool.read(from: &buf), 
+                head: FfiConverterTypeEntityHead.read(from: &buf), 
+                style: FfiConverterOptionTypePageStyle.read(from: &buf), 
+                styleHead: FfiConverterTypeEntityHead.read(from: &buf), 
+                resolvedStyle: FfiConverterTypeResolvedPageStyle.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PageView, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.sheetId, into: &buf)
+        FfiConverterFloat.write(value.width, into: &buf)
+        FfiConverterFloat.write(value.height, into: &buf)
+        FfiConverterBool.write(value.autoHeight, into: &buf)
+        FfiConverterBool.write(value.tombstone, into: &buf)
+        FfiConverterTypeEntityHead.write(value.head, into: &buf)
+        FfiConverterOptionTypePageStyle.write(value.style, into: &buf)
+        FfiConverterTypeEntityHead.write(value.styleHead, into: &buf)
+        FfiConverterTypeResolvedPageStyle.write(value.resolvedStyle, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePageView_lift(_ buf: RustBuffer) throws -> PageView {
+    return try FfiConverterTypePageView.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePageView_lower(_ value: PageView) -> RustBuffer {
+    return FfiConverterTypePageView.lower(value)
 }
 
 
@@ -4888,6 +5699,136 @@ public func FfiConverterTypeResolvedInk_lift(_ buf: RustBuffer) throws -> Resolv
 #endif
 public func FfiConverterTypeResolvedInk_lower(_ value: ResolvedInk) -> RustBuffer {
     return FfiConverterTypeResolvedInk.lower(value)
+}
+
+
+public struct ResolvedPageStyle: Equatable, Hashable {
+    public var pattern: PagePattern
+    /**
+     * None = the theme paper.
+     */
+    public var paper: Rgba?
+    public var patternColour: Rgba
+    public var spacing: Float
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(pattern: PagePattern, 
+        /**
+         * None = the theme paper.
+         */paper: Rgba?, patternColour: Rgba, spacing: Float) {
+        self.pattern = pattern
+        self.paper = paper
+        self.patternColour = patternColour
+        self.spacing = spacing
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ResolvedPageStyle: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeResolvedPageStyle: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ResolvedPageStyle {
+        return
+            try ResolvedPageStyle(
+                pattern: FfiConverterTypePagePattern.read(from: &buf), 
+                paper: FfiConverterOptionTypeRgba.read(from: &buf), 
+                patternColour: FfiConverterTypeRgba.read(from: &buf), 
+                spacing: FfiConverterFloat.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ResolvedPageStyle, into buf: inout [UInt8]) {
+        FfiConverterTypePagePattern.write(value.pattern, into: &buf)
+        FfiConverterOptionTypeRgba.write(value.paper, into: &buf)
+        FfiConverterTypeRgba.write(value.patternColour, into: &buf)
+        FfiConverterFloat.write(value.spacing, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeResolvedPageStyle_lift(_ buf: RustBuffer) throws -> ResolvedPageStyle {
+    return try FfiConverterTypeResolvedPageStyle.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeResolvedPageStyle_lower(_ value: ResolvedPageStyle) -> RustBuffer {
+    return FfiConverterTypeResolvedPageStyle.lower(value)
+}
+
+
+public struct Rgba: Equatable, Hashable {
+    public var r: UInt8
+    public var g: UInt8
+    public var b: UInt8
+    public var a: UInt8
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(r: UInt8, g: UInt8, b: UInt8, a: UInt8) {
+        self.r = r
+        self.g = g
+        self.b = b
+        self.a = a
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension Rgba: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRgba: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Rgba {
+        return
+            try Rgba(
+                r: FfiConverterUInt8.read(from: &buf), 
+                g: FfiConverterUInt8.read(from: &buf), 
+                b: FfiConverterUInt8.read(from: &buf), 
+                a: FfiConverterUInt8.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: Rgba, into buf: inout [UInt8]) {
+        FfiConverterUInt8.write(value.r, into: &buf)
+        FfiConverterUInt8.write(value.g, into: &buf)
+        FfiConverterUInt8.write(value.b, into: &buf)
+        FfiConverterUInt8.write(value.a, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRgba_lift(_ buf: RustBuffer) throws -> Rgba {
+    return try FfiConverterTypeRgba.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRgba_lower(_ value: Rgba) -> RustBuffer {
+    return FfiConverterTypeRgba.lower(value)
 }
 
 
@@ -5601,6 +6542,128 @@ public func FfiConverterTypeTextStyle_lower(_ value: TextStyle) -> RustBuffer {
 }
 
 
+public struct Waypoint: Equatable, Hashable {
+    /**
+     * At most 48 characters; unique case-insensitively.
+     */
+    public var name: String
+    public var cx: Float
+    public var cy: Float
+    public var zoom: Float
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * At most 48 characters; unique case-insensitively.
+         */name: String, cx: Float, cy: Float, zoom: Float) {
+        self.name = name
+        self.cx = cx
+        self.cy = cy
+        self.zoom = zoom
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension Waypoint: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWaypoint: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Waypoint {
+        return
+            try Waypoint(
+                name: FfiConverterString.read(from: &buf), 
+                cx: FfiConverterFloat.read(from: &buf), 
+                cy: FfiConverterFloat.read(from: &buf), 
+                zoom: FfiConverterFloat.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: Waypoint, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterFloat.write(value.cx, into: &buf)
+        FfiConverterFloat.write(value.cy, into: &buf)
+        FfiConverterFloat.write(value.zoom, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWaypoint_lift(_ buf: RustBuffer) throws -> Waypoint {
+    return try FfiConverterTypeWaypoint.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWaypoint_lower(_ value: Waypoint) -> RustBuffer {
+    return FfiConverterTypeWaypoint.lower(value)
+}
+
+
+public struct WaypointsView: Equatable, Hashable {
+    public var items: [Waypoint]
+    public var head: EntityHead
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(items: [Waypoint], head: EntityHead) {
+        self.items = items
+        self.head = head
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension WaypointsView: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWaypointsView: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WaypointsView {
+        return
+            try WaypointsView(
+                items: FfiConverterSequenceTypeWaypoint.read(from: &buf), 
+                head: FfiConverterTypeEntityHead.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: WaypointsView, into buf: inout [UInt8]) {
+        FfiConverterSequenceTypeWaypoint.write(value.items, into: &buf)
+        FfiConverterTypeEntityHead.write(value.head, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWaypointsView_lift(_ buf: RustBuffer) throws -> WaypointsView {
+    return try FfiConverterTypeWaypointsView.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWaypointsView_lower(_ value: WaypointsView) -> RustBuffer {
+    return FfiConverterTypeWaypointsView.lower(value)
+}
+
+
 
 public enum AnchorTarget: Equatable, Hashable {
     
@@ -6223,6 +7286,22 @@ public enum CommandBody: Equatable, Hashable {
     )
     case setCompanionSettings(settings: CompanionSettings, base: Base
     )
+    /**
+     * A Note's page style: the note-wide one, or with `sheet_id` that page's own override.
+     * Base: `PageStyleView.head`, or that page's `style_head`. Not undoable.
+     */
+    case setPageStyle(sheetId: String?, template: PagePattern, paper: Rgba?, patternColour: Rgba?, spacing: Float?, base: Base
+    )
+    /**
+     * A Canvas's background. Base: `CanvasBackgroundView.head`. Not undoable.
+     */
+    case setCanvasBackground(pattern: PagePattern, patternColour: Rgba?, spacing: Float?, paper: Rgba?, base: Base
+    )
+    /**
+     * A Canvas's whole waypoint list. Base: `WaypointsView.head`. Not undoable.
+     */
+    case setWaypoints(waypoints: [Waypoint], base: Base
+    )
 
 
 
@@ -6275,6 +7354,15 @@ public struct FfiConverterTypeCommandBody: FfiConverterRustBuffer {
         )
         
         case 11: return .setCompanionSettings(settings: try FfiConverterTypeCompanionSettings.read(from: &buf), base: try FfiConverterTypeBase.read(from: &buf)
+        )
+        
+        case 12: return .setPageStyle(sheetId: try FfiConverterOptionString.read(from: &buf), template: try FfiConverterTypePagePattern.read(from: &buf), paper: try FfiConverterOptionTypeRgba.read(from: &buf), patternColour: try FfiConverterOptionTypeRgba.read(from: &buf), spacing: try FfiConverterOptionFloat.read(from: &buf), base: try FfiConverterTypeBase.read(from: &buf)
+        )
+        
+        case 13: return .setCanvasBackground(pattern: try FfiConverterTypePagePattern.read(from: &buf), patternColour: try FfiConverterOptionTypeRgba.read(from: &buf), spacing: try FfiConverterOptionFloat.read(from: &buf), paper: try FfiConverterOptionTypeRgba.read(from: &buf), base: try FfiConverterTypeBase.read(from: &buf)
+        )
+        
+        case 14: return .setWaypoints(waypoints: try FfiConverterSequenceTypeWaypoint.read(from: &buf), base: try FfiConverterTypeBase.read(from: &buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -6343,6 +7431,31 @@ public struct FfiConverterTypeCommandBody: FfiConverterRustBuffer {
         case let .setCompanionSettings(settings,base):
             writeInt(&buf, Int32(11))
             FfiConverterTypeCompanionSettings.write(settings, into: &buf)
+            FfiConverterTypeBase.write(base, into: &buf)
+            
+        
+        case let .setPageStyle(sheetId,template,paper,patternColour,spacing,base):
+            writeInt(&buf, Int32(12))
+            FfiConverterOptionString.write(sheetId, into: &buf)
+            FfiConverterTypePagePattern.write(template, into: &buf)
+            FfiConverterOptionTypeRgba.write(paper, into: &buf)
+            FfiConverterOptionTypeRgba.write(patternColour, into: &buf)
+            FfiConverterOptionFloat.write(spacing, into: &buf)
+            FfiConverterTypeBase.write(base, into: &buf)
+            
+        
+        case let .setCanvasBackground(pattern,patternColour,spacing,paper,base):
+            writeInt(&buf, Int32(13))
+            FfiConverterTypePagePattern.write(pattern, into: &buf)
+            FfiConverterOptionTypeRgba.write(patternColour, into: &buf)
+            FfiConverterOptionFloat.write(spacing, into: &buf)
+            FfiConverterOptionTypeRgba.write(paper, into: &buf)
+            FfiConverterTypeBase.write(base, into: &buf)
+            
+        
+        case let .setWaypoints(waypoints,base):
+            writeInt(&buf, Int32(14))
+            FfiConverterSequenceTypeWaypoint.write(waypoints, into: &buf)
             FfiConverterTypeBase.write(base, into: &buf)
             
         }
@@ -7917,6 +9030,22 @@ public enum MarkMutation: Equatable, Hashable {
     )
     case restyleText(markId: String, base: Base, style: TextStyle
     )
+    /**
+     * Pages (Note only). `after` None = first. Each side 76..15238 units.
+     */
+    case addPage(sheetId: String, after: String?, width: Float, height: Float
+    )
+    case resizePage(sheetId: String, base: Base, width: Float, height: Float
+    )
+    case movePage(sheetId: String, base: Base, after: String?
+    )
+    /**
+     * Refused when it would leave no live page.
+     */
+    case deletePage(sheetId: String, base: Base
+    )
+    case restorePage(sheetId: String, base: Base
+    )
 
 
 
@@ -7972,6 +9101,21 @@ public struct FfiConverterTypeMarkMutation: FfiConverterRustBuffer {
         )
         
         case 12: return .restyleText(markId: try FfiConverterString.read(from: &buf), base: try FfiConverterTypeBase.read(from: &buf), style: try FfiConverterTypeTextStyle.read(from: &buf)
+        )
+        
+        case 13: return .addPage(sheetId: try FfiConverterString.read(from: &buf), after: try FfiConverterOptionString.read(from: &buf), width: try FfiConverterFloat.read(from: &buf), height: try FfiConverterFloat.read(from: &buf)
+        )
+        
+        case 14: return .resizePage(sheetId: try FfiConverterString.read(from: &buf), base: try FfiConverterTypeBase.read(from: &buf), width: try FfiConverterFloat.read(from: &buf), height: try FfiConverterFloat.read(from: &buf)
+        )
+        
+        case 15: return .movePage(sheetId: try FfiConverterString.read(from: &buf), base: try FfiConverterTypeBase.read(from: &buf), after: try FfiConverterOptionString.read(from: &buf)
+        )
+        
+        case 16: return .deletePage(sheetId: try FfiConverterString.read(from: &buf), base: try FfiConverterTypeBase.read(from: &buf)
+        )
+        
+        case 17: return .restorePage(sheetId: try FfiConverterString.read(from: &buf), base: try FfiConverterTypeBase.read(from: &buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -8069,6 +9213,41 @@ public struct FfiConverterTypeMarkMutation: FfiConverterRustBuffer {
             FfiConverterTypeBase.write(base, into: &buf)
             FfiConverterTypeTextStyle.write(style, into: &buf)
             
+        
+        case let .addPage(sheetId,after,width,height):
+            writeInt(&buf, Int32(13))
+            FfiConverterString.write(sheetId, into: &buf)
+            FfiConverterOptionString.write(after, into: &buf)
+            FfiConverterFloat.write(width, into: &buf)
+            FfiConverterFloat.write(height, into: &buf)
+            
+        
+        case let .resizePage(sheetId,base,width,height):
+            writeInt(&buf, Int32(14))
+            FfiConverterString.write(sheetId, into: &buf)
+            FfiConverterTypeBase.write(base, into: &buf)
+            FfiConverterFloat.write(width, into: &buf)
+            FfiConverterFloat.write(height, into: &buf)
+            
+        
+        case let .movePage(sheetId,base,after):
+            writeInt(&buf, Int32(15))
+            FfiConverterString.write(sheetId, into: &buf)
+            FfiConverterTypeBase.write(base, into: &buf)
+            FfiConverterOptionString.write(after, into: &buf)
+            
+        
+        case let .deletePage(sheetId,base):
+            writeInt(&buf, Int32(16))
+            FfiConverterString.write(sheetId, into: &buf)
+            FfiConverterTypeBase.write(base, into: &buf)
+            
+        
+        case let .restorePage(sheetId,base):
+            writeInt(&buf, Int32(17))
+            FfiConverterString.write(sheetId, into: &buf)
+            FfiConverterTypeBase.write(base, into: &buf)
+            
         }
     }
 }
@@ -8156,6 +9335,75 @@ public func FfiConverterTypeMessageWho_lower(_ value: MessageWho) -> RustBuffer 
 
 
 
+/**
+ * What a document is, fixed at creation. A Note is paged; a Canvas is one unbounded sheet.
+ */
+
+public enum NoteKind: Equatable, Hashable {
+    
+    case note
+    case canvas
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension NoteKind: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeNoteKind: FfiConverterRustBuffer {
+    typealias SwiftType = NoteKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> NoteKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .note
+        
+        case 2: return .canvas
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: NoteKind, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .note:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .canvas:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeNoteKind_lift(_ buf: RustBuffer) throws -> NoteKind {
+    return try FfiConverterTypeNoteKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeNoteKind_lower(_ value: NoteKind) -> RustBuffer {
+    return FfiConverterTypeNoteKind.lower(value)
+}
+
+
+
 
 public enum OperationLookup: Equatable, Hashable {
     
@@ -8221,6 +9469,168 @@ public func FfiConverterTypeOperationLookup_lift(_ buf: RustBuffer) throws -> Op
 #endif
 public func FfiConverterTypeOperationLookup_lower(_ value: OperationLookup) -> RustBuffer {
     return FfiConverterTypeOperationLookup.lower(value)
+}
+
+
+
+
+public enum PageMode: Equatable, Hashable {
+    
+    /**
+     * One page per row.
+     */
+    case single
+    /**
+     * Pages 1-2, 3-4, and so on.
+     */
+    case double
+    /**
+     * Page 1 alone, then 2-3, 4-5, and so on.
+     */
+    case cover
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension PageMode: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePageMode: FfiConverterRustBuffer {
+    typealias SwiftType = PageMode
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PageMode {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .single
+        
+        case 2: return .double
+        
+        case 3: return .cover
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: PageMode, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .single:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .double:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .cover:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePageMode_lift(_ buf: RustBuffer) throws -> PageMode {
+    return try FfiConverterTypePageMode.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePageMode_lower(_ value: PageMode) -> RustBuffer {
+    return FfiConverterTypePageMode.lower(value)
+}
+
+
+
+
+public enum PagePattern: Equatable, Hashable {
+    
+    case none
+    case lines
+    case dots
+    case grid
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension PagePattern: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePagePattern: FfiConverterRustBuffer {
+    typealias SwiftType = PagePattern
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PagePattern {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .none
+        
+        case 2: return .lines
+        
+        case 3: return .dots
+        
+        case 4: return .grid
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: PagePattern, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .none:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .lines:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .dots:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .grid:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePagePattern_lift(_ buf: RustBuffer) throws -> PagePattern {
+    return try FfiConverterTypePagePattern.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePagePattern_lower(_ value: PagePattern) -> RustBuffer {
+    return FfiConverterTypePagePattern.lower(value)
 }
 
 
@@ -8945,6 +10355,30 @@ fileprivate struct FfiConverterOptionUInt64: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionFloat: FfiConverterRustBuffer {
+    typealias SwiftType = Float?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterFloat.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterFloat.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
     typealias SwiftType = String?
 
@@ -8985,6 +10419,30 @@ fileprivate struct FfiConverterOptionData: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterData.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeCanvasBackgroundView: FfiConverterRustBuffer {
+    typealias SwiftType = CanvasBackgroundView?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeCanvasBackgroundView.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeCanvasBackgroundView.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -9041,6 +10499,78 @@ fileprivate struct FfiConverterOptionTypeOklch: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypePageSize: FfiConverterRustBuffer {
+    typealias SwiftType = PageSize?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypePageSize.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypePageSize.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypePageStyle: FfiConverterRustBuffer {
+    typealias SwiftType = PageStyle?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypePageStyle.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypePageStyle.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypePageStyleView: FfiConverterRustBuffer {
+    typealias SwiftType = PageStyleView?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypePageStyleView.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypePageStyleView.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypePenFeel: FfiConverterRustBuffer {
     typealias SwiftType = PenFeel?
 
@@ -9065,6 +10595,30 @@ fileprivate struct FfiConverterOptionTypePenFeel: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeRgba: FfiConverterRustBuffer {
+    typealias SwiftType = Rgba?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeRgba.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeRgba.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeStrokeCommit: FfiConverterRustBuffer {
     typealias SwiftType = StrokeCommit?
 
@@ -9081,6 +10635,30 @@ fileprivate struct FfiConverterOptionTypeStrokeCommit: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeStrokeCommit.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeWaypointsView: FfiConverterRustBuffer {
+    typealias SwiftType = WaypointsView?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeWaypointsView.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeWaypointsView.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -9254,6 +10832,81 @@ fileprivate struct FfiConverterSequenceTypeAuthorHead: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeAuthorHead.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeCanvasCard: FfiConverterRustBuffer {
+    typealias SwiftType = [CanvasCard]
+
+    public static func write(_ value: [CanvasCard], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeCanvasCard.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [CanvasCard] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [CanvasCard]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeCanvasCard.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeCardAnchor: FfiConverterRustBuffer {
+    typealias SwiftType = [CardAnchor]
+
+    public static func write(_ value: [CardAnchor], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeCardAnchor.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [CardAnchor] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [CardAnchor]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeCardAnchor.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeCardPlacement: FfiConverterRustBuffer {
+    typealias SwiftType = [CardPlacement]
+
+    public static func write(_ value: [CardPlacement], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeCardPlacement.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [CardPlacement] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [CardPlacement]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeCardPlacement.read(from: &buf))
         }
         return seq
     }
@@ -9612,6 +11265,106 @@ fileprivate struct FfiConverterSequenceTypeNotebookSummary: FfiConverterRustBuff
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypePageExtent: FfiConverterRustBuffer {
+    typealias SwiftType = [PageExtent]
+
+    public static func write(_ value: [PageExtent], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypePageExtent.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [PageExtent] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [PageExtent]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypePageExtent.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypePageRect: FfiConverterRustBuffer {
+    typealias SwiftType = [PageRect]
+
+    public static func write(_ value: [PageRect], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypePageRect.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [PageRect] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [PageRect]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypePageRect.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypePageSize: FfiConverterRustBuffer {
+    typealias SwiftType = [PageSize]
+
+    public static func write(_ value: [PageSize], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypePageSize.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [PageSize] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [PageSize]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypePageSize.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypePageView: FfiConverterRustBuffer {
+    typealias SwiftType = [PageView]
+
+    public static func write(_ value: [PageView], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypePageView.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [PageView] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [PageView]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypePageView.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypePicturePoint: FfiConverterRustBuffer {
     typealias SwiftType = [PicturePoint]
 
@@ -9754,6 +11507,31 @@ fileprivate struct FfiConverterSequenceTypeTextBlockView: FfiConverterRustBuffer
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeTextBlockView.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeWaypoint: FfiConverterRustBuffer {
+    typealias SwiftType = [Waypoint]
+
+    public static func write(_ value: [Waypoint], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeWaypoint.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Waypoint] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Waypoint]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeWaypoint.read(from: &buf))
         }
         return seq
     }
@@ -9946,6 +11724,36 @@ public func layoutMargins(input: MarginInput) -> MarginLayout  {
     )
 })
 }
+/**
+ * Each card goes right of its anchor's box, `gap` away and level with its top, then is pushed
+ * down below any earlier card it would overlap (with `gap` between them). Cards are placed in
+ * the order given, so the result is deterministic.
+ */
+public func layoutCanvasCards(anchors: [CardAnchor], cards: [CanvasCard], gap: Float) -> [CardPlacement]  {
+    return try!  FfiConverterSequenceTypeCardPlacement.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_syncr_core_fn_func_layout_canvas_cards(
+        FfiConverterSequenceTypeCardAnchor.lower(anchors),
+        FfiConverterSequenceTypeCanvasCard.lower(cards),
+        FfiConverterFloat.lower(gap),uniffiCallStatus
+    )
+})
+}
+/**
+ * Rows top to bottom, starting at y = 0, `gap` apart. Pages in a row are `gap` apart and
+ * vertically centred in it; rows are horizontally centred against the widest row, whose left
+ * edge is x = 0.
+ */
+public func layoutPages(pages: [PageExtent], mode: PageMode, gap: Float) -> [PageRect]  {
+    return try!  FfiConverterSequenceTypePageRect.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_syncr_core_fn_func_layout_pages(
+        FfiConverterSequenceTypePageExtent.lower(pages),
+        FfiConverterTypePageMode_lower(mode),
+        FfiConverterFloat.lower(gap),uniffiCallStatus
+    )
+})
+}
 public func openLibrary(rootPath: String)throws  -> SyncrLibrary  {
     return try  FfiConverterTypeSyncrLibrary_lift(try rustCallWithError(FfiConverterTypeCoreError_lift) {
         uniffiCallStatus in
@@ -10059,6 +11867,48 @@ public func resolveCustomInk(ink: Oklch) -> ResolvedInk  {
     )
 })
 }
+public func defaultPageGap() -> Float  {
+    return try!  FfiConverterFloat.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_syncr_core_fn_func_default_page_gap(uniffiCallStatus
+    )
+})
+}
+/**
+ * The named size a page of `width` x `height` units is, within 0.5 mm, either way round.
+ */
+public func matchSize(width: Float, height: Float) -> PageSize?  {
+    return try!  FfiConverterOptionTypePageSize.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_syncr_core_fn_func_match_size(
+        FfiConverterFloat.lower(width),
+        FfiConverterFloat.lower(height),uniffiCallStatus
+    )
+})
+}
+/**
+ * The named sizes, portrait.
+ */
+public func pageSizes() -> [PageSize]  {
+    return try!  FfiConverterSequenceTypePageSize.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_syncr_core_fn_func_page_sizes(uniffiCallStatus
+    )
+})
+}
+/**
+ * Page, then note, then default. A page's own style replaces the note's as a whole; parts it
+ * leaves out take the defaults.
+ */
+public func resolvePageStyle(note: PageStyle?, page: PageStyle?) -> ResolvedPageStyle  {
+    return try!  FfiConverterTypeResolvedPageStyle_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_syncr_core_fn_func_resolve_page_style(
+        FfiConverterOptionTypePageStyle.lower(note),
+        FfiConverterOptionTypePageStyle.lower(page),uniffiCallStatus
+    )
+})
+}
 /**
  * Canonical sanitization, with bounded reference expansion checked before admission.
  */
@@ -10165,6 +12015,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_syncr_core_checksum_func_layout_margins() != 51277) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_syncr_core_checksum_func_layout_canvas_cards() != 45372) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_syncr_core_checksum_func_layout_pages() != 3618) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_syncr_core_checksum_func_open_library() != 18191) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -10193,6 +12049,18 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_syncr_core_checksum_func_resolve_custom_ink() != 12835) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_syncr_core_checksum_func_default_page_gap() != 39746) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_syncr_core_checksum_func_match_size() != 45731) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_syncr_core_checksum_func_page_sizes() != 63795) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_syncr_core_checksum_func_resolve_page_style() != 32447) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_syncr_core_checksum_func_filter_picture() != 7943) {

@@ -44,7 +44,7 @@ import SyncrCore
     try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: temp) }
     let library = try openLibrary(rootPath: temp.path)
-    let request = CreateNoteRequest(operationId: newId(), noteId: newId(), firstSheetId: newId(), title: "Ink", notebook: nil)
+    let request = CreateNoteRequest(operationId: newId(), noteId: newId(), firstSheetId: newId(), title: "Ink", notebook: nil, kind: .note)
     _ = try library.createNote(request: request)
     let note = try library.openNote(noteId: request.noteId)
     let n = 40

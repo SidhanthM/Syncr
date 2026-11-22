@@ -9,7 +9,7 @@ import SyncrCore
     let source = try openLibrary(rootPath: temp.appendingPathComponent("source").path)
     let id = newId(), first = newId()
     _ = try source.createNote(request: CreateNoteRequest(operationId: first, noteId: id,
-        firstSheetId: newId(), title: "Before", notebook: nil))
+        firstSheetId: newId(), title: "Before", notebook: nil, kind: .note))
     let note = try source.openNote(noteId: id)
     let old = temp.appendingPathComponent("old.syncr"), newer = temp.appendingPathComponent("new.syncr")
     _ = try note.exportCopy(destinationPath: old.path)

@@ -46,10 +46,10 @@ private fun PreviewSurface(content: @Composable () -> Unit) {
 
 private const val NOW = 1_794_407_520_000L
 private val sampleNotes = listOf(
-    NoteSummary("01M75GBNR0AAAAAAAAAAAAAAAA", "Lagrangians", 1u, "Physics", NOW - 86_400_000, NOW - 600_000),
-    NoteSummary("01M75GBNR0BBBBBBBBBBBBBBBB", "2026-11-10 14.32", 1u, null, NOW - 7_200_000, NOW - 7_200_000),
+    NoteSummary("01M75GBNR0AAAAAAAAAAAAAAAA", "Lagrangians", 1u, "Physics", NOW - 86_400_000, NOW - 600_000, kind = dev.syncr.core.NoteKind.NOTE),
+    NoteSummary("01M75GBNR0BBBBBBBBBBBBBBBB", "2026-11-10 14.32", 1u, null, NOW - 7_200_000, NOW - 7_200_000, kind = dev.syncr.core.NoteKind.NOTE),
     NoteSummary("01M75GBNR0CCCCCCCCCCCCCCCC", "Groceries, and a very long title that has to ellipsize", 1u, "Journal",
-        NOW - 9 * 86_400_000L, NOW - 9 * 86_400_000L),
+        NOW - 9 * 86_400_000L, NOW - 9 * 86_400_000L, kind = dev.syncr.core.NoteKind.NOTE),
 )
 private val sampleState = NotesState(notes = sampleNotes,
     notebooks = listOf(NotebookSummary("Physics", 1u), NotebookSummary("Journal", 1u)))
@@ -86,7 +86,7 @@ private fun NoteCardPreview() = PreviewSurface {
 @Composable
 private fun BannerPreview() = PreviewSurface {
     val pending = NotesState(error = "StorageFull: disk", recoveryExported = false,
-        creation = dev.syncr.core.CreateNoteRequest("a", "b", "c", "t", null))
+        creation = dev.syncr.core.CreateNoteRequest("a", "b", "c", "t", null, dev.syncr.core.NoteKind.NOTE))
     StatusBanner(pending, {}, {}, {}, {})
 }
 

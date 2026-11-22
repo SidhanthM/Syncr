@@ -637,7 +637,7 @@ private final class PhoneNote {
         library = try openLibrary(rootPath: dir.appendingPathComponent("phone-\(UUID().uuidString)").path)
         sheetId = newId()
         let first = newId()
-        _ = try library.createNote(request: CreateNoteRequest(operationId: first, noteId: noteId, firstSheetId: sheetId, title: title, notebook: "Phone"))
+        _ = try library.createNote(request: CreateNoteRequest(operationId: first, noteId: noteId, firstSheetId: sheetId, title: title, notebook: "Phone", kind: .note))
         note = try library.openNote(noteId: noteId)
         sheetOp = try note.snapshot().sheets.first!.creationOperationId
     }

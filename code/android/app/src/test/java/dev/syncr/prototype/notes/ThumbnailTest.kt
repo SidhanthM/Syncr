@@ -10,7 +10,7 @@ class ThumbnailTest {
     private fun channels(n: Int) = SampleChannels(List(n) { it.toFloat() }, List(n) { 2f * it }, List(n) { 1f }, List(n) { it.toUInt() }, null, null)
     private fun snapshot(strokes: List<StrokeView>) = NoteSnapshot("note", "T", null,
         EntityHead("c", null), EntityHead("c", null), listOf(SheetView("one", "c", 0f, 0f), SheetView("two", "c2", 0f, 1000f)), strokes, 7u,
-        EventCursor("s", 7u), null, null, emptyList(), emptyList())
+        EventCursor("s", 7u), null, null, emptyList(), emptyList(), kind = dev.syncr.core.NoteKind.NOTE)
 
     @Test fun canvasThumbnailIncludesLegacyOriginsTransformsAndDecimates() {
         val moved = Affine(1.0, 0.0, 0.0, 1.0, 100.0, 0.0)

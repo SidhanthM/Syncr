@@ -97,7 +97,7 @@ class TextSceneTest {
         noteId = "n", title = "Two sum", notebook = null, metadataHead = head, structureHead = head,
         sheets = listOf(SheetView("sheet", "c", 0f, 0f)), strokes = emptyList(), localSequence = 1u, cursor = EventCursor("s", 1u),
         undoTarget = null, redoTarget = null, undoDependencies = emptyList(), redoDependencies = emptyList(),
-        textBlocks = blocks, companionItems = items)
+        textBlocks = blocks, companionItems = items, kind = dev.syncr.core.NoteKind.NOTE)
     internal fun scene(n: NoteSnapshot, pictures: (String) -> PictureDisplayList? = { null }) = NoteTextSceneBuilder(shaper) { pictures(it) }.build(n)
     internal fun texts(s: NoteTextScene) = s.prims.filterIsInstance<Prim.Text>()
 

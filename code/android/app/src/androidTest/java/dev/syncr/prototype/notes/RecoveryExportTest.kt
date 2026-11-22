@@ -17,7 +17,7 @@ class RecoveryExportTest {
         val command = Command("operation", listOf("creation"), CommandBody.Marks(listOf(MarkMutation.AddStroke(
             "mark", "sheet", blob, Brush(BrushFamily.HIGHLIGHTER, BrushSize.LARGE, InkColour.ORANGE)))))
         val output = ByteArrayOutputStream()
-        writeRecovery(output, RecoveryData("note", "author", CreateNoteRequest("c", "note", "sheet", "Canvas", null), listOf(command), byteArrayOf(7, 8)))
+        writeRecovery(output, RecoveryData("note", "author", CreateNoteRequest("c", "note", "sheet", "Canvas", null, NoteKind.NOTE), listOf(command), byteArrayOf(7, 8)))
         val json = JSONObject(output.toString("UTF-8"))
         assertEquals(2, json.getInt("version")); assertEquals("syncr-recovery", json.getString("format"))
         assertEquals("note", json.getString("note_id")); assertEquals("author", json.getString("author_id"))

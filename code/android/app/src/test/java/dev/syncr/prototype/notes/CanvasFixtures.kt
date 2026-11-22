@@ -43,7 +43,7 @@ internal object CanvasFixtures {
     ) = NotesState(
         snapshot = NoteSnapshot(
             "note", "Test", null, EntityHead("creation", null), EntityHead("creation", null), sheets, strokes, 1u,
-            EventCursor("stream", 1u), null, null, emptyList(), emptyList(),
+            EventCursor("stream", 1u), null, null, emptyList(), emptyList(), kind = dev.syncr.core.NoteKind.NOTE,
         ),
         samples = samples,
         pending = pending,

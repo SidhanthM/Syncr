@@ -12,7 +12,7 @@ class NoteTextHostTest {
 
     @Test fun macTextAndCompanionContentReadBackAndInkNeverTouchesIt() {
         val root = Files.createTempDirectory("syncr-phone-reader-").toFile()
-        val request = CreateNoteRequest(newId(), newId(), newId(), "Two sum", null)
+        val request = CreateNoteRequest(newId(), newId(), newId(), "Two sum", null, NoteKind.NOTE)
         val adapter = GeneratedCoreAdapter(); val core = adapter.open(root.absolutePath)
         try {
             core.create(request)

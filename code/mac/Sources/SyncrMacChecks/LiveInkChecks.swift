@@ -233,7 +233,7 @@ private func commitStep(_ plan: ReplayPlan) -> ReplayStep { plan.steps.last! }
     // A read-only imported copy as the active note.
     let phone = try openLibrary(rootPath: rig.dir.appendingPathComponent("phone").path)
     let importedId = newId()
-    _ = try phone.createNote(request: CreateNoteRequest(operationId: newId(), noteId: importedId, firstSheetId: newId(), title: "Phone", notebook: nil))
+    _ = try phone.createNote(request: CreateNoteRequest(operationId: newId(), noteId: importedId, firstSheetId: newId(), title: "Phone", notebook: nil, kind: .note))
     let source = try phone.openNote(noteId: importedId)
     let file = rig.dir.appendingPathComponent("export.syncr")
     _ = try source.exportCopy(destinationPath: file.path)

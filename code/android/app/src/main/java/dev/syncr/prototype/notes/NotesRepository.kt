@@ -3,6 +3,7 @@ package dev.syncr.prototype.notes
 import dev.syncr.core.AuthorHead
 import dev.syncr.core.CommandBody
 import dev.syncr.core.CreateNoteRequest
+import dev.syncr.core.NoteKind
 import dev.syncr.core.newId
 import java.io.File
 import kotlinx.coroutines.CoroutineDispatcher
@@ -116,7 +117,7 @@ class NotesRepository(
         // IDs are allocated once, before dispatch, so a failed or lost reply retries the same request.
         if (state.value.creation == null) {
             session.update {
-                val request = CreateNoteRequest(id(), id(), id(), title, notebook)
+                val request = CreateNoteRequest(id(), id(), id(), title, notebook, NoteKind.NOTE)
                 it.copy(creation = request, error = null, recoveryExported = false)
             }
         }

@@ -12,7 +12,7 @@ class TextCompatibilityHostTest {
     @Test fun phoneInkHistoryAndExportPreserveIgnoredTextWithoutAllowingTextUndo() = runBlocking {
         val root = Files.createTempDirectory("syncr-phone-text-").toFile()
         val copyRoot = Files.createTempDirectory("syncr-phone-text-copy-").toFile()
-        val request = CreateNoteRequest(newId(), newId(), newId(), "Text stays opaque", null)
+        val request = CreateNoteRequest(newId(), newId(), newId(), "Text stays opaque", null, NoteKind.NOTE)
         var expected = emptyList<TextBlockView>()
         val seed = GeneratedCoreAdapter().open(root.absolutePath)
         try {

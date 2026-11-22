@@ -12,6 +12,7 @@ import Foundation
 
 @MainActor func settingsChecks() throws {
     try marginLayoutChecks()
+    try pagesLayoutChecks()
     for width: CGFloat in [1000, 3000, 5000] {
         let left = CompanionMarginLayout.centeredLeft(columnLeft: 100, columnRight: 1500, visibleWidth: width)
         precondition(abs((800 - left) - width / 2) < 0.001, "Text stays centered at every viewport width")

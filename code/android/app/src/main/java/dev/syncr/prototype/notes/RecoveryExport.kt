@@ -59,6 +59,9 @@ fun writeRecovery(output: OutputStream, data: RecoveryData) {
                             is MarkMutation.AddText, is MarkMutation.SpliceText, is MarkMutation.SetTextWidth,
                             is MarkMutation.DeleteText, is MarkMutation.RestoreText, is MarkMutation.TransformText,
                             is MarkMutation.RestyleText -> error("Text edits are not supported in phone recovery commands")
+                            // Page commands are new (notes and canvases v1); the phone does not stage them yet.
+                            is MarkMutation.AddPage, is MarkMutation.ResizePage, is MarkMutation.MovePage,
+                            is MarkMutation.DeletePage, is MarkMutation.RestorePage -> error("Page edits are not supported in phone recovery commands")
                         }
                         json.endObject()
                     }
@@ -91,6 +94,8 @@ fun writeRecovery(output: OutputStream, data: RecoveryData) {
                 is CommandBody.CompanionMarks, is CommandBody.SetCompanionSettings ->
                     error("Companion edits are not supported in phone recovery commands")
                 is CommandBody.ImageMarks -> error("Image edits are not supported in phone recovery commands")
+                is CommandBody.SetPageStyle, is CommandBody.SetCanvasBackground, is CommandBody.SetWaypoints ->
+                    error("Page and canvas edits are not supported in phone recovery commands")
             }
             json.endObject().endObject()
         }

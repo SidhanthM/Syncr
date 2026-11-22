@@ -593,6 +593,16 @@ RustBuffer uniffi_syncr_core_fn_func_highlight_languages(RustCallStatus *_Nonnul
 RustBuffer uniffi_syncr_core_fn_func_layout_margins(RustBuffer input, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_LAYOUT_CANVAS_CARDS
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_LAYOUT_CANVAS_CARDS
+RustBuffer uniffi_syncr_core_fn_func_layout_canvas_cards(RustBuffer anchors, RustBuffer cards, float gap, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_LAYOUT_PAGES
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_LAYOUT_PAGES
+RustBuffer uniffi_syncr_core_fn_func_layout_pages(RustBuffer pages, RustBuffer mode, float gap, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_OPEN_LIBRARY
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_OPEN_LIBRARY
 uint64_t uniffi_syncr_core_fn_func_open_library(RustBuffer root_path, RustCallStatus *_Nonnull out_status
@@ -642,6 +652,28 @@ int8_t uniffi_syncr_core_fn_func_oklch_uses_theme_ink(RustBuffer ink, RustCallSt
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_RESOLVE_CUSTOM_INK
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_RESOLVE_CUSTOM_INK
 RustBuffer uniffi_syncr_core_fn_func_resolve_custom_ink(RustBuffer ink, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_DEFAULT_PAGE_GAP
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_DEFAULT_PAGE_GAP
+float uniffi_syncr_core_fn_func_default_page_gap(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_MATCH_SIZE
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_MATCH_SIZE
+RustBuffer uniffi_syncr_core_fn_func_match_size(float width, float height, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_PAGE_SIZES
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_PAGE_SIZES
+RustBuffer uniffi_syncr_core_fn_func_page_sizes(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_RESOLVE_PAGE_STYLE
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_RESOLVE_PAGE_STYLE
+RustBuffer uniffi_syncr_core_fn_func_resolve_page_style(RustBuffer note, RustBuffer page, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_FN_FUNC_FILTER_PICTURE
@@ -981,6 +1013,18 @@ uint16_t uniffi_syncr_core_checksum_func_layout_margins(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_LAYOUT_CANVAS_CARDS
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_LAYOUT_CANVAS_CARDS
+uint16_t uniffi_syncr_core_checksum_func_layout_canvas_cards(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_LAYOUT_PAGES
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_LAYOUT_PAGES
+uint16_t uniffi_syncr_core_checksum_func_layout_pages(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_OPEN_LIBRARY
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_OPEN_LIBRARY
 uint16_t uniffi_syncr_core_checksum_func_open_library(void
@@ -1038,6 +1082,30 @@ uint16_t uniffi_syncr_core_checksum_func_oklch_uses_theme_ink(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_RESOLVE_CUSTOM_INK
 #define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_RESOLVE_CUSTOM_INK
 uint16_t uniffi_syncr_core_checksum_func_resolve_custom_ink(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_DEFAULT_PAGE_GAP
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_DEFAULT_PAGE_GAP
+uint16_t uniffi_syncr_core_checksum_func_default_page_gap(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_MATCH_SIZE
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_MATCH_SIZE
+uint16_t uniffi_syncr_core_checksum_func_match_size(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_PAGE_SIZES
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_PAGE_SIZES
+uint16_t uniffi_syncr_core_checksum_func_page_sizes(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_RESOLVE_PAGE_STYLE
+#define UNIFFI_FFIDEF_UNIFFI_SYNCR_CORE_CHECKSUM_FUNC_RESOLVE_PAGE_STYLE
+uint16_t uniffi_syncr_core_checksum_func_resolve_page_style(void
     
 );
 #endif

@@ -67,7 +67,7 @@ class HostCoreIntegrationTest {
         val root = Files.createTempDirectory("syncr-canvas-structure-").toFile()
         val library = GeneratedCoreAdapter().open(root.absolutePath)
         try {
-            val request = CreateNoteRequest(newId(), newId(), newId(), "Canvas", null)
+            val request = CreateNoteRequest(newId(), newId(), newId(), "Canvas", null, NoteKind.NOTE)
             library.create(request)
             val note = library.openNote(request.noteId)
             try {

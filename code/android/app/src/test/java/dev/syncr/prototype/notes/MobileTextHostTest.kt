@@ -9,7 +9,7 @@ class MobileTextHostTest {
     @Test fun phoneEditsMacTextAndPersistsContextualResponse() {
         val root = Files.createTempDirectory("syncr-mobile-edit-").toFile()
         val core = GeneratedCoreAdapter().open(root.absolutePath)
-        val create = CreateNoteRequest(newId(), newId(), newId(), "Mobile typing", null)
+        val create = CreateNoteRequest(newId(), newId(), newId(), "Mobile typing", null, NoteKind.NOTE)
         try {
             core.create(create)
             val note = core.openNote(create.noteId)
@@ -55,7 +55,7 @@ class MobileTextHostTest {
             "<g data-caption=\"One box.\" data-step=\"1\"><rect x=\"30\" y=\"50\" width=\"100\" height=\"40\" fill=\"none\" stroke=\"var(--soft)\"/></g></svg>"
         val root = Files.createTempDirectory("syncr-mobile-ask-").toFile()
         val core = GeneratedCoreAdapter().open(root.absolutePath)
-        val create = CreateNoteRequest(newId(), newId(), newId(), "Asking", null)
+        val create = CreateNoteRequest(newId(), newId(), newId(), "Asking", null, NoteKind.NOTE)
         try {
             core.create(create)
             val note = core.openNote(create.noteId)

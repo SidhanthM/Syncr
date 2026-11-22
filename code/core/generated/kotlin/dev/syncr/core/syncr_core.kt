@@ -687,6 +687,10 @@ internal object IntegrityCheckingUniffiLib {
     ): Int
     external fun uniffi_syncr_core_checksum_func_layout_margins(
     ): Int
+    external fun uniffi_syncr_core_checksum_func_layout_canvas_cards(
+    ): Int
+    external fun uniffi_syncr_core_checksum_func_layout_pages(
+    ): Int
     external fun uniffi_syncr_core_checksum_func_open_library(
     ): Int
     external fun uniffi_syncr_core_checksum_func_default_stroke_style(
@@ -706,6 +710,14 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_syncr_core_checksum_func_oklch_uses_theme_ink(
     ): Int
     external fun uniffi_syncr_core_checksum_func_resolve_custom_ink(
+    ): Int
+    external fun uniffi_syncr_core_checksum_func_default_page_gap(
+    ): Int
+    external fun uniffi_syncr_core_checksum_func_match_size(
+    ): Int
+    external fun uniffi_syncr_core_checksum_func_page_sizes(
+    ): Int
+    external fun uniffi_syncr_core_checksum_func_resolve_page_style(
     ): Int
     external fun uniffi_syncr_core_checksum_func_filter_picture(
     ): Int
@@ -987,6 +999,10 @@ internal object UniffiLib {
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_func_layout_margins(`input`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_func_layout_canvas_cards(`anchors`: RustBuffer.ByValue,`cards`: RustBuffer.ByValue,`gap`: Float,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_func_layout_pages(`pages`: RustBuffer.ByValue,`mode`: RustBuffer.ByValue,`gap`: Float,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_func_open_library(`rootPath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Long
     external fun uniffi_syncr_core_fn_func_default_stroke_style(`brush`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1006,6 +1022,14 @@ internal object UniffiLib {
     external fun uniffi_syncr_core_fn_func_oklch_uses_theme_ink(`ink`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): Byte
     external fun uniffi_syncr_core_fn_func_resolve_custom_ink(`ink`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_func_default_page_gap(uniffi_out_err: UniffiRustCallStatus, 
+    ): Float
+    external fun uniffi_syncr_core_fn_func_match_size(`width`: Float,`height`: Float,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_func_page_sizes(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_syncr_core_fn_func_resolve_page_style(`note`: RustBuffer.ByValue,`page`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_syncr_core_fn_func_filter_picture(`svg`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
@@ -1160,6 +1184,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if ((lib.uniffi_syncr_core_checksum_func_layout_margins() and 0xFFFF) != 51277) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if ((lib.uniffi_syncr_core_checksum_func_layout_canvas_cards() and 0xFFFF) != 45372) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_func_layout_pages() and 0xFFFF) != 3618) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if ((lib.uniffi_syncr_core_checksum_func_open_library() and 0xFFFF) != 18191) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1188,6 +1218,18 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_syncr_core_checksum_func_resolve_custom_ink() and 0xFFFF) != 12835) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_func_default_page_gap() and 0xFFFF) != 39746) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_func_match_size() and 0xFFFF) != 45731) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_func_page_sizes() and 0xFFFF) != 63795) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if ((lib.uniffi_syncr_core_checksum_func_resolve_page_style() and 0xFFFF) != 32447) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if ((lib.uniffi_syncr_core_checksum_func_filter_picture() and 0xFFFF) != 7943) {
@@ -4255,6 +4297,116 @@ public object FfiConverterTypeBrush: FfiConverterRustBuffer<Brush> {
 
 
 /**
+ * The background of a Canvas, resolved, with the head `SetCanvasBackground` bases on.
+ */
+data class CanvasBackgroundView (
+    var `pattern`: PagePattern
+    , 
+    var `patternColour`: Rgba
+    , 
+    var `spacing`: kotlin.Float
+    , 
+    /**
+     * None = the theme paper.
+     */
+    var `paper`: Rgba?
+    , 
+    var `head`: EntityHead
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCanvasBackgroundView: FfiConverterRustBuffer<CanvasBackgroundView> {
+    override fun read(buf: ByteBuffer): CanvasBackgroundView {
+        return CanvasBackgroundView(
+            FfiConverterTypePagePattern.read(buf),
+            FfiConverterTypeRgba.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterOptionalTypeRgba.read(buf),
+            FfiConverterTypeEntityHead.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: CanvasBackgroundView) = (
+            FfiConverterTypePagePattern.allocationSize(value.`pattern`) +
+            FfiConverterTypeRgba.allocationSize(value.`patternColour`) +
+            FfiConverterFloat.allocationSize(value.`spacing`) +
+            FfiConverterOptionalTypeRgba.allocationSize(value.`paper`) +
+            FfiConverterTypeEntityHead.allocationSize(value.`head`)
+    )
+
+    override fun write(value: CanvasBackgroundView, buf: ByteBuffer) {
+            FfiConverterTypePagePattern.write(value.`pattern`, buf)
+            FfiConverterTypeRgba.write(value.`patternColour`, buf)
+            FfiConverterFloat.write(value.`spacing`, buf)
+            FfiConverterOptionalTypeRgba.write(value.`paper`, buf)
+            FfiConverterTypeEntityHead.write(value.`head`, buf)
+    }
+}
+
+
+
+data class CanvasCard (
+    var `id`: kotlin.String
+    , 
+    /**
+     * The `CardAnchor::id` it hangs from. An unknown anchor places the card at the origin.
+     */
+    var `anchorId`: kotlin.String
+    , 
+    var `width`: kotlin.Float
+    , 
+    var `height`: kotlin.Float
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCanvasCard: FfiConverterRustBuffer<CanvasCard> {
+    override fun read(buf: ByteBuffer): CanvasCard {
+        return CanvasCard(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: CanvasCard) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterString.allocationSize(value.`anchorId`) +
+            FfiConverterFloat.allocationSize(value.`width`) +
+            FfiConverterFloat.allocationSize(value.`height`)
+    )
+
+    override fun write(value: CanvasCard, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterString.write(value.`anchorId`, buf)
+            FfiConverterFloat.write(value.`width`, buf)
+            FfiConverterFloat.write(value.`height`, buf)
+    }
+}
+
+
+
+/**
  * A note is one canvas, `width` note units wide, growing downward without pages.
  * `view_height` is the Mac's 16:10 window over the full width; `phone_column` is the
  * part of the width an upright phone shows at its default zoom.
@@ -4297,6 +4449,105 @@ public object FfiConverterTypeCanvasSize: FfiConverterRustBuffer<CanvasSize> {
             FfiConverterFloat.write(value.`width`, buf)
             FfiConverterFloat.write(value.`viewHeight`, buf)
             FfiConverterFloat.write(value.`phoneColumn`, buf)
+    }
+}
+
+
+
+/**
+ * The text an annotation card hangs from, as a canvas rectangle.
+ */
+data class CardAnchor (
+    var `id`: kotlin.String
+    , 
+    var `x`: kotlin.Float
+    , 
+    var `y`: kotlin.Float
+    , 
+    var `width`: kotlin.Float
+    , 
+    var `height`: kotlin.Float
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCardAnchor: FfiConverterRustBuffer<CardAnchor> {
+    override fun read(buf: ByteBuffer): CardAnchor {
+        return CardAnchor(
+            FfiConverterString.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: CardAnchor) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterFloat.allocationSize(value.`x`) +
+            FfiConverterFloat.allocationSize(value.`y`) +
+            FfiConverterFloat.allocationSize(value.`width`) +
+            FfiConverterFloat.allocationSize(value.`height`)
+    )
+
+    override fun write(value: CardAnchor, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterFloat.write(value.`x`, buf)
+            FfiConverterFloat.write(value.`y`, buf)
+            FfiConverterFloat.write(value.`width`, buf)
+            FfiConverterFloat.write(value.`height`, buf)
+    }
+}
+
+
+
+data class CardPlacement (
+    var `id`: kotlin.String
+    , 
+    var `x`: kotlin.Float
+    , 
+    var `y`: kotlin.Float
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeCardPlacement: FfiConverterRustBuffer<CardPlacement> {
+    override fun read(buf: ByteBuffer): CardPlacement {
+        return CardPlacement(
+            FfiConverterString.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: CardPlacement) = (
+            FfiConverterString.allocationSize(value.`id`) +
+            FfiConverterFloat.allocationSize(value.`x`) +
+            FfiConverterFloat.allocationSize(value.`y`)
+    )
+
+    override fun write(value: CardPlacement, buf: ByteBuffer) {
+            FfiConverterString.write(value.`id`, buf)
+            FfiConverterFloat.write(value.`x`, buf)
+            FfiConverterFloat.write(value.`y`, buf)
     }
 }
 
@@ -4712,6 +4963,12 @@ data class CreateNoteRequest (
     var `title`: kotlin.String
     , 
     var `notebook`: kotlin.String?
+    , 
+    /**
+     * Note or Canvas. A Note is created with creation tag 3, a Canvas with tag 4. UniFFI cannot
+     * default an enum, so every constructor names it (serde defaults it to Note for stored JSON).
+     */
+    var `kind`: NoteKind
     
 ){
     
@@ -4733,6 +4990,7 @@ public object FfiConverterTypeCreateNoteRequest: FfiConverterRustBuffer<CreateNo
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
             FfiConverterOptionalString.read(buf),
+            FfiConverterTypeNoteKind.read(buf),
         )
     }
 
@@ -4741,7 +4999,8 @@ public object FfiConverterTypeCreateNoteRequest: FfiConverterRustBuffer<CreateNo
             FfiConverterString.allocationSize(value.`noteId`) +
             FfiConverterString.allocationSize(value.`firstSheetId`) +
             FfiConverterString.allocationSize(value.`title`) +
-            FfiConverterOptionalString.allocationSize(value.`notebook`)
+            FfiConverterOptionalString.allocationSize(value.`notebook`) +
+            FfiConverterTypeNoteKind.allocationSize(value.`kind`)
     )
 
     override fun write(value: CreateNoteRequest, buf: ByteBuffer) {
@@ -4750,6 +5009,7 @@ public object FfiConverterTypeCreateNoteRequest: FfiConverterRustBuffer<CreateNo
             FfiConverterString.write(value.`firstSheetId`, buf)
             FfiConverterString.write(value.`title`, buf)
             FfiConverterOptionalString.write(value.`notebook`, buf)
+            FfiConverterTypeNoteKind.write(value.`kind`, buf)
     }
 }
 
@@ -5513,6 +5773,32 @@ data class NoteSnapshot (
     var `companionSettings`: CompanionSettingsView? = null 
     , 
     var `images`: List<ImageMarkView> = listOf() 
+    , 
+    /**
+     * A Note's pages in order, tombstoned ones included (`layout_pages` skips them). A note
+     * written before pages reports one auto-height page, 4800 wide. Empty for a Canvas.
+     */
+    var `pages`: List<PageView> = listOf() 
+    , 
+    /**
+     * Some for a Note.
+     */
+    var `pageStyle`: PageStyleView? = null 
+    , 
+    /**
+     * Some for a Canvas.
+     */
+    var `canvasBackground`: CanvasBackgroundView? = null 
+    , 
+    /**
+     * Some for a Canvas.
+     */
+    var `waypoints`: WaypointsView? = null 
+    , 
+    /**
+     * Fixed at creation. Required (UniFFI cannot default an enum), so it comes last.
+     */
+    var `kind`: NoteKind
     
 ){
     
@@ -5547,6 +5833,11 @@ public object FfiConverterTypeNoteSnapshot: FfiConverterRustBuffer<NoteSnapshot>
             FfiConverterSequenceTypeCompanionItemView.read(buf),
             FfiConverterOptionalTypeCompanionSettingsView.read(buf),
             FfiConverterSequenceTypeImageMarkView.read(buf),
+            FfiConverterSequenceTypePageView.read(buf),
+            FfiConverterOptionalTypePageStyleView.read(buf),
+            FfiConverterOptionalTypeCanvasBackgroundView.read(buf),
+            FfiConverterOptionalTypeWaypointsView.read(buf),
+            FfiConverterTypeNoteKind.read(buf),
         )
     }
 
@@ -5568,7 +5859,12 @@ public object FfiConverterTypeNoteSnapshot: FfiConverterRustBuffer<NoteSnapshot>
             FfiConverterSequenceTypeTextBlockView.allocationSize(value.`textBlocks`) +
             FfiConverterSequenceTypeCompanionItemView.allocationSize(value.`companionItems`) +
             FfiConverterOptionalTypeCompanionSettingsView.allocationSize(value.`companionSettings`) +
-            FfiConverterSequenceTypeImageMarkView.allocationSize(value.`images`)
+            FfiConverterSequenceTypeImageMarkView.allocationSize(value.`images`) +
+            FfiConverterSequenceTypePageView.allocationSize(value.`pages`) +
+            FfiConverterOptionalTypePageStyleView.allocationSize(value.`pageStyle`) +
+            FfiConverterOptionalTypeCanvasBackgroundView.allocationSize(value.`canvasBackground`) +
+            FfiConverterOptionalTypeWaypointsView.allocationSize(value.`waypoints`) +
+            FfiConverterTypeNoteKind.allocationSize(value.`kind`)
     )
 
     override fun write(value: NoteSnapshot, buf: ByteBuffer) {
@@ -5590,6 +5886,11 @@ public object FfiConverterTypeNoteSnapshot: FfiConverterRustBuffer<NoteSnapshot>
             FfiConverterSequenceTypeCompanionItemView.write(value.`companionItems`, buf)
             FfiConverterOptionalTypeCompanionSettingsView.write(value.`companionSettings`, buf)
             FfiConverterSequenceTypeImageMarkView.write(value.`images`, buf)
+            FfiConverterSequenceTypePageView.write(value.`pages`, buf)
+            FfiConverterOptionalTypePageStyleView.write(value.`pageStyle`, buf)
+            FfiConverterOptionalTypeCanvasBackgroundView.write(value.`canvasBackground`, buf)
+            FfiConverterOptionalTypeWaypointsView.write(value.`waypoints`, buf)
+            FfiConverterTypeNoteKind.write(value.`kind`, buf)
     }
 }
 
@@ -5619,6 +5920,11 @@ data class NoteSummary (
      * like `notebook`. Trailing with a default so existing positional constructors compile.
      */
     var `archived`: kotlin.Boolean = false 
+    , 
+    /**
+     * Fixed at creation.
+     */
+    var `kind`: NoteKind
     
 ){
     
@@ -5642,6 +5948,7 @@ public object FfiConverterTypeNoteSummary: FfiConverterRustBuffer<NoteSummary> {
             FfiConverterLong.read(buf),
             FfiConverterLong.read(buf),
             FfiConverterBoolean.read(buf),
+            FfiConverterTypeNoteKind.read(buf),
         )
     }
 
@@ -5652,7 +5959,8 @@ public object FfiConverterTypeNoteSummary: FfiConverterRustBuffer<NoteSummary> {
             FfiConverterOptionalString.allocationSize(value.`notebook`) +
             FfiConverterLong.allocationSize(value.`createdAtMs`) +
             FfiConverterLong.allocationSize(value.`modifiedAtMs`) +
-            FfiConverterBoolean.allocationSize(value.`archived`)
+            FfiConverterBoolean.allocationSize(value.`archived`) +
+            FfiConverterTypeNoteKind.allocationSize(value.`kind`)
     )
 
     override fun write(value: NoteSummary, buf: ByteBuffer) {
@@ -5663,6 +5971,7 @@ public object FfiConverterTypeNoteSummary: FfiConverterRustBuffer<NoteSummary> {
             FfiConverterLong.write(value.`createdAtMs`, buf)
             FfiConverterLong.write(value.`modifiedAtMs`, buf)
             FfiConverterBoolean.write(value.`archived`, buf)
+            FfiConverterTypeNoteKind.write(value.`kind`, buf)
     }
 }
 
@@ -5748,6 +6057,367 @@ public object FfiConverterTypeOklch: FfiConverterRustBuffer<Oklch> {
             FfiConverterFloat.write(value.`l`, buf)
             FfiConverterFloat.write(value.`c`, buf)
             FfiConverterFloat.write(value.`h`, buf)
+    }
+}
+
+
+
+/**
+ * One live page's size. The caller leaves tombstoned pages out.
+ */
+data class PageExtent (
+    var `sheetId`: kotlin.String
+    , 
+    var `width`: kotlin.Float
+    , 
+    var `height`: kotlin.Float
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePageExtent: FfiConverterRustBuffer<PageExtent> {
+    override fun read(buf: ByteBuffer): PageExtent {
+        return PageExtent(
+            FfiConverterString.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PageExtent) = (
+            FfiConverterString.allocationSize(value.`sheetId`) +
+            FfiConverterFloat.allocationSize(value.`width`) +
+            FfiConverterFloat.allocationSize(value.`height`)
+    )
+
+    override fun write(value: PageExtent, buf: ByteBuffer) {
+            FfiConverterString.write(value.`sheetId`, buf)
+            FfiConverterFloat.write(value.`width`, buf)
+            FfiConverterFloat.write(value.`height`, buf)
+    }
+}
+
+
+
+data class PageRect (
+    var `sheetId`: kotlin.String
+    , 
+    /**
+     * Row index, top to bottom.
+     */
+    var `row`: kotlin.UInt
+    , 
+    var `x`: kotlin.Float
+    , 
+    var `y`: kotlin.Float
+    , 
+    var `width`: kotlin.Float
+    , 
+    var `height`: kotlin.Float
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePageRect: FfiConverterRustBuffer<PageRect> {
+    override fun read(buf: ByteBuffer): PageRect {
+        return PageRect(
+            FfiConverterString.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PageRect) = (
+            FfiConverterString.allocationSize(value.`sheetId`) +
+            FfiConverterUInt.allocationSize(value.`row`) +
+            FfiConverterFloat.allocationSize(value.`x`) +
+            FfiConverterFloat.allocationSize(value.`y`) +
+            FfiConverterFloat.allocationSize(value.`width`) +
+            FfiConverterFloat.allocationSize(value.`height`)
+    )
+
+    override fun write(value: PageRect, buf: ByteBuffer) {
+            FfiConverterString.write(value.`sheetId`, buf)
+            FfiConverterUInt.write(value.`row`, buf)
+            FfiConverterFloat.write(value.`x`, buf)
+            FfiConverterFloat.write(value.`y`, buf)
+            FfiConverterFloat.write(value.`width`, buf)
+            FfiConverterFloat.write(value.`height`, buf)
+    }
+}
+
+
+
+/**
+ * A named paper size in note units, portrait (short side first).
+ */
+data class PageSize (
+    var `name`: kotlin.String
+    , 
+    var `mmWidth`: kotlin.Float
+    , 
+    var `mmHeight`: kotlin.Float
+    , 
+    var `width`: kotlin.Float
+    , 
+    var `height`: kotlin.Float
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePageSize: FfiConverterRustBuffer<PageSize> {
+    override fun read(buf: ByteBuffer): PageSize {
+        return PageSize(
+            FfiConverterString.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PageSize) = (
+            FfiConverterString.allocationSize(value.`name`) +
+            FfiConverterFloat.allocationSize(value.`mmWidth`) +
+            FfiConverterFloat.allocationSize(value.`mmHeight`) +
+            FfiConverterFloat.allocationSize(value.`width`) +
+            FfiConverterFloat.allocationSize(value.`height`)
+    )
+
+    override fun write(value: PageSize, buf: ByteBuffer) {
+            FfiConverterString.write(value.`name`, buf)
+            FfiConverterFloat.write(value.`mmWidth`, buf)
+            FfiConverterFloat.write(value.`mmHeight`, buf)
+            FfiConverterFloat.write(value.`width`, buf)
+            FfiConverterFloat.write(value.`height`, buf)
+    }
+}
+
+
+
+/**
+ * A style as stored. Missing parts fall back, per the resolution order page, note, default.
+ */
+data class PageStyle (
+    var `template`: PagePattern
+    , 
+    /**
+     * None = the theme paper.
+     */
+    var `paper`: Rgba?
+    , 
+    /**
+     * None = rgba(150,150,150,128).
+     */
+    var `patternColour`: Rgba?
+    , 
+    /**
+     * None = 82.6 units. Resolved values are clamped to 20.6..258.
+     */
+    var `spacing`: kotlin.Float?
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePageStyle: FfiConverterRustBuffer<PageStyle> {
+    override fun read(buf: ByteBuffer): PageStyle {
+        return PageStyle(
+            FfiConverterTypePagePattern.read(buf),
+            FfiConverterOptionalTypeRgba.read(buf),
+            FfiConverterOptionalTypeRgba.read(buf),
+            FfiConverterOptionalFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PageStyle) = (
+            FfiConverterTypePagePattern.allocationSize(value.`template`) +
+            FfiConverterOptionalTypeRgba.allocationSize(value.`paper`) +
+            FfiConverterOptionalTypeRgba.allocationSize(value.`patternColour`) +
+            FfiConverterOptionalFloat.allocationSize(value.`spacing`)
+    )
+
+    override fun write(value: PageStyle, buf: ByteBuffer) {
+            FfiConverterTypePagePattern.write(value.`template`, buf)
+            FfiConverterOptionalTypeRgba.write(value.`paper`, buf)
+            FfiConverterOptionalTypeRgba.write(value.`patternColour`, buf)
+            FfiConverterOptionalFloat.write(value.`spacing`, buf)
+    }
+}
+
+
+
+/**
+ * The note-wide page style with the head a `SetPageStyle` without `sheet_id` bases on.
+ */
+data class PageStyleView (
+    /**
+     * None until a style was set.
+     */
+    var `style`: PageStyle?
+    , 
+    var `resolved`: ResolvedPageStyle
+    , 
+    var `head`: EntityHead
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePageStyleView: FfiConverterRustBuffer<PageStyleView> {
+    override fun read(buf: ByteBuffer): PageStyleView {
+        return PageStyleView(
+            FfiConverterOptionalTypePageStyle.read(buf),
+            FfiConverterTypeResolvedPageStyle.read(buf),
+            FfiConverterTypeEntityHead.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PageStyleView) = (
+            FfiConverterOptionalTypePageStyle.allocationSize(value.`style`) +
+            FfiConverterTypeResolvedPageStyle.allocationSize(value.`resolved`) +
+            FfiConverterTypeEntityHead.allocationSize(value.`head`)
+    )
+
+    override fun write(value: PageStyleView, buf: ByteBuffer) {
+            FfiConverterOptionalTypePageStyle.write(value.`style`, buf)
+            FfiConverterTypeResolvedPageStyle.write(value.`resolved`, buf)
+            FfiConverterTypeEntityHead.write(value.`head`, buf)
+    }
+}
+
+
+
+/**
+ * One page of a Note. A page is a sheet; strokes, text and pictures stay sheet-local.
+ */
+data class PageView (
+    var `sheetId`: kotlin.String
+    , 
+    var `width`: kotlin.Float
+    , 
+    /**
+     * For an `auto_height` page this is `max(3000, content_bottom + 1000)`, computed by the
+     * core in the snapshot.
+     */
+    var `height`: kotlin.Float
+    , 
+    var `autoHeight`: kotlin.Boolean
+    , 
+    var `tombstone`: kotlin.Boolean
+    , 
+    /**
+     * The head `ResizePage`, `MovePage`, `DeletePage` and `RestorePage` base on.
+     */
+    var `head`: EntityHead
+    , 
+    /**
+     * This page's own style override, if any; the head to change it is `style_head`.
+     */
+    var `style`: PageStyle?
+    , 
+    var `styleHead`: EntityHead
+    , 
+    /**
+     * Page, then note, then default.
+     */
+    var `resolvedStyle`: ResolvedPageStyle
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePageView: FfiConverterRustBuffer<PageView> {
+    override fun read(buf: ByteBuffer): PageView {
+        return PageView(
+            FfiConverterString.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterBoolean.read(buf),
+            FfiConverterTypeEntityHead.read(buf),
+            FfiConverterOptionalTypePageStyle.read(buf),
+            FfiConverterTypeEntityHead.read(buf),
+            FfiConverterTypeResolvedPageStyle.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: PageView) = (
+            FfiConverterString.allocationSize(value.`sheetId`) +
+            FfiConverterFloat.allocationSize(value.`width`) +
+            FfiConverterFloat.allocationSize(value.`height`) +
+            FfiConverterBoolean.allocationSize(value.`autoHeight`) +
+            FfiConverterBoolean.allocationSize(value.`tombstone`) +
+            FfiConverterTypeEntityHead.allocationSize(value.`head`) +
+            FfiConverterOptionalTypePageStyle.allocationSize(value.`style`) +
+            FfiConverterTypeEntityHead.allocationSize(value.`styleHead`) +
+            FfiConverterTypeResolvedPageStyle.allocationSize(value.`resolvedStyle`)
+    )
+
+    override fun write(value: PageView, buf: ByteBuffer) {
+            FfiConverterString.write(value.`sheetId`, buf)
+            FfiConverterFloat.write(value.`width`, buf)
+            FfiConverterFloat.write(value.`height`, buf)
+            FfiConverterBoolean.write(value.`autoHeight`, buf)
+            FfiConverterBoolean.write(value.`tombstone`, buf)
+            FfiConverterTypeEntityHead.write(value.`head`, buf)
+            FfiConverterOptionalTypePageStyle.write(value.`style`, buf)
+            FfiConverterTypeEntityHead.write(value.`styleHead`, buf)
+            FfiConverterTypeResolvedPageStyle.write(value.`resolvedStyle`, buf)
     }
 }
 
@@ -6285,6 +6955,105 @@ public object FfiConverterTypeResolvedInk: FfiConverterRustBuffer<ResolvedInk> {
     override fun write(value: ResolvedInk, buf: ByteBuffer) {
             FfiConverterUInt.write(value.`argb`, buf)
             FfiConverterBoolean.write(value.`themeInk`, buf)
+    }
+}
+
+
+
+data class ResolvedPageStyle (
+    var `pattern`: PagePattern
+    , 
+    /**
+     * None = the theme paper.
+     */
+    var `paper`: Rgba?
+    , 
+    var `patternColour`: Rgba
+    , 
+    var `spacing`: kotlin.Float
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeResolvedPageStyle: FfiConverterRustBuffer<ResolvedPageStyle> {
+    override fun read(buf: ByteBuffer): ResolvedPageStyle {
+        return ResolvedPageStyle(
+            FfiConverterTypePagePattern.read(buf),
+            FfiConverterOptionalTypeRgba.read(buf),
+            FfiConverterTypeRgba.read(buf),
+            FfiConverterFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ResolvedPageStyle) = (
+            FfiConverterTypePagePattern.allocationSize(value.`pattern`) +
+            FfiConverterOptionalTypeRgba.allocationSize(value.`paper`) +
+            FfiConverterTypeRgba.allocationSize(value.`patternColour`) +
+            FfiConverterFloat.allocationSize(value.`spacing`)
+    )
+
+    override fun write(value: ResolvedPageStyle, buf: ByteBuffer) {
+            FfiConverterTypePagePattern.write(value.`pattern`, buf)
+            FfiConverterOptionalTypeRgba.write(value.`paper`, buf)
+            FfiConverterTypeRgba.write(value.`patternColour`, buf)
+            FfiConverterFloat.write(value.`spacing`, buf)
+    }
+}
+
+
+
+data class Rgba (
+    var `r`: kotlin.UByte
+    , 
+    var `g`: kotlin.UByte
+    , 
+    var `b`: kotlin.UByte
+    , 
+    var `a`: kotlin.UByte
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeRgba: FfiConverterRustBuffer<Rgba> {
+    override fun read(buf: ByteBuffer): Rgba {
+        return Rgba(
+            FfiConverterUByte.read(buf),
+            FfiConverterUByte.read(buf),
+            FfiConverterUByte.read(buf),
+            FfiConverterUByte.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: Rgba) = (
+            FfiConverterUByte.allocationSize(value.`r`) +
+            FfiConverterUByte.allocationSize(value.`g`) +
+            FfiConverterUByte.allocationSize(value.`b`) +
+            FfiConverterUByte.allocationSize(value.`a`)
+    )
+
+    override fun write(value: Rgba, buf: ByteBuffer) {
+            FfiConverterUByte.write(value.`r`, buf)
+            FfiConverterUByte.write(value.`g`, buf)
+            FfiConverterUByte.write(value.`b`, buf)
+            FfiConverterUByte.write(value.`a`, buf)
     }
 }
 
@@ -6895,6 +7664,95 @@ public object FfiConverterTypeTextStyle: FfiConverterRustBuffer<TextStyle> {
 
 
 
+data class Waypoint (
+    /**
+     * At most 48 characters; unique case-insensitively.
+     */
+    var `name`: kotlin.String
+    , 
+    var `cx`: kotlin.Float
+    , 
+    var `cy`: kotlin.Float
+    , 
+    var `zoom`: kotlin.Float
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeWaypoint: FfiConverterRustBuffer<Waypoint> {
+    override fun read(buf: ByteBuffer): Waypoint {
+        return Waypoint(
+            FfiConverterString.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+            FfiConverterFloat.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: Waypoint) = (
+            FfiConverterString.allocationSize(value.`name`) +
+            FfiConverterFloat.allocationSize(value.`cx`) +
+            FfiConverterFloat.allocationSize(value.`cy`) +
+            FfiConverterFloat.allocationSize(value.`zoom`)
+    )
+
+    override fun write(value: Waypoint, buf: ByteBuffer) {
+            FfiConverterString.write(value.`name`, buf)
+            FfiConverterFloat.write(value.`cx`, buf)
+            FfiConverterFloat.write(value.`cy`, buf)
+            FfiConverterFloat.write(value.`zoom`, buf)
+    }
+}
+
+
+
+data class WaypointsView (
+    var `items`: List<Waypoint>
+    , 
+    var `head`: EntityHead
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeWaypointsView: FfiConverterRustBuffer<WaypointsView> {
+    override fun read(buf: ByteBuffer): WaypointsView {
+        return WaypointsView(
+            FfiConverterSequenceTypeWaypoint.read(buf),
+            FfiConverterTypeEntityHead.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: WaypointsView) = (
+            FfiConverterSequenceTypeWaypoint.allocationSize(value.`items`) +
+            FfiConverterTypeEntityHead.allocationSize(value.`head`)
+    )
+
+    override fun write(value: WaypointsView, buf: ByteBuffer) {
+            FfiConverterSequenceTypeWaypoint.write(value.`items`, buf)
+            FfiConverterTypeEntityHead.write(value.`head`, buf)
+    }
+}
+
+
+
 sealed class AnchorTarget {
     
     data class Text(
@@ -7447,6 +8305,53 @@ sealed class CommandBody {
         companion object
     }
     
+    /**
+     * A Note's page style: the note-wide one, or with `sheet_id` that page's own override.
+     * Base: `PageStyleView.head`, or that page's `style_head`. Not undoable.
+     */
+    data class SetPageStyle(
+        val `sheetId`: kotlin.String?, 
+        val `template`: dev.syncr.core.PagePattern, 
+        val `paper`: dev.syncr.core.Rgba?, 
+        val `patternColour`: dev.syncr.core.Rgba?, 
+        val `spacing`: kotlin.Float?, 
+        val `base`: dev.syncr.core.Base) : CommandBody()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
+     * A Canvas's background. Base: `CanvasBackgroundView.head`. Not undoable.
+     */
+    data class SetCanvasBackground(
+        val `pattern`: dev.syncr.core.PagePattern, 
+        val `patternColour`: dev.syncr.core.Rgba?, 
+        val `spacing`: kotlin.Float?, 
+        val `paper`: dev.syncr.core.Rgba?, 
+        val `base`: dev.syncr.core.Base) : CommandBody()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
+     * A Canvas's whole waypoint list. Base: `WaypointsView.head`. Not undoable.
+     */
+    data class SetWaypoints(
+        val `waypoints`: List<dev.syncr.core.Waypoint>, 
+        val `base`: dev.syncr.core.Base) : CommandBody()
+        
+    {
+        
+
+        companion object
+    }
+    
 
     
 
@@ -7500,6 +8405,25 @@ public object FfiConverterTypeCommandBody : FfiConverterRustBuffer<CommandBody>{
                 )
             11 -> CommandBody.SetCompanionSettings(
                 FfiConverterTypeCompanionSettings.read(buf),
+                FfiConverterTypeBase.read(buf),
+                )
+            12 -> CommandBody.SetPageStyle(
+                FfiConverterOptionalString.read(buf),
+                FfiConverterTypePagePattern.read(buf),
+                FfiConverterOptionalTypeRgba.read(buf),
+                FfiConverterOptionalTypeRgba.read(buf),
+                FfiConverterOptionalFloat.read(buf),
+                FfiConverterTypeBase.read(buf),
+                )
+            13 -> CommandBody.SetCanvasBackground(
+                FfiConverterTypePagePattern.read(buf),
+                FfiConverterOptionalTypeRgba.read(buf),
+                FfiConverterOptionalFloat.read(buf),
+                FfiConverterOptionalTypeRgba.read(buf),
+                FfiConverterTypeBase.read(buf),
+                )
+            14 -> CommandBody.SetWaypoints(
+                FfiConverterSequenceTypeWaypoint.read(buf),
                 FfiConverterTypeBase.read(buf),
                 )
             else -> throw RuntimeException("invalid enum value, something is very wrong!!")
@@ -7590,6 +8514,37 @@ public object FfiConverterTypeCommandBody : FfiConverterRustBuffer<CommandBody>{
                 + FfiConverterTypeBase.allocationSize(value.`base`)
             )
         }
+        is CommandBody.SetPageStyle -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterOptionalString.allocationSize(value.`sheetId`)
+                + FfiConverterTypePagePattern.allocationSize(value.`template`)
+                + FfiConverterOptionalTypeRgba.allocationSize(value.`paper`)
+                + FfiConverterOptionalTypeRgba.allocationSize(value.`patternColour`)
+                + FfiConverterOptionalFloat.allocationSize(value.`spacing`)
+                + FfiConverterTypeBase.allocationSize(value.`base`)
+            )
+        }
+        is CommandBody.SetCanvasBackground -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterTypePagePattern.allocationSize(value.`pattern`)
+                + FfiConverterOptionalTypeRgba.allocationSize(value.`patternColour`)
+                + FfiConverterOptionalFloat.allocationSize(value.`spacing`)
+                + FfiConverterOptionalTypeRgba.allocationSize(value.`paper`)
+                + FfiConverterTypeBase.allocationSize(value.`base`)
+            )
+        }
+        is CommandBody.SetWaypoints -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterSequenceTypeWaypoint.allocationSize(value.`waypoints`)
+                + FfiConverterTypeBase.allocationSize(value.`base`)
+            )
+        }
     }
 
     override fun write(value: CommandBody, buf: ByteBuffer) {
@@ -7652,6 +8607,31 @@ public object FfiConverterTypeCommandBody : FfiConverterRustBuffer<CommandBody>{
             is CommandBody.SetCompanionSettings -> {
                 buf.putInt(11)
                 FfiConverterTypeCompanionSettings.write(value.`settings`, buf)
+                FfiConverterTypeBase.write(value.`base`, buf)
+                Unit
+            }
+            is CommandBody.SetPageStyle -> {
+                buf.putInt(12)
+                FfiConverterOptionalString.write(value.`sheetId`, buf)
+                FfiConverterTypePagePattern.write(value.`template`, buf)
+                FfiConverterOptionalTypeRgba.write(value.`paper`, buf)
+                FfiConverterOptionalTypeRgba.write(value.`patternColour`, buf)
+                FfiConverterOptionalFloat.write(value.`spacing`, buf)
+                FfiConverterTypeBase.write(value.`base`, buf)
+                Unit
+            }
+            is CommandBody.SetCanvasBackground -> {
+                buf.putInt(13)
+                FfiConverterTypePagePattern.write(value.`pattern`, buf)
+                FfiConverterOptionalTypeRgba.write(value.`patternColour`, buf)
+                FfiConverterOptionalFloat.write(value.`spacing`, buf)
+                FfiConverterOptionalTypeRgba.write(value.`paper`, buf)
+                FfiConverterTypeBase.write(value.`base`, buf)
+                Unit
+            }
+            is CommandBody.SetWaypoints -> {
+                buf.putInt(14)
+                FfiConverterSequenceTypeWaypoint.write(value.`waypoints`, buf)
                 FfiConverterTypeBase.write(value.`base`, buf)
                 Unit
             }
@@ -9531,6 +10511,67 @@ sealed class MarkMutation {
         companion object
     }
     
+    /**
+     * Pages (Note only). `after` None = first. Each side 76..15238 units.
+     */
+    data class AddPage(
+        val `sheetId`: kotlin.String, 
+        val `after`: kotlin.String?, 
+        val `width`: kotlin.Float, 
+        val `height`: kotlin.Float) : MarkMutation()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class ResizePage(
+        val `sheetId`: kotlin.String, 
+        val `base`: dev.syncr.core.Base, 
+        val `width`: kotlin.Float, 
+        val `height`: kotlin.Float) : MarkMutation()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class MovePage(
+        val `sheetId`: kotlin.String, 
+        val `base`: dev.syncr.core.Base, 
+        val `after`: kotlin.String?) : MarkMutation()
+        
+    {
+        
+
+        companion object
+    }
+    
+    /**
+     * Refused when it would leave no live page.
+     */
+    data class DeletePage(
+        val `sheetId`: kotlin.String, 
+        val `base`: dev.syncr.core.Base) : MarkMutation()
+        
+    {
+        
+
+        companion object
+    }
+    
+    data class RestorePage(
+        val `sheetId`: kotlin.String, 
+        val `base`: dev.syncr.core.Base) : MarkMutation()
+        
+    {
+        
+
+        companion object
+    }
+    
 
     
 
@@ -9610,6 +10651,31 @@ public object FfiConverterTypeMarkMutation : FfiConverterRustBuffer<MarkMutation
                 FfiConverterString.read(buf),
                 FfiConverterTypeBase.read(buf),
                 FfiConverterTypeTextStyle.read(buf),
+                )
+            13 -> MarkMutation.AddPage(
+                FfiConverterString.read(buf),
+                FfiConverterOptionalString.read(buf),
+                FfiConverterFloat.read(buf),
+                FfiConverterFloat.read(buf),
+                )
+            14 -> MarkMutation.ResizePage(
+                FfiConverterString.read(buf),
+                FfiConverterTypeBase.read(buf),
+                FfiConverterFloat.read(buf),
+                FfiConverterFloat.read(buf),
+                )
+            15 -> MarkMutation.MovePage(
+                FfiConverterString.read(buf),
+                FfiConverterTypeBase.read(buf),
+                FfiConverterOptionalString.read(buf),
+                )
+            16 -> MarkMutation.DeletePage(
+                FfiConverterString.read(buf),
+                FfiConverterTypeBase.read(buf),
+                )
+            17 -> MarkMutation.RestorePage(
+                FfiConverterString.read(buf),
+                FfiConverterTypeBase.read(buf),
                 )
             else -> throw RuntimeException("invalid enum value, something is very wrong!!")
         }
@@ -9728,6 +10794,51 @@ public object FfiConverterTypeMarkMutation : FfiConverterRustBuffer<MarkMutation
                 + FfiConverterTypeTextStyle.allocationSize(value.`style`)
             )
         }
+        is MarkMutation.AddPage -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`sheetId`)
+                + FfiConverterOptionalString.allocationSize(value.`after`)
+                + FfiConverterFloat.allocationSize(value.`width`)
+                + FfiConverterFloat.allocationSize(value.`height`)
+            )
+        }
+        is MarkMutation.ResizePage -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`sheetId`)
+                + FfiConverterTypeBase.allocationSize(value.`base`)
+                + FfiConverterFloat.allocationSize(value.`width`)
+                + FfiConverterFloat.allocationSize(value.`height`)
+            )
+        }
+        is MarkMutation.MovePage -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`sheetId`)
+                + FfiConverterTypeBase.allocationSize(value.`base`)
+                + FfiConverterOptionalString.allocationSize(value.`after`)
+            )
+        }
+        is MarkMutation.DeletePage -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`sheetId`)
+                + FfiConverterTypeBase.allocationSize(value.`base`)
+            )
+        }
+        is MarkMutation.RestorePage -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterString.allocationSize(value.`sheetId`)
+                + FfiConverterTypeBase.allocationSize(value.`base`)
+            )
+        }
     }
 
     override fun write(value: MarkMutation, buf: ByteBuffer) {
@@ -9820,6 +10931,41 @@ public object FfiConverterTypeMarkMutation : FfiConverterRustBuffer<MarkMutation
                 FfiConverterTypeTextStyle.write(value.`style`, buf)
                 Unit
             }
+            is MarkMutation.AddPage -> {
+                buf.putInt(13)
+                FfiConverterString.write(value.`sheetId`, buf)
+                FfiConverterOptionalString.write(value.`after`, buf)
+                FfiConverterFloat.write(value.`width`, buf)
+                FfiConverterFloat.write(value.`height`, buf)
+                Unit
+            }
+            is MarkMutation.ResizePage -> {
+                buf.putInt(14)
+                FfiConverterString.write(value.`sheetId`, buf)
+                FfiConverterTypeBase.write(value.`base`, buf)
+                FfiConverterFloat.write(value.`width`, buf)
+                FfiConverterFloat.write(value.`height`, buf)
+                Unit
+            }
+            is MarkMutation.MovePage -> {
+                buf.putInt(15)
+                FfiConverterString.write(value.`sheetId`, buf)
+                FfiConverterTypeBase.write(value.`base`, buf)
+                FfiConverterOptionalString.write(value.`after`, buf)
+                Unit
+            }
+            is MarkMutation.DeletePage -> {
+                buf.putInt(16)
+                FfiConverterString.write(value.`sheetId`, buf)
+                FfiConverterTypeBase.write(value.`base`, buf)
+                Unit
+            }
+            is MarkMutation.RestorePage -> {
+                buf.putInt(17)
+                FfiConverterString.write(value.`sheetId`, buf)
+                FfiConverterTypeBase.write(value.`base`, buf)
+                Unit
+            }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
     }
 }
@@ -9854,6 +11000,43 @@ public object FfiConverterTypeMessageWho: FfiConverterRustBuffer<MessageWho> {
     override fun allocationSize(value: MessageWho) = 4UL
 
     override fun write(value: MessageWho, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+/**
+ * What a document is, fixed at creation. A Note is paged; a Canvas is one unbounded sheet.
+ */
+
+enum class NoteKind {
+    
+    NOTE,
+    CANVAS;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeNoteKind: FfiConverterRustBuffer<NoteKind> {
+    override fun read(buf: ByteBuffer) = try {
+        NoteKind.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: NoteKind) = 4UL
+
+    override fun write(value: NoteKind, buf: ByteBuffer) {
         buf.putInt(value.ordinal + 1)
     }
 }
@@ -9928,6 +11111,86 @@ public object FfiConverterTypeOperationLookup : FfiConverterRustBuffer<Operation
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
+
+enum class PageMode {
+    
+    /**
+     * One page per row.
+     */
+    SINGLE,
+    /**
+     * Pages 1-2, 3-4, and so on.
+     */
+    DOUBLE,
+    /**
+     * Page 1 alone, then 2-3, 4-5, and so on.
+     */
+    COVER;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePageMode: FfiConverterRustBuffer<PageMode> {
+    override fun read(buf: ByteBuffer) = try {
+        PageMode.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: PageMode) = 4UL
+
+    override fun write(value: PageMode, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+
+enum class PagePattern {
+    
+    NONE,
+    LINES,
+    DOTS,
+    GRID;
+
+    
+
+
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypePagePattern: FfiConverterRustBuffer<PagePattern> {
+    override fun read(buf: ByteBuffer) = try {
+        PagePattern.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: PagePattern) = 4UL
+
+    override fun write(value: PagePattern, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
     }
 }
 
@@ -10763,6 +12026,38 @@ public object FfiConverterOptionalULong: FfiConverterRustBuffer<kotlin.ULong?> {
 /**
  * @suppress
  */
+public object FfiConverterOptionalFloat: FfiConverterRustBuffer<kotlin.Float?> {
+    override fun read(buf: ByteBuffer): kotlin.Float? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterFloat.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.Float?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterFloat.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.Float?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterFloat.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalString: FfiConverterRustBuffer<kotlin.String?> {
     override fun read(buf: ByteBuffer): kotlin.String? {
         if (buf.get().toInt() == 0) {
@@ -10817,6 +12112,38 @@ public object FfiConverterOptionalByteArray: FfiConverterRustBuffer<kotlin.ByteA
         } else {
             buf.put(1)
             FfiConverterByteArray.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeCanvasBackgroundView: FfiConverterRustBuffer<CanvasBackgroundView?> {
+    override fun read(buf: ByteBuffer): CanvasBackgroundView? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeCanvasBackgroundView.read(buf)
+    }
+
+    override fun allocationSize(value: CanvasBackgroundView?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeCanvasBackgroundView.allocationSize(value)
+        }
+    }
+
+    override fun write(value: CanvasBackgroundView?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeCanvasBackgroundView.write(value, buf)
         }
     }
 }
@@ -10891,6 +12218,102 @@ public object FfiConverterOptionalTypeOklch: FfiConverterRustBuffer<Oklch?> {
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypePageSize: FfiConverterRustBuffer<PageSize?> {
+    override fun read(buf: ByteBuffer): PageSize? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypePageSize.read(buf)
+    }
+
+    override fun allocationSize(value: PageSize?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypePageSize.allocationSize(value)
+        }
+    }
+
+    override fun write(value: PageSize?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypePageSize.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypePageStyle: FfiConverterRustBuffer<PageStyle?> {
+    override fun read(buf: ByteBuffer): PageStyle? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypePageStyle.read(buf)
+    }
+
+    override fun allocationSize(value: PageStyle?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypePageStyle.allocationSize(value)
+        }
+    }
+
+    override fun write(value: PageStyle?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypePageStyle.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypePageStyleView: FfiConverterRustBuffer<PageStyleView?> {
+    override fun read(buf: ByteBuffer): PageStyleView? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypePageStyleView.read(buf)
+    }
+
+    override fun allocationSize(value: PageStyleView?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypePageStyleView.allocationSize(value)
+        }
+    }
+
+    override fun write(value: PageStyleView?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypePageStyleView.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypePenFeel: FfiConverterRustBuffer<PenFeel?> {
     override fun read(buf: ByteBuffer): PenFeel? {
         if (buf.get().toInt() == 0) {
@@ -10923,6 +12346,38 @@ public object FfiConverterOptionalTypePenFeel: FfiConverterRustBuffer<PenFeel?> 
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeRgba: FfiConverterRustBuffer<Rgba?> {
+    override fun read(buf: ByteBuffer): Rgba? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeRgba.read(buf)
+    }
+
+    override fun allocationSize(value: Rgba?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeRgba.allocationSize(value)
+        }
+    }
+
+    override fun write(value: Rgba?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeRgba.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypeStrokeCommit: FfiConverterRustBuffer<StrokeCommit?> {
     override fun read(buf: ByteBuffer): StrokeCommit? {
         if (buf.get().toInt() == 0) {
@@ -10945,6 +12400,38 @@ public object FfiConverterOptionalTypeStrokeCommit: FfiConverterRustBuffer<Strok
         } else {
             buf.put(1)
             FfiConverterTypeStrokeCommit.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeWaypointsView: FfiConverterRustBuffer<WaypointsView?> {
+    override fun read(buf: ByteBuffer): WaypointsView? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeWaypointsView.read(buf)
+    }
+
+    override fun allocationSize(value: WaypointsView?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeWaypointsView.allocationSize(value)
+        }
+    }
+
+    override fun write(value: WaypointsView?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeWaypointsView.write(value, buf)
         }
     }
 }
@@ -11149,6 +12636,90 @@ public object FfiConverterSequenceTypeAuthorHead: FfiConverterRustBuffer<List<Au
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeAuthorHead.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeCanvasCard: FfiConverterRustBuffer<List<CanvasCard>> {
+    override fun read(buf: ByteBuffer): List<CanvasCard> {
+        val len = buf.getInt()
+        return List<CanvasCard>(len) {
+            FfiConverterTypeCanvasCard.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<CanvasCard>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeCanvasCard.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<CanvasCard>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeCanvasCard.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeCardAnchor: FfiConverterRustBuffer<List<CardAnchor>> {
+    override fun read(buf: ByteBuffer): List<CardAnchor> {
+        val len = buf.getInt()
+        return List<CardAnchor>(len) {
+            FfiConverterTypeCardAnchor.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<CardAnchor>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeCardAnchor.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<CardAnchor>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeCardAnchor.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeCardPlacement: FfiConverterRustBuffer<List<CardPlacement>> {
+    override fun read(buf: ByteBuffer): List<CardPlacement> {
+        val len = buf.getInt()
+        return List<CardPlacement>(len) {
+            FfiConverterTypeCardPlacement.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<CardPlacement>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeCardPlacement.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<CardPlacement>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeCardPlacement.write(it, buf)
         }
     }
 }
@@ -11551,6 +13122,118 @@ public object FfiConverterSequenceTypeNotebookSummary: FfiConverterRustBuffer<Li
 /**
  * @suppress
  */
+public object FfiConverterSequenceTypePageExtent: FfiConverterRustBuffer<List<PageExtent>> {
+    override fun read(buf: ByteBuffer): List<PageExtent> {
+        val len = buf.getInt()
+        return List<PageExtent>(len) {
+            FfiConverterTypePageExtent.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<PageExtent>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypePageExtent.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<PageExtent>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypePageExtent.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypePageRect: FfiConverterRustBuffer<List<PageRect>> {
+    override fun read(buf: ByteBuffer): List<PageRect> {
+        val len = buf.getInt()
+        return List<PageRect>(len) {
+            FfiConverterTypePageRect.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<PageRect>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypePageRect.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<PageRect>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypePageRect.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypePageSize: FfiConverterRustBuffer<List<PageSize>> {
+    override fun read(buf: ByteBuffer): List<PageSize> {
+        val len = buf.getInt()
+        return List<PageSize>(len) {
+            FfiConverterTypePageSize.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<PageSize>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypePageSize.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<PageSize>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypePageSize.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypePageView: FfiConverterRustBuffer<List<PageView>> {
+    override fun read(buf: ByteBuffer): List<PageView> {
+        val len = buf.getInt()
+        return List<PageView>(len) {
+            FfiConverterTypePageView.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<PageView>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypePageView.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<PageView>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypePageView.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterSequenceTypePicturePoint: FfiConverterRustBuffer<List<PicturePoint>> {
     override fun read(buf: ByteBuffer): List<PicturePoint> {
         val len = buf.getInt()
@@ -11709,6 +13392,34 @@ public object FfiConverterSequenceTypeTextBlockView: FfiConverterRustBuffer<List
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeTextBlockView.write(it, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceTypeWaypoint: FfiConverterRustBuffer<List<Waypoint>> {
+    override fun read(buf: ByteBuffer): List<Waypoint> {
+        val len = buf.getInt()
+        return List<Waypoint>(len) {
+            FfiConverterTypeWaypoint.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<Waypoint>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterTypeWaypoint.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<Waypoint>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterTypeWaypoint.write(it, buf)
         }
     }
 }
@@ -11934,6 +13645,42 @@ public object FfiConverterSequenceTypePreviewEvent: FfiConverterRustBuffer<List<
     }
     
 
+        /**
+         * Each card goes right of its anchor's box, `gap` away and level with its top, then is pushed
+         * down below any earlier card it would overlap (with `gap` between them). Cards are placed in
+         * the order given, so the result is deterministic.
+         */ fun `layoutCanvasCards`(`anchors`: List<CardAnchor>, `cards`: List<CanvasCard>, `gap`: kotlin.Float): List<CardPlacement> {
+            return FfiConverterSequenceTypeCardPlacement.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_func_layout_canvas_cards(
+    
+        
+        FfiConverterSequenceTypeCardAnchor.lower(`anchors`),
+        FfiConverterSequenceTypeCanvasCard.lower(`cards`),
+        FfiConverterFloat.lower(`gap`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Rows top to bottom, starting at y = 0, `gap` apart. Pages in a row are `gap` apart and
+         * vertically centred in it; rows are horizontally centred against the widest row, whose left
+         * edge is x = 0.
+         */ fun `layoutPages`(`pages`: List<PageExtent>, `mode`: PageMode, `gap`: kotlin.Float): List<PageRect> {
+            return FfiConverterSequenceTypePageRect.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_func_layout_pages(
+    
+        
+        FfiConverterSequenceTypePageExtent.lower(`pages`),
+        FfiConverterTypePageMode.lower(`mode`),
+        FfiConverterFloat.lower(`gap`),_status)
+}
+    )
+    }
+    
+
     @Throws(CoreException::class) fun `openLibrary`(`rootPath`: kotlin.String): SyncrLibrary {
             return FfiConverterTypeSyncrLibrary.lift(
     uniffiRustCallWithError(CoreException) { _status ->
@@ -12074,6 +13821,60 @@ public object FfiConverterSequenceTypePreviewEvent: FfiConverterRustBuffer<List<
     
         
         FfiConverterTypeOklch.lower(`ink`),_status)
+}
+    )
+    }
+    
+ fun `defaultPageGap`(): kotlin.Float {
+            return FfiConverterFloat.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_func_default_page_gap(
+    
+        _status)
+}
+    )
+    }
+    
+
+        /**
+         * The named size a page of `width` x `height` units is, within 0.5 mm, either way round.
+         */ fun `matchSize`(`width`: kotlin.Float, `height`: kotlin.Float): PageSize? {
+            return FfiConverterOptionalTypePageSize.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_func_match_size(
+    
+        
+        FfiConverterFloat.lower(`width`),
+        FfiConverterFloat.lower(`height`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * The named sizes, portrait.
+         */ fun `pageSizes`(): List<PageSize> {
+            return FfiConverterSequenceTypePageSize.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_func_page_sizes(
+    
+        _status)
+}
+    )
+    }
+    
+
+        /**
+         * Page, then note, then default. A page's own style replaces the note's as a whole; parts it
+         * leaves out take the defaults.
+         */ fun `resolvePageStyle`(`note`: PageStyle?, `page`: PageStyle?): ResolvedPageStyle {
+            return FfiConverterTypeResolvedPageStyle.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_syncr_core_fn_func_resolve_page_style(
+    
+        
+        FfiConverterOptionalTypePageStyle.lower(`note`),
+        FfiConverterOptionalTypePageStyle.lower(`page`),_status)
 }
     )
     }

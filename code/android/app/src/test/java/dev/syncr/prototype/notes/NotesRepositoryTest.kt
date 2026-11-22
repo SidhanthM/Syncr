@@ -19,7 +19,7 @@ class NotesRepositoryTest {
         undoDependencies: List<String> = emptyList(), redoDependencies: List<String> = emptyList()) =
         NoteSnapshot("note", "Test", null, EntityHead("creation", null), EntityHead("creation", null),
             listOf(SheetView("sheet", "creation", 0f, 0f)),
-            strokes, seq, EventCursor("stream", seq), undo, redo, undoDependencies, redoDependencies)
+            strokes, seq, EventCursor("stream", seq), undo, redo, undoDependencies, redoDependencies, kind = dev.syncr.core.NoteKind.NOTE)
     private fun preview(id: String = "mark") = InkPreview(id, "sheet", samples, brush)
 
     /** Test-only fake, deliberately no operation reducer or storage implementation. */
@@ -62,8 +62,8 @@ class NotesRepositoryTest {
         override fun decode(bytes: ByteArray): SampleChannels { worker(); return samples }
         override fun authorId(): String { worker(); return "author" }
         override fun listNotes(): List<NoteSummary> { worker()
-            return listOf(NoteSummary("old", "Old", 1u, "Physics", 10, 20, false),
-                NoteSummary("note", current.title, current.localSequence, current.notebook, 10, 30, current.archived))
+            return listOf(NoteSummary("old", "Old", 1u, "Physics", 10, 20, false, kind = dev.syncr.core.NoteKind.NOTE),
+                NoteSummary("note", current.title, current.localSequence, current.notebook, 10, 30, current.archived, kind = dev.syncr.core.NoteKind.NOTE))
                 .filter { it.id !in deleted && it.id !in purged } }
         override fun deleteNote(id: String) {
             worker(); trashCalls += "delete:$id"; failDelete?.let { throw it }

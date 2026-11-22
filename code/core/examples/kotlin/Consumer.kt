@@ -13,7 +13,7 @@ import java.nio.file.Files
 fun createAddSnapshotReopen(root: String): NoteSnapshot {
     val library = openLibrary(root)
     try {
-        val request = CreateNoteRequest(newId(), newId(), newId(), "Example", null)
+        val request = CreateNoteRequest(newId(), newId(), newId(), "Example", null, NoteKind.NOTE)
         library.createNote(request)
         check(library.lookupCreation(request.operationId) is OperationLookup.Committed)
         check(library.createNote(request).duplicate)
@@ -116,13 +116,13 @@ private fun typedText() {
     val root = Files.createTempDirectory("syncr-kotlin-text-")
     try {
         openLibrary(root.toString()).use { library ->
-            val r = CreateNoteRequest(newId(), newId(), newId(), "Text", null)
+            val r = CreateNoteRequest(newId(), newId(), newId(), "Text", null, NoteKind.NOTE)
             library.createNote(r)
             library.openNote(r.noteId).use { note ->
                 val initial = note.snapshot()
                 val oldShape = NoteSnapshot(initial.noteId, initial.title, initial.notebook, initial.metadataHead,
                     initial.structureHead, initial.sheets, initial.strokes, initial.localSequence, initial.cursor,
-                    null, null, emptyList(), emptyList())
+                    null, null, emptyList(), emptyList(), kind = NoteKind.NOTE)
                 check(oldShape.textBlocks.isEmpty())
                 val block = newId()
                 val add = Command(newId(), listOf(r.operationId), CommandBody.Marks(listOf(
@@ -294,7 +294,7 @@ private fun canvasAndNotebooks() {
     try {
         openLibrary(root.toString()).use { library ->
             check(canvasSize() == CanvasSize(4800f, 3000f, 1600f))
-            val phone = CreateNoteRequest(newId(), newId(), newId(), "Phone", "Physics")
+            val phone = CreateNoteRequest(newId(), newId(), newId(), "Phone", "Physics", NoteKind.NOTE)
             library.createNote(phone)
             check(library.createNote(phone).duplicate)
             try {
@@ -340,7 +340,7 @@ private fun archiveAndRecentlyDeleted() {
     val root = Files.createTempDirectory("syncr-trash-smoke-")
     try {
         openLibrary(root.toString()).use { library ->
-            val request = CreateNoteRequest(newId(), newId(), newId(), "Trash", null)
+            val request = CreateNoteRequest(newId(), newId(), newId(), "Trash", null, NoteKind.NOTE)
             library.createNote(request)
             library.openNote(request.noteId).use { note ->
                 val head = note.snapshot().metadataHead.operationId
@@ -420,7 +420,7 @@ private fun imageSmoke() {
     val root = java.nio.file.Files.createTempDirectory("syncr-kotlin-image-").toFile()
     try {
         val library = openLibrary(root.path)
-        val request = CreateNoteRequest(newId(), newId(), newId(), "Image", null)
+        val request = CreateNoteRequest(newId(), newId(), newId(), "Image", null, NoteKind.NOTE)
         library.createNote(request)
         val note = library.openNote(request.noteId)
         val bytes = java.io.File("fixtures/image-v2/pixel.png").readBytes()
@@ -527,7 +527,7 @@ fun syncSmoke() {
     try {
         openLibrary(tmp.resolve("mac").toString()).use { macLib ->
             openLibrary(tmp.resolve("phone").toString()).use { phoneLib ->
-                val r = CreateNoteRequest(newId(), newId(), newId(), "Sync", null)
+                val r = CreateNoteRequest(newId(), newId(), newId(), "Sync", null, NoteKind.NOTE)
                 macLib.createNote(r)
                 val mac = macLib.openNote(r.noteId)
                 val copy = tmp.resolve("copy.syncr").toString()

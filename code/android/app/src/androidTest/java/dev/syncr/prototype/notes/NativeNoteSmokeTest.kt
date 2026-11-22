@@ -18,7 +18,7 @@ class NativeNoteSmokeTest {
         val core = GeneratedCoreAdapter()
         val library = core.open(root.absolutePath)
         try {
-            val request = CreateNoteRequest(newId(), newId(), newId(), "Native smoke", null)
+            val request = CreateNoteRequest(newId(), newId(), newId(), "Native smoke", null, NoteKind.NOTE)
             library.create(request)
             val note = library.openNote(request.noteId)
             val channels = SampleChannels(listOf(3400f, 4700f), listOf(12000f, 12100f), listOf(.5f, 1f), listOf(0u, 10u), null, null)

@@ -14,7 +14,7 @@ func createAddSnapshotReopen(root: String) throws {
     let library = try openLibrary(rootPath: root)
     let request = CreateNoteRequest(
         operationId: newId(), noteId: newId(), firstSheetId: newId(),
-        title: "Example", notebook: nil)
+        title: "Example", notebook: nil, kind: .note)
     _ = try library.createNote(request: request)
     if case .committed = try library.lookupCreation(operationId: request.operationId) {} else {
         throw SmokeFailure(description: "creation was not recorded")
@@ -195,7 +195,7 @@ func typedText() throws {
     defer { try? fm.removeItem(at: root) }
     try fm.createDirectory(at: root, withIntermediateDirectories: true)
     let library = try openLibrary(rootPath: root.path)
-    let r = CreateNoteRequest(operationId: newId(), noteId: newId(), firstSheetId: newId(), title: "Text", notebook: nil)
+    let r = CreateNoteRequest(operationId: newId(), noteId: newId(), firstSheetId: newId(), title: "Text", notebook: nil, kind: .note)
     _ = try library.createNote(request: r)
     let note = try library.openNote(noteId: r.noteId)
     let initial = try note.snapshot()
@@ -203,7 +203,7 @@ func typedText() throws {
     let oldShape = NoteSnapshot(noteId: initial.noteId, title: initial.title, notebook: initial.notebook,
         metadataHead: initial.metadataHead, structureHead: initial.structureHead, sheets: initial.sheets,
         strokes: initial.strokes, localSequence: initial.localSequence, cursor: initial.cursor,
-        undoTarget: nil, redoTarget: nil, undoDependencies: [], redoDependencies: [])
+        undoTarget: nil, redoTarget: nil, undoDependencies: [], redoDependencies: [], kind: .note)
     try check(oldShape.textBlocks.isEmpty, "text snapshot field defaults to empty")
     let block = newId(), addId = newId()
     let add = Command(operationId: addId, dependencies: [r.operationId], body: .marks(mutations: [
@@ -233,7 +233,7 @@ func imageSmoke() throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("syncr-swift-image-\(UUID().uuidString)")
     defer { try? FileManager.default.removeItem(at: root) }
     let library = try openLibrary(rootPath: root.path)
-    let r = CreateNoteRequest(operationId: newId(), noteId: newId(), firstSheetId: newId(), title: "Image", notebook: nil)
+    let r = CreateNoteRequest(operationId: newId(), noteId: newId(), firstSheetId: newId(), title: "Image", notebook: nil, kind: .note)
     _ = try library.createNote(request: r)
     let note = try library.openNote(noteId: r.noteId)
     let bytes = try Data(contentsOf: URL(fileURLWithPath: "fixtures/image-v2/pixel.png"))
@@ -254,7 +254,7 @@ func syncSmoke() throws {
     defer { try? FileManager.default.removeItem(at: tmp) }
     let macLib = try openLibrary(rootPath: tmp.appendingPathComponent("mac").path)
     let phoneLib = try openLibrary(rootPath: tmp.appendingPathComponent("phone").path)
-    let r = CreateNoteRequest(operationId: newId(), noteId: newId(), firstSheetId: newId(), title: "Sync", notebook: nil)
+    let r = CreateNoteRequest(operationId: newId(), noteId: newId(), firstSheetId: newId(), title: "Sync", notebook: nil, kind: .note)
     _ = try macLib.createNote(request: r)
     let mac = try macLib.openNote(noteId: r.noteId)
     let copy = tmp.appendingPathComponent("copy.syncr").path

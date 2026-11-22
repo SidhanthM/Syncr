@@ -148,7 +148,7 @@ private final class LoadToken: @unchecked Sendable {
         do {
             try saveOwned()
             _ = try library.createNote(request: CreateNoteRequest(operationId: newId(), noteId: id,
-                firstSheetId: newId(), title: Self.clean(title, fallback: "Untitled"), notebook: notebook))
+                firstSheetId: newId(), title: Self.clean(title, fallback: "Untitled"), notebook: notebook, kind: .note))
         } catch { owned.remove(id); try? saveOwned(); throw error }
         try refresh()
         onCommit?(id)
