@@ -35,9 +35,19 @@ internal class CanvasViewport {
 
     /** Rotation and width changes keep the zoom but return to the left edge; a change of height alone (the keyboard) keeps the place. */
     fun resize(newWidth: Int, newHeight: Int, oldWidth: Int) {
+        val oldW = width
+        val oldH = height
         width = newWidth
         height = newHeight
-        mapping = Viewport.resized(geometry, mapping?.takeIf { oldWidth > 0 }, newWidth, newHeight, keepLeft = newWidth == oldWidth)
+        val m = mapping
+        if (geometry === CanvasGeometry && m != null && oldW > 0 && oldH > 0) {
+            // No left edge to return to: a rotation or the keyboard keeps whatever was at the centre.
+            val cx = (oldW / 2f - m.tx) / m.scale
+            val cy = (oldH / 2f - m.ty) / m.scale
+            mapping = m.copy(tx = newWidth / 2f - cx * m.scale, ty = newHeight / 2f - cy * m.scale)
+            return
+        }
+        mapping = Viewport.resized(geometry, m?.takeIf { oldWidth > 0 }, newWidth, newHeight, keepLeft = newWidth == oldWidth)
     }
 
     /** Back to the phone column at the fit scale, keeping the top canvas row. */
@@ -51,7 +61,7 @@ internal class CanvasViewport {
     /** Zooms to [scale] about a screen point, without the pinch scale limits. */
     fun zoomTo(scale: Float, focusX: Float, focusY: Float) {
         val m = mapping ?: return
-        mapping = clamp(m.navigate(0f, 0f, scale / m.scale, focusX, focusY))
+        mapping = clamp(m.navigate(0f, 0f, scale / m.scale, focusX, focusY, if (geometry === CanvasGeometry) CanvasGeometry.scaleRange(1f) else 0.001f..100f))
     }
 
     /** Zooms to [scale] with the sheet's left edge [tx] pixels in, keeping the sheet point at height [anchorSheetY] where it is on screen (the text column fills the width). */

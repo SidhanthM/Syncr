@@ -8,8 +8,8 @@ import kotlin.math.hypot
 data class SheetMapping(val scale: Float, val tx: Float, val ty: Float) {
     fun toSheet(x: Float, y: Float) = Pair((x - tx) / scale, (y - ty) / scale)
     fun toScreen(x: Float, y: Float) = Pair(x * scale + tx, y * scale + ty)
-    fun navigate(dx: Float, dy: Float, factor: Float, focusX: Float, focusY: Float): SheetMapping {
-        val next = (scale * factor).coerceIn(0.001f, 100f)
+    fun navigate(dx: Float, dy: Float, factor: Float, focusX: Float, focusY: Float, range: ClosedFloatingPointRange<Float> = 0.001f..100f): SheetMapping {
+        val next = (scale * factor).coerceIn(range)
         val ratio = next / scale
         return SheetMapping(next, focusX - (focusX - tx) * ratio + dx, focusY - (focusY - ty) * ratio + dy)
     }

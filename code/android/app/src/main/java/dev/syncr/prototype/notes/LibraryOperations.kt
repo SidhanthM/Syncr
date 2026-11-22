@@ -75,7 +75,9 @@ internal class LibraryOperations(
         if (session.note != null || state.unsaved || state.libraryTask != null) return false
         val thumbnail = ThumbnailCache.read(thumbnailDir, summary.id, summary.localSequence) ?: run {
             val handle = session.openSide(summary.id)
-            val built = buildThumbnail(handle.snapshot(), { mark -> core.decode(handle.samples(mark)) })
+            val snapshot = handle.snapshot()
+            val built = buildThumbnail(snapshot, { mark -> core.decode(handle.samples(mark)) },
+                geometry = geometryOf(snapshot))
             session.closeSide()
             ThumbnailCache.write(thumbnailDir, summary.id, built)
             built

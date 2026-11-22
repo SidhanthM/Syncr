@@ -192,6 +192,12 @@ class NotesRepository(
         check(!state.value.unsaved) { state.value.error ?: "Text is queued but not yet saved. Retry saving from the note." }
     }
 
+    /** Stores the canvas's whole waypoint list. */
+    suspend fun saveWaypoints(noteId: String, items: List<dev.syncr.core.Waypoint>) {
+        if (editor.stageContent(noteId) { dev.syncr.prototype.canvas.CanvasCommands.waypoints(it, items, id) }) retry()
+        check(!state.value.unsaved) { state.value.error ?: "The waypoints are queued but not yet saved." }
+    }
+
     /** A tap on a rendered task box: flips `[ ]` and `[x]` on [line] of block [blockId] and nothing else. */
     suspend fun flipTask(blockId: String, line: Int) {
         val draft = textDraft(blockId)
@@ -298,7 +304,7 @@ class NotesRepository(
                 if (current.unsaved && !discard && !current.recoveryExported) return@work
                 // The card comes from the durable snapshot only, never from drafts, and needs no extra FFI.
                 val closing = current.snapshot
-                val thumbnail = closing?.let { buildThumbnail(it, current.samples::get) }
+                val thumbnail = closing?.let { buildThumbnail(it, current.samples::get, geometry = geometryOf(it)) }
                 session.closeNote()
                 session.update {
                     it.copy(

@@ -17,6 +17,8 @@ import android.widget.FrameLayout
 import android.widget.OverScroller
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.graphics.withClip
+import dev.syncr.prototype.canvas.CanvasMode
+import dev.syncr.prototype.canvas.UnitRect
 import dev.syncr.core.Brush
 import dev.syncr.core.BrushFamily
 import dev.syncr.core.BrushSize
@@ -184,6 +186,12 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
 
     /** The Type tool: typing starts where the caret was last, or on a new line at the end of the document. */
     fun startTyping() {
+        if (canvasMode != null) {
+            val m = viewport.mapping ?: return
+            val (cx, cy) = m.toSheet(width * 0.1f, height * 0.3f)
+            newFreeText(cx, cy)
+            return
+        }
         caretWish = lastCaret?.let { CaretWish.At(it) } ?: CaretWish.EndOfDocumentNewLine
         onContent(ContentTarget("", false))
     }
@@ -278,6 +286,8 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     private val text = TextLayer(invalidate = ::invalidate, onExtent = { bottom ->
         textBottom = bottom
         refreshGeometry()
+        canvasContentChanged()
+        invalidate()
     })
     private val panZoom = PanZoomTracker()
     private val pen = PenCapture(scene, lassoStepPx = density)
@@ -367,6 +377,88 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         isFocusable = true
     }
 
+    // ---- The unbounded canvas (canvas kind) ----
+
+    /** Set once by the canvas editor: this view then has no page, no clip and no navigation limits (see [CanvasMode]). */
+    internal var canvasMode: CanvasMode? = null
+        private set
+    /** Hears the zoom as a percentage whenever it changes, for the toolbar. */
+    var onZoomPercent: (Int) -> Unit = {}
+    private var initialViewPending = false
+    private var autoMapping: SheetMapping? = null
+    private var autoBounds: UnitRect? = null
+    private var shownPercent = -1
+    private var minimapDrag = false
+    private var viewSaved: SheetMapping? = null
+    private val saveView = Runnable { saveViewNow() }
+
+    internal fun attachCanvas(mode: CanvasMode) {
+        canvasMode = mode
+        viewport.setGeometry(CanvasGeometry)
+        text.canvasMode = true
+        doubleTapFit = false
+    }
+
+    /** "Fit all": the content plus 48 xnotes px of padding; an empty canvas goes to 100% at the origin. */
+    fun fitAll() {
+        val mode = canvasMode ?: return
+        if (activePointer != -1 || width == 0) return
+        val m = viewport.mapping ?: SheetMapping(1f, 0f, 0f)
+        scroller.forceFinished(true)
+        viewport.setMapping(mode.fitAll(m, width, height))
+        invalidate()
+    }
+
+    /** The current view as a waypoint called [name]. */
+    fun currentWaypoint(name: String): dev.syncr.core.Waypoint? {
+        val m = viewport.mapping ?: return null
+        return canvasMode?.waypoint(m, width, height, name)
+    }
+
+    fun goTo(waypoint: dev.syncr.core.Waypoint) {
+        val mode = canvasMode ?: return
+        val m = viewport.mapping ?: return
+        scroller.forceFinished(true)
+        viewport.setMapping(mode.goTo(m, width, height, waypoint))
+        invalidate()
+    }
+
+    fun setMinimap(on: Boolean) { canvasMode?.minimapOn = on; invalidate() }
+
+    /** The first view of an opened canvas: the one kept on this device, else all the content, else the origin. */
+    private fun placeInitialView() {
+        val mode = canvasMode ?: return
+        val id = scene.noteId ?: return
+        if (!initialViewPending || width == 0 || height == 0 || textSnapshot?.noteId != id) return
+        initialViewPending = false
+        val saved = mode.savedView(id, width, height)
+        val placed = saved ?: mode.fitAll(SheetMapping(1f, 0f, 0f), width, height)
+        viewport.setMapping(placed)
+        // With nothing kept, the first fit is redone when the words arrive (they are laid out off the main thread).
+        autoMapping = if (saved == null) viewport.mapping else null
+        autoBounds = mode.contentBounds()
+    }
+
+    /** Ink or text changed: rebuild the item boxes, and redo the first fit while the view is still the one it made. */
+    private fun canvasContentChanged() {
+        val mode = canvasMode ?: return
+        mode.sync(scene, text.boxes(), text.version)
+        val auto = autoMapping
+        if (auto != null && auto == viewport.mapping && mode.contentBounds() != autoBounds) {
+            autoBounds = mode.contentBounds()
+            viewport.setMapping(mode.fitAll(auto, width, height))
+            autoMapping = viewport.mapping
+        }
+    }
+
+    private fun saveViewNow() {
+        val id = scene.noteId ?: return
+        val m = viewport.mapping ?: return
+        if (m == viewSaved) return
+        viewSaved = m
+        canvasMode?.saveView(id, m, width, height)
+    }
+
     // ---- API ----
 
     fun update(state: NotesState, night: Boolean) {
@@ -386,6 +478,10 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         text.cellUnits = dev.syncr.prototype.stipple.Stipple.cellUnits(viewport.mapping?.scale ?: 1f, density)
         text.show(state.snapshot, contentDark, editingBlock, titleDisplay, textOffsets)
         dry.show(scene.previews, contentDark)
+        canvasMode?.let {
+            canvasContentChanged()
+            placeInitialView()
+        }
         invalidate()
     }
 
@@ -460,9 +556,16 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         invalidate()
     }
 
-    /** One zoom button: ×1.25 about the view's centre, within 12%..1600%, snapping to fit-width within 5%. */
+    /** One zoom button (on a canvas: the canvas's own step): ×1.25 about the view's centre, within 12%..1600%, snapping to fit-width within 5%. */
     fun zoomStep(up: Boolean) {
         val m = viewport.mapping ?: return
+        canvasMode?.let { mode ->
+            // A canvas: one step about the centre, within the canvas's own range, with no snap to a fit.
+            scroller.forceFinished(true)
+            viewport.setMapping(mode.step(m, width, height, up))
+            invalidate()
+            return
+        }
         if (activePointer != -1) return
         scroller.forceFinished(true)
         val range = viewport.geometry.scaleRange(viewport.fitScale)
@@ -497,6 +600,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
 
     /** Back to the phone column. Ignored while the pen is down. */
     fun fit() {
+        if (canvasMode != null) { fitAll(); return }
         if (activePointer != -1 || width == 0) return
         scroller.forceFinished(true)
         viewport.fitColumn()
@@ -553,7 +657,8 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         scene.clearHandoffs()
         dry.clearHandoffInk()
         deselect()
-        viewport.reset(restoredViewport?.takeIf { it.first == noteId }?.second)
+        viewport.reset(if (canvasMode != null) null else restoredViewport?.takeIf { it.first == noteId }?.second)
+        if (canvasMode != null) { initialViewPending = true; autoMapping = null; viewSaved = null }
     }
 
     // ---- Lifecycle ----
@@ -561,6 +666,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         cancelGesture()
         viewport.resize(w, h, oldw)
+        placeInitialView()
         if (textInput.active) post { textInput.ensureCaretVisible() }
     }
 
@@ -575,6 +681,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     }
 
     override fun onDetachedFromWindow() {
+        removeCallbacks(saveView); saveViewNow()
         removeCallbacks(startTypingNow)
         text.clear()
         cancelGesture()
@@ -661,10 +768,13 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     // ---- Drawing ----
 
     override fun onDraw(canvas: Canvas) {
-        canvas.drawColor(PaperPalette.desk(dark))
+        val mode = canvasMode
+        if (mode == null) canvas.drawColor(PaperPalette.desk(dark))
         val real = viewport.mapping ?: return
         scene.noteId?.let { onViewportChanged(it, real) }
         pad.viewMayHaveChanged(real.shifted(padShift), width, height) // a moved canvas hands the pad's strokes to dry ink first
+        if (mode != null) viewChanged(real)
+        else {
         // The page's own title (canvas y 70 to about 165) hides the floating title chip while any of it is on screen.
         val titleShown = real.toScreen(textOffset.first, textOffset.second + MacMetrics.TITLE_Y + 100f).second > 24f * density
         if (titleShown != titleVisible) { titleVisible = titleShown; post { onTitleVisible(titleShown) } }
@@ -672,10 +782,12 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         lastTy = real.ty
         val under = real.ty < -1f
         if (under != underTop) { underTop = under; post { onContentUnderTop(under) } }
+        }
         // A finger pulling past the end of the paper stretches what is drawn; the real mapping stays put.
         val m = stretched(real)
         textInput.position(m.shifted(textOffset), contentDark)
         dry.beginFrame()
+        if (mode != null) { drawUnbounded(canvas, m, mode); return }
         viewRect.set(-m.tx / m.scale, -m.ty / m.scale, (width - m.tx) / m.scale, (height - m.ty) / m.scale)
         if (spots.isEmpty()) drawColumn(canvas, m) else drawPages(canvas, m)
         drawLassoAndSelection(canvas, m)
@@ -683,14 +795,10 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         reportPage(real)
     }
 
-    /** A legacy column (or a canvas): the paper from its top edge down past the bottom of the screen, today's drawing. */
+    /** A legacy column: the paper from its top edge down past the bottom of the screen, today's drawing. */
     private fun drawColumn(canvas: Canvas, m: SheetMapping) {
         for (page in viewport.geometry.paper) paper.draw(canvas, m, page, null, dark, width, height, density, edges = false)
-        if (viewport.geometry === CanvasGeometry) {
-            // A canvas has no edges: paper everywhere and nothing clips (its own background and view come from the canvas editor).
-            canvas.drawColor(PaperPalette.paper(dark))
-            pageRect.set(-1e7f, -1e7f, 1e7f, 1e7f)
-        } else pageRect.set(m.tx, m.ty, m.tx + LegacyPage.WIDTH * m.scale, height.toFloat())
+        pageRect.set(m.tx, m.ty, m.tx + LegacyPage.WIDTH * m.scale, height.toFloat())
         canvas.withClip(pageRect) {
             translate(m.tx, m.ty)
             scale(m.scale, m.scale)
@@ -793,6 +901,46 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         val page = PageNav.currentPage(spots, real, width, height)
         val now = Triple(page?.index ?: -1, spots.size, page?.sheetId)
         if (now != reportedPage) { reportedPage = now; post { onPages(now.first, now.second, now.third) } }
+    }
+
+    /** What changed in the view since the last frame: the zoom for the toolbar, and a kept view once the finger rests. */
+    private fun viewChanged(m: SheetMapping) {
+        val mode = canvasMode ?: return
+        val percent = mode.percent(m)
+        if (percent != shownPercent) { shownPercent = percent; post { onZoomPercent(percent) } }
+        if (m != viewSaved) { removeCallbacks(saveView); postDelayed(saveView, SAVE_VIEW_MS) }
+        autoMapping?.let { if (it != m) autoMapping = null }
+    }
+
+    /** The unbounded canvas: ruling on the paper, then text and ink culled to the view, then the minimap. No clip anywhere. */
+    private fun drawUnbounded(canvas: Canvas, m: SheetMapping, mode: CanvasMode) {
+        mode.drawBackground(canvas, PaperPalette.paper(dark))
+        canvas.save()
+        canvas.translate(m.tx, m.ty)
+        canvas.scale(m.scale, m.scale)
+        viewRect.set(-m.tx / m.scale, -m.ty / m.scale, (width - m.tx) / m.scale, (height - m.ty) / m.scale)
+        canvas.save()
+        textInput.bounds?.let { if (!text.hides(editingBlock)) canvas.clipOutRect(it) }
+        text.draw(canvas, viewRect)
+        if (text.drawDissolves(canvas)) postInvalidateOnAnimation()
+        canvas.restore()
+        trace(TraceNames.DRY_DRAW) {
+            val previews = dry.previews
+            // The grid index finds the strokes in view; a stroke moving under the finger is not where the index has it.
+            val seen = if (previews === scene.previews && selection.gesture == null)
+                mode.visible(UnitRect(viewRect.left.toDouble(), viewRect.top.toDouble(), viewRect.right.toDouble(), viewRect.bottom.toDouble())) else null
+            if (seen != null) for (k in 0 until seen.size) previews.getOrNull(seen[k])?.let { drawStroke(canvas, it, m.scale) }
+            else previews.forEach { drawStroke(canvas, it, m.scale) }
+            scene.strokeHandoffs.forEach { handoff ->
+                if (previews.none { it.id == handoff.id }) drawStroke(canvas, handoff, m.scale)
+            }
+        }
+        if (pen.mode == PenMode.INK && !wet.isDrawing && !wetBridge.isAttached) {
+            pen.inkChannels()?.let { dry.drawLive(canvas, it, pen.brush, m.scale) }
+        }
+        canvas.restore()
+        drawLassoAndSelection(canvas, m)
+        mode.drawMinimap(canvas, width, height, m, dark)
     }
 
     private fun drawStroke(canvas: Canvas, preview: InkPreview, scale: Float) {
@@ -1160,6 +1308,12 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 pullAnimator?.cancel(); viewport.setPull(0f, 0f); pullArmed = false
+                if (canvasMode?.hitsMinimap(event.x, event.y, width, height) == true) {
+                    // The minimap: a touch (and a drag) centres the view on that spot, and is nothing else.
+                    minimapDrag = true; tapCandidate = false; fingerMode = FingerMode.NONE
+                    jumpFromMinimap(event.x, event.y)
+                    return
+                }
                 tapStart = Triple(event.x, event.y, event.eventTime)
                 tapCandidate = true
                 velocity?.recycle()
@@ -1172,6 +1326,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
                 }
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
+                if (minimapDrag) return
                 removeCallbacks(longPress)
                 tapCandidate = false
                 // A second finger turns a selection drag back into navigation.
@@ -1180,6 +1335,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
                 panZoom.secondPointerDown()
             }
             MotionEvent.ACTION_MOVE -> {
+                if (minimapDrag) { jumpFromMinimap(event.x, event.y); return }
                 velocity?.addMovement(event)
                 val start = tapStart
                 if (start != null && hypot(event.x - start.first, event.y - start.second) > slop) {
@@ -1193,6 +1349,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
                 }
             }
             MotionEvent.ACTION_UP -> {
+                if (minimapDrag) { minimapDrag = false; return }
                 removeCallbacks(longPress)
                 if (fingerMode == FingerMode.SELECTION) {
                     selection.commitGesture()
@@ -1200,7 +1357,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
                     if (panZoom.pinched) {
                         val (fx, fy) = panZoom.focus ?: (width / 2f to height / 2f)
                         viewport.setPull(0f, 0f)
-                        viewport.snapAfterPinch(fx, fy)
+                        if (canvasMode == null) viewport.snapAfterPinch(fx, fy)
                     } else if (!tapCandidate) {
                         velocity?.let { v ->
                             v.addMovement(event)
@@ -1226,7 +1383,10 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
                             TapAction.Ignored -> Unit
                             is TapAction.Task -> onTask(action.block, action.line)
                             is TapAction.Content -> { lastTextTap = event.x to event.y; lastWriteY = event.y; onContent(action.target) }
-                            is TapAction.Type -> {
+                            is TapAction.Type -> if (canvasMode != null) {
+                                lastTextTap = event.x to event.y; lastWriteY = event.y
+                                newFreeText(x, y)
+                            } else {
                                 pendingFreeTap = freePlaceAt(event.x, event.y)
                                 lastTextTap = event.x to event.y
                                 val wait = typingWaitMs(doubleTapFit, typing, ViewConfiguration.getDoubleTapTimeout().toLong())
@@ -1244,6 +1404,29 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
                 velocity = null
             }
         }
+    }
+
+    /** Centres the view on the canvas point a touch on the minimap means. */
+    private fun jumpFromMinimap(x: Float, y: Float) {
+        val mode = canvasMode ?: return
+        val m = viewport.mapping ?: return
+        val (cx, cy) = mode.minimapTarget(x, y, m, width, height)
+        scroller.forceFinished(true)
+        viewport.setMapping(mode.jump(m, width, height, cx, cy))
+        invalidate()
+    }
+
+    /** A new free text block whose editor opens at ([x], [y]) in canvas units. */
+    private fun newFreeText(x: Float, y: Float) {
+        if (textInput.active) return
+        val scale = viewport.mapping?.scale ?: return
+        // As wide as 80% of the screen at this zoom, within what a text card is comfortable at.
+        val width = (this.width * 0.8f / scale).coerceIn(FREE_MIN_WIDTH, FREE_MAX_WIDTH)
+        val sheet = textSnapshot?.sheets?.firstOrNull() ?: return
+        // The block is made with its first words, in the one sheet of a canvas, under the ID chosen here.
+        freePlace = FreePlace(sheet.id, x, y - NoteTextSceneBuilder.FREE_TEXT_DROP, width, dev.syncr.core.newId())
+        caretWish = null
+        onContent(ContentTarget("", false))
     }
 
     private fun pan(event: MotionEvent) {
@@ -1348,6 +1531,11 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
             try { dev.syncr.core.pageSizes().first { it.name == "A4" }.let { it.width to it.height } } catch (_: Throwable) { 1600f to 2262.9f }
         }
         const val PALM_MS = 300L
+        /** A moved canvas view is kept on the device this long after it stops changing. */
+        private const val SAVE_VIEW_MS = 600L
+        /** A new free text block's width in canvas units, at the narrowest and the widest. */
+        private const val FREE_MIN_WIDTH = 400f
+        private const val FREE_MAX_WIDTH = 1200f
         private const val LEGIBLE_SP = 15f
         private const val GUTTER_DP = 16f
 

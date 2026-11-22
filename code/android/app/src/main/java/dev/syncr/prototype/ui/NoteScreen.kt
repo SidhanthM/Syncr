@@ -208,10 +208,12 @@ private fun StickyTitle(band: TitleBand, title: String, notebook: String, modifi
 
 /** The canvas view, wired to the repository and the tool state. */
 @Composable
-private fun NoteCanvas(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: ToolState, viewSettings: PageViewSettings, actions: NoteActions,
+internal fun NoteCanvas(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: ToolState, viewSettings: PageViewSettings, actions: NoteActions,
     onView: (NoteCanvasView) -> Unit, onSelection: (Int) -> Unit, onTitle: (Boolean) -> Unit, onUnderTop: (Boolean) -> Unit,
     onScrolled: (Float) -> Unit, onPenContact: (Boolean) -> Unit, onTemporaryEraser: (Boolean) -> Unit,
-    onContent: (dev.syncr.prototype.notes.ContentTarget) -> Unit) {
+    onContent: (dev.syncr.prototype.notes.ContentTarget) -> Unit,
+    /** Set for a canvas: the view is then unbounded (see the canvas editor). */
+    canvasMode: dev.syncr.prototype.canvas.CanvasMode? = null, onZoom: (Int) -> Unit = {}) {
     val repo = vm.repository
     val context = LocalContext.current
     val gestures by remember(context) { AppPreferencesStore.state(context) }.collectAsState()
@@ -219,6 +221,7 @@ private fun NoteCanvas(vm: NotesViewModel, state: NotesState, dark: Boolean, too
     val mirror = link.mirror
     LaunchedEffect(tools.brush) { link.usePen(tools.brush) }
     AndroidView(factory = { ctx -> NoteCanvasView(ctx).also { canvas ->
+        if (canvasMode != null) canvas.attachCanvas(canvasMode)
         canvas.restoredViewport = vm.canvasViewport
         canvas.onViewportChanged = { id, mapping -> vm.canvasViewport = id to mapping }
         onView(canvas); actions.onPaper(canvas)
@@ -251,6 +254,9 @@ private fun NoteCanvas(vm: NotesViewModel, state: NotesState, dark: Boolean, too
                 }
             }
             canvas.onContent = onContent
+            if (canvasMode != null) {
+                canvas.onZoomPercent = onZoom
+            }
             canvas.onTask = { block, line -> vm.run { try { repo.flipTask(block, line) } catch (e: Exception) { repo.message(e.message ?: "Could not change the box.") } } }
             canvas.onSelection = onSelection
             canvas.onTouchStart = { if (tools.barOpen) actions.onTools(tools.folded()) }
@@ -263,7 +269,7 @@ private const val RING_HIGHLIGHTER_ALPHA = 0.9f
 
 /** The draggable tool bubble and its bar. Choosing a tool folds the bar; tapping the active tool (or a long press) opens its options. */
 @Composable
-private fun NoteBubble(state: NotesState, tools: ToolState, actions: NoteActions, temporaryEraser: Boolean, onType: () -> Unit) {
+internal fun NoteBubble(state: NotesState, tools: ToolState, actions: NoteActions, temporaryEraser: Boolean, onType: () -> Unit) {
     val snapshot = state.snapshot ?: return
     val c = Syncr.colors
     val context = LocalContext.current

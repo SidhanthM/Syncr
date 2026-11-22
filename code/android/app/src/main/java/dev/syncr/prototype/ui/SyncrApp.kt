@@ -37,6 +37,7 @@ fun SyncrApp(vm: NotesViewModel = viewModel(), dark: Boolean, appearance: Appear
     onFinish: () -> Unit, onPointer: () -> Unit) {
     val repo = vm.repository
     StippleDebug.Listen()
+    CanvasDebugHooks(vm)
     val state by repo.state.collectAsStateWithLifecycle()
     val guard = remember(vm) { ClosureGuard(vm) }
     var paper by remember { mutableStateOf<NoteCanvasView?>(null) }
@@ -97,12 +98,14 @@ fun SyncrApp(vm: NotesViewModel = viewModel(), dark: Boolean, appearance: Appear
         LibraryScreen(state, filter, libraryReady, libraryActions(vm, filter, onFilter = { filter = it },
             onPointer = { closeNote(onPointer) }, onSettings = { overlay = Overlay.SETTINGS }), banner = banner)
     } else {
-        NoteScreen(vm, state, dark, tools, viewSettings, NoteActions(
+        val actions = NoteActions(
             onTools = { tools = it }, onPaper = { paper = it },
             onUndo = { paper?.cancelGesture(); paper?.deselect(); vm.run { repo.history(false) } },
             onRedo = { paper?.cancelGesture(); paper?.deselect(); vm.run { repo.history(true) } },
             onFit = { paper?.fit() },
-            onMore = { tools = tools.folded(); overlay = Overlay.MORE }, onPage = { currentSheet = it }), banner = banner)
+            onMore = { tools = tools.folded(); overlay = Overlay.MORE }, onPage = { currentSheet = it })
+        if (snapshot.kind == dev.syncr.core.NoteKind.CANVAS) CanvasEditorScreen(vm, state, dark, tools, actions, banner = banner)
+        else NoteScreen(vm, state, dark, tools, viewSettings, actions, banner = banner)
         if (sidebar && snapshot.kind == NoteKind.NOTE) {
             BackHandler { sidebar = false }
             PageSidebar(state, currentSheet ?: snapshot.pages.firstOrNull { !it.tombstone }?.sheetId, dark, PageSidebarActions(

@@ -40,7 +40,7 @@ import java.util.concurrent.ThreadFactory
  * newest one is ready, so a burst of edits costs one layout in flight plus one, not one per edit.
  */
 internal class TextLayer(private val invalidate: () -> Unit, private val onExtent: (Float) -> Unit) {
-    private class Band(val top: Float, val bottom: Float, val picture: Picture)
+    private class Band(val top: Float, val bottom: Float, val picture: Picture, val left: Float = 0f, val right: Float = Float.POSITIVE_INFINITY)
     private class Done(val key: Long, val dark: Boolean, val bands: List<Band>, val bottom: Float, val hits: List<ContentHit> = emptyList(),
         val hidden: String? = null, val scene: NoteTextScene = NoteTextScene.EMPTY, val noteId: String? = null,
         /** The covers of each item that is new in this scene, to dissolve it in: step 0 hides everything, the last nothing. */
@@ -56,13 +56,23 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
     private var queuedNote: String? = null
     @Volatile private var generation = 0
     private class Request(val note: NoteSnapshot, val key: Long, val dark: Boolean, val hide: String?, val title: TitleDisplay?, val cell: Float, val mine: Int,
-        val offsets: Map<String, Placement>)
+        val offsets: Map<String, Placement>, val canvas: Boolean = false)
     private val latest = LatestWork<Request>(executor, ::process)
     /** Jobs that started and jobs that gave up halfway, for the tests. */
     @Volatile var rendered = 0; @Volatile var abandoned = 0
     private val main = Handler(Looper.getMainLooper())
     private val dissolves = ArrayList<Dissolve>()
     private val coverPaint = Paint()
+
+    /** The unbounded canvas: free text and cards anywhere, recorded in tiles instead of bands the width of a page. */
+    var canvasMode = false
+
+    /** Counts scenes swapped in, so caches built from [boxes] know when to rebuild. */
+    @Volatile var version = 0
+        private set
+
+    /** Every text block and card box of the scene on screen (canvas units), for the minimap and fit all. */
+    internal fun boxes(): List<ContentHit> = done?.hits.orEmpty()
 
     /** True while a pen is down or has just been: nothing starts to animate on the page then, it lands finished. */
     var penBusy: () -> Boolean = { false }
@@ -79,7 +89,7 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
         if (note.noteId != queuedNote) { done = null; onExtent(0f) }
         queuedNote = note.noteId; queuedKey = key; queuedDark = dark; queuedHide = hide
         val mine = ++generation
-        latest.submit(Request(note, key, dark, hide, title, cellUnits, mine, offsets))
+        latest.submit(Request(note, key, dark, hide, title, cellUnits, mine, offsets, canvasMode))
     }
 
     private fun process(r: Request) {
@@ -90,7 +100,7 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
         rendered++
         main.post {
             if (r.mine == generation) {
-                done = result; onExtent(result.bottom)
+                done = result; version++; onExtent(result.bottom)
                 // Items new to a note already on screen dissolve in, unless the pen is busy or animations are off.
                 if (!reduced && (Stipple.freeze != null || !penBusy())) for ((id, covers) in result.arrivals) {
                     result.scene.items[id]?.let { dissolves += Dissolve(it, SystemClock.uptimeMillis(), covers) }
@@ -132,9 +142,9 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
     fun draw(canvas: Canvas, view: CullRect) {
         val current = done ?: return
         for (band in current.bands) {
-            if (band.bottom < view.top || band.top > view.bottom) continue
+            if (band.bottom < view.top || band.top > view.bottom || band.right < view.left || band.left > view.right) continue
             canvas.save()
-            canvas.translate(0f, band.top)
+            canvas.translate(band.left, band.top)
             canvas.drawPicture(band.picture)
             canvas.restore()
         }
@@ -191,9 +201,14 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
         if (stale()) return null
         val shaper = AndroidShaper()
         val cache = HashMap<String, PictureDisplayList?>()
-        val scene = NoteTextSceneBuilder(shaper) { svg -> cache.getOrPut(svg) { try { pictureDisplayList(svg) } catch (_: Exception) { null } } }.build(note, hide, title, r.offsets)
+        val builder = NoteTextSceneBuilder(shaper) { svg -> cache.getOrPut(svg) { try { pictureDisplayList(svg) } catch (_: Exception) { null } } }
+        val scene = if (r.canvas) builder.buildCanvas(note, hide) else builder.build(note, hide, title, r.offsets)
         if (stale()) return null
         val painter = TextPainter(dark, scene.pictures)
+        if (r.canvas) {
+            val tiles = tiled(scene, painter) { stale() } ?: return null
+            return Done(key, dark, tiles, scene.bottom, scene.hits, hide, scene, note.noteId, arrivals(note.noteId, scene, before, dark, cell))
+        }
         val bands = ArrayList<Band>()
         var top = 0f
         while (top < scene.bottom) {
@@ -214,7 +229,36 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
         return Done(key, dark, bands, scene.bottom, scene.hits, hide, scene, note.noteId, arrivals(note.noteId, scene, before, dark, cell))
     }
 
+    /**
+     * Canvas tiles: primitives filed by their left edge and top into 2,400 x 1,200 unit tiles (sparse: only tiles with
+     * something in them exist), each recorded with room to spill right so a wide line is not cut at the tile edge.
+     */
+    private fun tiled(scene: NoteTextScene, painter: TextPainter, stale: () -> Boolean): List<Band>? {
+        val tiles = LinkedHashMap<Long, MutableList<Prim>>()
+        for (p in scene.prims) {
+            val cx = Math.floor((p.left / TILE_W).toDouble()).toLong()
+            val r0 = Math.floor((p.top / BAND).toDouble()).toLong()
+            val r1 = Math.floor((p.bottom / BAND).toDouble()).toLong()
+            for (cy in r0..r1) tiles.getOrPut((cx shl 32) or (cy and 0xFFFFFFFFL)) { ArrayList() } += p
+        }
+        val out = ArrayList<Band>()
+        for ((key, prims) in tiles) {
+            if (stale()) return null
+            val cx = (key shr 32).toInt(); val cy = key.toInt()
+            val left = cx * TILE_W; val top = cy * BAND
+            val picture = Picture()
+            val canvas = picture.beginRecording((TILE_W + SPILL).toInt(), BAND.toInt())
+            canvas.translate(-left, -top)
+            for (p in prims) painter.draw(canvas, p)
+            picture.endRecording()
+            out += Band(top, top + BAND, picture, left, left + TILE_W + SPILL)
+        }
+        return out
+    }
+
     private companion object {
+        const val TILE_W = 2400f
+        const val SPILL = 2000f
         const val BAND = 1200f
         val executor = Executors.newSingleThreadExecutor(ThreadFactory { r ->
             Thread({ Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND); r.run() }, "note-text").apply { isDaemon = true }

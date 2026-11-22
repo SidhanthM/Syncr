@@ -69,6 +69,15 @@ internal sealed interface Prim {
     val top: Float
     val bottom: Float
 
+    /** The left edge, to file the primitive under a horizontal tile on the unbounded canvas. */
+    val left: Float get() = when (this) {
+        is Text -> x
+        is Fill -> x
+        is Outline -> x
+        is Line -> minOf(x1, x2)
+        is Picture -> x
+    }
+
     data class Text(val text: String, val x: Float, val baseline: Float, val attr: Attr) : Prim {
         override val top get() = baseline - attr.size
         override val bottom get() = baseline + attr.size * 0.3f

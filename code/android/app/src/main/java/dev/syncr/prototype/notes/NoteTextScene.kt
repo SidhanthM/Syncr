@@ -1,6 +1,9 @@
 package dev.syncr.prototype.notes
 
 import dev.syncr.core.AnchorTarget
+import dev.syncr.core.CanvasCard
+import dev.syncr.core.CardAnchor
+import dev.syncr.core.layoutCanvasCards
 import dev.syncr.core.CompanionBody
 import dev.syncr.core.CompanionItemView
 import dev.syncr.core.CompanionSource
@@ -241,6 +244,98 @@ internal class NoteTextSceneBuilder(private val shaper: Shaper, private val marg
         return NoteTextScene(prims, pictures, bottom + 200f, hits, gaps, embeds, text, taskHits, boxes, lines)
     }
 
+    /**
+     * The canvas's text: free blocks wherever they sit, and companion cards beside the box they hang from, placed by the
+     * core's shared `layoutCanvasCards` (the Mac runs the same function). No title band, no document column, no margin lanes.
+     * A card's anchor is the free block its passage is in, or the canvas box the anchor names; an unknown anchor puts the card
+     * at the origin, as the core does. [hide] is a block being edited in the field above the canvas.
+     */
+    fun buildCanvas(note: NoteSnapshot, hide: String? = null): NoteTextScene {
+        val items = note.companionItems.filter { !it.tombstone }
+        val free = note.textBlocks.filter { it.role == TextRole.FREE && !it.tombstone }
+        if (free.isEmpty() && items.isEmpty()) return NoteTextScene.EMPTY
+        val prims = ArrayList<Prim>()
+        val hits = ArrayList<ContentHit>()
+        val taskHits = ArrayList<TaskHit>()
+        val pictures = HashMap<String, PictureDisplayList>()
+        var bottom = 0f
+        val boxOf = HashMap<String, ItemBox>()
+        for (block in free) {
+            val x = block.originX + block.transform.tx.toFloat()
+            val y = block.originY + block.transform.ty.toFloat()
+            val laid = typeset.document(block.text, x, y + FREE_TEXT_DROP, block.width)
+            if (block.id != hide) prims += laid.prims
+            laid.tasks.forEach { taskHits += TaskHit(block.id, it.logical, it.x, it.y, it.w, it.h) }
+            val h = max(64f, laid.bottom - y - FREE_TEXT_DROP)
+            hits += ContentHit(ContentTarget(block.id, false), x, y + FREE_TEXT_DROP, block.width, h)
+            boxOf[block.id] = ItemBox(x, y + FREE_TEXT_DROP, block.width, h)
+            bottom = max(bottom, laid.bottom)
+        }
+
+        val byId = items.associateBy { it.id }
+        val anchors = ArrayList<CardAnchor>()
+        for (item in items) {
+            val target = (item.body as? CompanionBody.Anchor)?.target ?: continue
+            val box = when (target) {
+                is AnchorTarget.Text -> boxOf[target.blockId]?.let { floatArrayOf(it.x, it.y, it.w, it.h) }
+                is AnchorTarget.Canvas -> floatArrayOf(target.x.toFloat(), target.y.toFloat(), target.width.toFloat(), target.height.toFloat())
+            } ?: continue
+            anchors += CardAnchor(item.id, box[0], box[1], box[2], box[3])
+        }
+        fun anchorOf(item: CompanionItemView): String = when (val body = item.body) {
+            is CompanionBody.MarginNote -> body.anchorId
+            is CompanionBody.Picture -> body.anchorId
+            else -> ""
+        }
+
+        val tone = tone(note)
+        val cards = ArrayList<CanvasCard>()
+        val drawn = HashMap<String, RichResult>()
+        val drawnPictures = HashMap<String, PictureDisplayList>()
+        val pictureRatio = MARGIN_CARD_WIDTH / PICTURE_WIDTH
+        for (item in items) {
+            val body = item.body as? CompanionBody.MarginNote ?: continue
+            if (body.state == MarginState.DISMISSED) continue
+            if (body.kind == MarginKind.QUESTION && body.reader == ASK_READER) continue
+            val card = rich.margin(body.text, body.sources, 0f, 0f, tone)
+            drawn[item.id] = card
+            cards += CanvasCard(item.id, anchorOf(item), MARGIN_CARD_WIDTH, card.height)
+        }
+        for (item in items) {
+            val body = item.body as? CompanionBody.Picture ?: continue
+            val picture = pictureOf(body.svg) ?: continue
+            drawnPictures[item.id] = picture
+            cards += CanvasCard(item.id, anchorOf(item), MARGIN_CARD_WIDTH, PictureGeometry.fittedHeight(picture) * pictureRatio)
+        }
+        // A direct ask's thread hangs from its anchor: one card holding the whole conversation.
+        val threadCards = HashMap<String, RichResult>()
+        for ((root, messages) in items.mapNotNull { it.body as? CompanionBody.ThreadMessage }.groupBy { it.marginId }) {
+            val rootBody = byId[root]?.body
+            val anchorId = when (rootBody) { is CompanionBody.Anchor -> root; is CompanionBody.MarginNote -> rootBody.anchorId; else -> continue }
+            val card = rich.thread(messages.sortedBy { it.order }.map { it.who to it.text }, 0f, 0f, MARGIN_CARD_WIDTH)
+            threadCards[root] = card
+            cards += CanvasCard(root, anchorId, MARGIN_CARD_WIDTH, card.height)
+        }
+        if (cards.isNotEmpty()) for (spot in layoutCanvasCards(anchors, cards, CARD_GAP)) {
+            val card = drawn[spot.id] ?: threadCards[spot.id]
+            if (card != null) {
+                prims += card.moved(spot.x, spot.y)
+                hits += ContentHit(ContentTarget(spot.id, true), spot.x, spot.y, MARGIN_CARD_WIDTH, card.height)
+                boxOf[spot.id] = ItemBox(spot.x, spot.y, MARGIN_CARD_WIDTH, card.height)
+                bottom = max(bottom, spot.y + card.height)
+                continue
+            }
+            val picture = drawnPictures[spot.id] ?: continue
+            prims += pictureCard(spot.id, picture, 0f, 0f, MARGIN_CARD_WIDTH, pictureRatio).map { it.shifted(spot.x, spot.y) }
+            pictures[spot.id] = picture
+            bottom = max(bottom, spot.y + PictureGeometry.fittedHeight(picture) * pictureRatio)
+        }
+        val boxes = HashMap<String, ItemBox>()
+        for (h in hits) if (h.target.response) boxes[h.target.id] = ItemBox(h.x, h.y, h.width, h.height)
+        for (p in prims) if (p is Prim.Picture) boxes[p.key] = ItemBox(p.x, p.y, p.w, p.h)
+        return NoteTextScene(prims, pictures, bottom, hits, emptyMap(), emptyMap(), "", taskHits, boxes, emptyList())
+    }
+
     private fun pictureCard(id: String, picture: PictureDisplayList, x: Float, y: Float, width: Float, ratio: Float): List<Prim> {
         val canvasHeight = (PictureGeometry.fittedHeight(picture) - 200f) * ratio
         val out = ArrayList<Prim>()
@@ -277,6 +372,10 @@ internal class NoteTextSceneBuilder(private val shaper: Shaper, private val marg
 
     companion object {
         const val PICTURE_WIDTH = 1100f
+        /** A free block's text sits this far below its origin (where the editor field opens). */
+        const val FREE_TEXT_DROP = 45f
+        /** Space between a card and its anchor, and between cards, on the canvas. */
+        const val CARD_GAP = 40f
         /** Margin cards are this wide (`MarginCard.width` on the Mac). */
         const val MARGIN_CARD_WIDTH = 1000f
         const val ASK_READER = "You" // CompanionStore.askReader on the Mac

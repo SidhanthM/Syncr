@@ -119,14 +119,16 @@ internal class DryInkLayer(
         localValues[8] = 1f
         local.setValues(localValues)
         canvas.withMatrix(local) {
-            val stroke = inkFor(preview)
+            // Zoomed far out a pen line is under a pixel and would vanish: draw it as a plain line a pixel and a bit wide.
+            val hairline = brushWidth(preview.brush) * scale < MIN_PIXELS
+            val stroke = if (hairline) null else inkFor(preview)
             if (stroke != null) {
                 // The renderer picks its tessellation detail from the full stroke-to-screen transform.
                 strokeToScreen.set(local)
                 strokeToScreen.postScale(scale, scale)
                 renderer.draw(this, stroke, strokeToScreen)
             } else {
-                drawMeasured(this, preview.channels, preview.brush)
+                drawMeasured(this, preview.channels, preview.brush, if (hairline) MIN_PIXELS / scale else brushWidth(preview.brush))
             }
         }
     }
@@ -171,9 +173,9 @@ internal class DryInkLayer(
         CachedInk(preview, night, InkBrushes.stroke(preview.channels, InkBrushes.brush(preview.brush, night)))
 
     /** Cold-load placeholder only, while a large note's dry ink is still being built. */
-    private fun drawMeasured(canvas: Canvas, samples: SampleChannels, brush: Brush) {
+    private fun drawMeasured(canvas: Canvas, samples: SampleChannels, brush: Brush, width: Float = brushWidth(brush)) {
         measuredPaint.color = inkColour(brush, dark)
-        measuredPaint.strokeWidth = brushWidth(brush)
+        measuredPaint.strokeWidth = width
         if (samples.x.size == 1) {
             canvas.drawPoint(samples.x[0], samples.y[0], measuredPaint)
             return
@@ -188,5 +190,7 @@ internal class DryInkLayer(
     private companion object {
         /** In-frame dry-ink builds per frame (cold load); the rest come from the background build. */
         const val SYNC_BUDGET_NS = 4_000_000L
+        /** Below this many pixels wide a stroke is drawn as a plain line this wide. */
+        const val MIN_PIXELS = 1.2f
     }
 }

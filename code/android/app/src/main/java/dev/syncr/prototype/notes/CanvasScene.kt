@@ -37,6 +37,9 @@ internal class CanvasScene {
 
     /** Sheets of deleted pages: their ink is neither drawn nor selectable. */
     private var deadSheets = emptySet<String>()
+    /** Changes whenever what is drawn, or where, may have: a new state, or a handoff. Caches built from the scene key on it. */
+    var revision = 0L
+        private set
 
     private val handedOffStrokes = mutableListOf<InkPreview>()
     private var handedOffErases = emptySet<String>()
@@ -50,6 +53,7 @@ internal class CanvasScene {
     val strokeHandoffs: List<InkPreview> get() = handedOffStrokes
 
     fun load(next: NotesState) {
+        revision++
         state = next
         val snapshot = next.snapshot
         sheets = snapshot?.sheets.orEmpty().associateBy { it.id }
@@ -83,21 +87,25 @@ internal class CanvasScene {
     }
 
     fun clearHandoffs() {
+        revision++
         handedOffStrokes.clear()
         handedOffErases = emptySet()
         handedOffTransforms = emptyMap()
     }
 
     fun handOffStroke(preview: InkPreview) {
+        revision++
         handedOffStrokes += preview
     }
 
     fun handOffErase(ids: Set<String>) {
+        revision++
         handedOffErases = handedOffErases + ids
     }
 
     /** Records a committed canvas-space [gesture] as each stroke's resulting sheet-local transform. */
     fun handOffTransform(ids: Set<String>, gesture: Affine) {
+        revision++
         handedOffTransforms = handedOffTransforms + ids.associateWith { id ->
             val sheet = sheets.getValue(strokes.getValue(id).sheetId)
             compose(localGesture(sheet, gesture, offsetOf(sheet.id)), transformOf(id))
@@ -155,6 +163,38 @@ internal class CanvasScene {
         handedOffStrokes.forEach(::visit)
         sampleBounds = used // forgets strokes that are gone
         return lowest
+    }
+
+    /**
+     * Where each of [previews] lies in canvas units, four doubles per preview (left, top, right, bottom, brush radius
+     * included) written to [out], which is grown as needed and returned; NaN left for a hidden or empty stroke. Each
+     * stroke's sample bounds are computed once, as for [lowestInk].
+     */
+    fun inkRects(out: DoubleArray): DoubleArray {
+        val rects = if (out.size >= previews.size * 4) out else DoubleArray(previews.size * 4)
+        val used = IdentityHashMap<SampleChannels, Bounds?>()
+        previews.forEachIndexed { i, preview ->
+            val channels = preview.channels
+            val bounds = if (sampleBounds.containsKey(channels)) sampleBounds[channels] else StrokeBounds.of(channels, 0f)
+            used[channels] = bounds
+            val at = 4 * i
+            if (bounds == null || isHidden(preview.id)) { rects[at] = Double.NaN; return@forEachIndexed }
+            val affine = canvasTransformOf(preview.id, preview.sheetId)
+            val radius = brushWidth(preview.brush) / 2 * hypot(affine.b, affine.d).toFloat()
+            val a = affine.a.toFloat(); val bb = affine.b.toFloat(); val c = affine.c.toFloat(); val d = affine.d.toFloat()
+            val tx = affine.tx.toFloat(); val ty = affine.ty.toFloat()
+            var l = Float.POSITIVE_INFINITY; var t = Float.POSITIVE_INFINITY; var r = Float.NEGATIVE_INFINITY; var b = Float.NEGATIVE_INFINITY
+            for (corner in 0 until 4) {
+                val x = if (corner == 0 || corner == 3) bounds.left else bounds.right
+                val y = if (corner < 2) bounds.top else bounds.bottom
+                val px = a * x + c * y + tx; val py = bb * x + d * y + ty
+                if (px < l) l = px; if (px > r) r = px; if (py < t) t = py; if (py > b) b = py
+            }
+            rects[at] = (l - radius).toDouble(); rects[at + 1] = (t - radius).toDouble()
+            rects[at + 2] = (r + radius).toDouble(); rects[at + 3] = (b + radius).toDouble()
+        }
+        sampleBounds = used
+        return rects
     }
 
     /** The topmost visible stroke within [radius] of a canvas point. */

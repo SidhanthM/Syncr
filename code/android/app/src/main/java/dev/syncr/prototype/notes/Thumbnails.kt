@@ -17,6 +17,9 @@ class ThumbStroke(val points: FloatArray, val brush: Brush, val pressure: FloatA
     val elapsedMs: IntArray = IntArray(points.size / 2) { it })
 class Thumbnail(val localSequence: ULong, val width: Float, val viewHeight: Float, val strokes: List<ThumbStroke>)
 
+/** The paper a note's card is drawn for. */
+fun geometryOf(snapshot: NoteSnapshot): NoteGeometry = if (snapshot.kind == dev.syncr.core.NoteKind.CANVAS) CanvasGeometry else PagedGeometry()
+
 /** Pure: keeps at most about [maxPoints] points overall by taking every k-th sample (and each last one). */
 /** [onlySheet] limits it to one page's ink (the sidebar's page thumbnails); the width is then that page's. */
 fun buildThumbnail(snapshot: NoteSnapshot, samples: (String) -> SampleChannels?, maxPoints: Int = 4000, geometry: NoteGeometry = PagedGeometry(),
@@ -29,7 +32,7 @@ fun buildThumbnail(snapshot: NoteSnapshot, samples: (String) -> SampleChannels?,
         .mapNotNull { s -> samples(s.id)?.let { s to it } }
     val total = strokes.sumOf { it.second.x.size }
     val step = maxOf(1, (total + maxPoints - 1) / maxPoints)
-    return Thumbnail(snapshot.localSequence, firstPage?.width ?: geometry.thumbnailWidth, geometry.thumbnailHeight, strokes.map { (stroke, channels) ->
+    val built = strokes.map { (stroke, channels) ->
         val kept = channels.x.indices.filter { it % step == 0 || it == channels.x.lastIndex }
         val points = FloatArray(kept.size * 2)
         kept.forEachIndexed { i, index ->
@@ -39,7 +42,33 @@ fun buildThumbnail(snapshot: NoteSnapshot, samples: (String) -> SampleChannels?,
         }
         ThumbStroke(points, stroke.brush.copy(), FloatArray(kept.size) { channels.pressure[kept[it]] },
             IntArray(kept.size) { channels.elapsedMs[kept[it]].toInt() })
-    })
+    }
+    if (geometry !== CanvasGeometry) return Thumbnail(snapshot.localSequence, firstPage?.width ?: geometry.thumbnailWidth, geometry.thumbnailHeight, built)
+    return contentThumbnail(snapshot.localSequence, built)
+}
+
+/**
+ * A canvas card shows the content bounds, not the top-left: the ink is moved so its box is centred in a frame of the
+ * card's 4:5 shape, with a margin of 4% the frame's width on top of the stroke's own reach.
+ */
+internal fun contentThumbnail(localSequence: ULong, strokes: List<ThumbStroke>): Thumbnail {
+    var l = Float.POSITIVE_INFINITY; var t = Float.POSITIVE_INFINITY; var r = Float.NEGATIVE_INFINITY; var b = Float.NEGATIVE_INFINITY
+    for (s in strokes) {
+        val pad = brushWidth(s.brush) / 2
+        for (i in 0 until s.points.size / 2) {
+            val x = s.points[2 * i]; val y = s.points[2 * i + 1]
+            l = minOf(l, x - pad); r = maxOf(r, x + pad); t = minOf(t, y - pad); b = maxOf(b, y + pad)
+        }
+    }
+    if (l > r) return Thumbnail(localSequence, LegacyPage.WIDTH, LegacyPage.VIEW_HEIGHT, strokes)
+    val w = maxOf(r - l, (b - t) * 4f / 5f, 1f)
+    val h = w * 5f / 4f
+    val dx = (w - (r - l)) / 2 - l
+    val dy = (h - (b - t)) / 2 - t
+    val moved = strokes.map { s ->
+        ThumbStroke(FloatArray(s.points.size) { i -> s.points[i] + if (i % 2 == 0) dx else dy }, s.brush, s.pressure, s.elapsedMs)
+    }
+    return Thumbnail(localSequence, w, h, moved)
 }
 
 /** Optional on-disk cache so library cards don't reopen every note on each launch. Failures are ignored. */
