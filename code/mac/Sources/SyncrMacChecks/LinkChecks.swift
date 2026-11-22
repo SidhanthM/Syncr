@@ -1,5 +1,6 @@
 import CoreGraphics
 import CryptoKit
+import os
 import Foundation
 import Metal
 import Network
@@ -247,7 +248,12 @@ private final class SessionRig: LinkSessionHost, @unchecked Sendable {
     func sessionPadMode(_ session: LinkSession, local: Bool, pics: Bool, aspect: Double) { padModes.append((local, pics, aspect)) }
     func sessionFrame(_ session: LinkSession, rect: CGRect) { frames.append(rect) }
 
-    init(store: PairedPhoneStore? = nil, epoch: UInt32 = 7, dir: URL? = nil, udp: (port: UInt16, key: UInt64)? = nil) {
+    /// Live frames go here too, on whatever thread `run` delivers them (the bulk check times them).
+    var onLive: (@Sendable (Data) -> Void)?
+
+    init(store: PairedPhoneStore? = nil, epoch: UInt32 = 7, dir: URL? = nil, udp: (port: UInt16, key: UInt64)? = nil,
+         run: ((@escaping @Sendable () -> Void) -> Void)? = nil, files: ((@escaping @Sendable () -> Void) -> Void)? = nil,
+         diskWrite: (@Sendable (FileHandle, Data) throws -> Void)? = nil) {
         let d = dir ?? temp()
         self.dir = d
         self.store = store ?? PairedPhoneStore(folder: d.appendingPathComponent("state"))
@@ -256,9 +262,10 @@ private final class SessionRig: LinkSessionHost, @unchecked Sendable {
                               store: self.store, io: LinkSession.IO(
             send: { [unowned self] in sent.append($0) },
             close: { [unowned self] in closed = true },
-            liveReceive: { [unowned self] data, _ in live.append(data) },
+            liveReceive: { [unowned self] data, _ in live.append(data); onLive?(data) },
             liveReset: { [unowned self] epoch in resetEpochs.append(epoch); events.append("reset") },
-            run: { $0() }, sendBulk: nil, penActive: { [unowned self] in penOn }))
+            run: run ?? { $0() }, sendBulk: nil, penActive: { [unowned self] in penOn }, files: files,
+            diskWrite: diskWrite ?? { try $0.write(contentsOf: $1) }))
         session.host = self
         session.start(atNs: now)
     }
@@ -1396,6 +1403,60 @@ private func padChecks() throws {
 
 // MARK: - Entry
 
+// MARK: - Live frames behind an incoming file (remaining-v1 L.5)
+
+/// A phone sends a 2.6 MB note at 20 Mbit/s (a 65,000-byte chunk every 26 ms) to a Mac whose disk takes 15 ms per chunk, while
+/// its pen sends a frame every 16.7 ms on the same connection. Each frame is timed from the moment the connection read it to
+/// the moment it reached live ink. With the chunks written on the connection's own queue a frame waits behind a write; with
+/// them written on the files queue it does not. The note still arrives whole.
+@MainActor private func bulkInputChecks() throws {
+    func run(offQueue: Bool) throws -> (p50: Double, p95: Double, max: Double, n: Int, installed: Bool) {
+        let connection = DispatchQueue(label: "check.link.connection"), filesQueue = DispatchQueue(label: "check.link.files")
+        let sentAt = OSAllocatedUnfairLock(initialState: [UInt32: UInt64]())
+        let ages = OSAllocatedUnfairLock(initialState: [Double]())
+        let rig = SessionRig(run: { connection.async(execute: $0) }, files: offQueue ? { filesQueue.async(execute: $0) } : nil,
+                             diskWrite: { usleep(15_000); try $0.write(contentsOf: $1) })
+        rig.onLive = { data in
+            guard data.count == 5 else { return }
+            let i = data.dropFirst().reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
+            if let t = sentAt.withLock({ $0.removeValue(forKey: i) }) { ages.withLock { $0.append(Double(monotonicNs() - t) / 1e6) } }
+        }
+        try connection.sync { _ = try rig.welcome(v: 1, delta: true) }
+        let chunks = 40, size = chunks * 65_000
+        let data = Data((0..<size).map { UInt8($0 % 251) })
+        let sha = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        connection.sync { rig.feed(.control(.file(FileOffer(xfer: 3, id: "01HBULKNOTE0000000000000000", seq: 2, size: UInt64(size), sha256: sha, chunks: UInt32(chunks), delta: false)))) }
+        // Arrivals in time order: chunks at 2.5 MB/s, frames at 60 Hz, each handed to the connection queue when it is due.
+        var events: [(at: Double, chunk: Int?, frame: UInt32?)] = (0..<chunks).map { (Double($0) * 26.0, $0, nil) }
+        events += (0..<Int(Double(chunks) * 26 / 16.7)).map { (Double($0) * 16.7 + 3, nil, UInt32($0)) }
+        events.sort { $0.at < $1.at }
+        let start = monotonicNs()
+        for e in events {
+            let due = start + UInt64(e.at * 1e6)
+            while monotonicNs() < due { usleep(200) }
+            if let c = e.chunk {
+                let piece = data.subdata(in: c * 65_000..<(c + 1) * 65_000)
+                connection.async { rig.feed(.fileChunk(xfer: 3, index: UInt32(c), data: piece)) }
+            } else if let i = e.frame {
+                let now = monotonicNs()
+                sentAt.withLock { $0[i] = now }
+                connection.async { rig.feed(.preview(Data([0x50, UInt8(i >> 24 & 255), UInt8(i >> 16 & 255), UInt8(i >> 8 & 255), UInt8(i & 255)]))) }
+            }
+        }
+        connection.sync { rig.feed(.control(.fileEnd(xfer: 3))) }
+        // The end is checked once the files queue has written everything, then the install replies on the connection queue.
+        for _ in 0..<200 where rig.installed.isEmpty { filesQueue.sync {}; connection.sync {}; usleep(10_000) }
+        let a = ages.withLock { $0 }.sorted()
+        func at(_ p: Double) -> Double { a.isEmpty ? -1 : a[min(a.count - 1, Int(Double(a.count) * p))] }
+        return (at(0.5), at(0.95), a.last ?? -1, a.count, rig.installed.first?.1 == size)
+    }
+    let inline = try run(offQueue: false), off = try run(offQueue: true)
+    print(String(format: "  live frames behind an incoming file, disk 15 ms a chunk: on the connection queue p50 %.1f p95 %.1f max %.1f ms (n=%d); on the files queue p50 %.1f p95 %.1f max %.1f ms (n=%d)",
+                 inline.p50, inline.p95, inline.max, inline.n, off.p50, off.p95, off.max, off.n))
+    try check(inline.installed && off.installed, "the note arrives whole either way")
+    try check(off.p95 <= 8, "with the files queue a slow disk adds at most 8 ms p95 to live frames (\(off.p95) ms)")
+}
+
 @MainActor func linkChecks() throws {
     let pixels: [[UInt8]] = [[255, 255, 255, 255], [255, 255, 255, 255], [254, 255, 255, 255],
                               [255, 254, 255, 255], [255, 255, 254, 255], [255, 255, 255, 254]]
@@ -1407,6 +1468,7 @@ private func padChecks() throws {
     try syncChecks()
     try deltaChecks()
     try pushChecks()
+    try bulkInputChecks()
     try mirrorChecks()
     try targetChecks()
     try padChecks()
