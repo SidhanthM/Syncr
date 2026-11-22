@@ -7,6 +7,8 @@ struct Viewport: Equatable, Sendable {
     var left: Float = 0
     var top: Float = 0
     var zoom: Float = 1
+    /// A canvas view: it has no edge, so live ink in view-relative units may land left of zero too.
+    var unbounded = false
     func visibleSize(_ pixels: CGSize) -> SIMD2<Float> {
         let canvas = canvasSize()
         let fit = min(Float(pixels.width) / canvas.width, Float(pixels.height) / canvas.viewHeight)
@@ -84,6 +86,13 @@ final class MeshRenderer {
     private var drawingID: UUID?
     private struct Upload { let stroke: DrawStroke; let vertices: MTLBuffer; let indices: MTLBuffer }
     private var uploads: [Upload] = []
+    /// The bounds of every upload, in order, on a 512-unit grid: a canvas with thousands of strokes asks it which can be in
+    /// view instead of testing each one every frame (`gridCulling`; measured in the canvas checks).
+    private var index = CanvasIndex()
+    private var uploadExtent = CGRect.null
+    var gridCulling = ProcessInfo.processInfo.environment["SYNCR_MAC_CULL_GRID"] != "0"
+    /// Canvas viewports only (`unbounded`), and only once there are enough strokes for the grid to beat a straight pass.
+    static let gridThreshold = 256
     private(set) var bufferBuildCount = 0
     private(set) var attachmentBuildCount = 0
     private(set) var lastPassCount = 0
@@ -165,7 +174,7 @@ final class MeshRenderer {
             attachmentBuildCount += 1
         }
         if drawingID != drawing?.id {
-            uploads.removeAll(); drawingID = drawing?.id
+            uploads.removeAll(); drawingID = drawing?.id; index = CanvasIndex(); uploadExtent = .null
         }
         // Progressive loading only appends strokes. A new note/reload has a new Drawing ID.
         for stroke in (drawing?.strokes ?? []).dropFirst(uploads.count) {
@@ -175,6 +184,9 @@ final class MeshRenderer {
             let indices = mesh.indices.withUnsafeBytes { device.makeBuffer(bytes: $0.baseAddress!, length: $0.count) }
             guard let vertices, let indices else { throw RendererError.unavailable }
             uploads.append(Upload(stroke: stroke, vertices: vertices, indices: indices))
+            let box = CGRect(x: CGFloat(mesh.minX + stroke.originX), y: CGFloat(mesh.minY + stroke.originY),
+                             width: CGFloat(mesh.maxX - mesh.minX), height: CGFloat(mesh.maxY - mesh.minY))
+            index.append(box); uploadExtent = uploadExtent.union(box)
             bufferBuildCount += 2
         }
     }
@@ -320,17 +332,26 @@ final class MeshRenderer {
                 }
             }
             if committed {
-                for upload in uploads {
+                func drawUpload(_ upload: Upload) {
                     let stroke = upload.stroke, mesh = stroke.mesh
-                    if showPaper && geometry.hidden.contains(stroke.sheetId) { continue }
+                    if showPaper && geometry.hidden.contains(stroke.sheetId) { return }
                     let place = origins[stroke.sheetId] ?? origins[geometry.pages.first?.sheetId ?? ""] ?? .zero
                     let ox = stroke.originX + place.x, oy = stroke.originY + place.y
-                    guard visibleBounds(mesh.minX + ox, mesh.minY + oy, mesh.maxX + ox, mesh.maxY + oy) else { continue }
+                    guard visibleBounds(mesh.minX + ox, mesh.minY + oy, mesh.maxX + ox, mesh.maxY + oy) else { return }
                     // A page clips its ink; the old auto-height page and the sheets inside it never did.
-                    if showPaper { guard clip(to: geometry.page(forSheet: stroke.sheetId).flatMap { $0.autoHeight ? nil : $0.rect }) else { continue } }
+                    if showPaper { guard clip(to: geometry.page(forSheet: stroke.sheetId).flatMap { $0.autoHeight ? nil : $0.rect }) else { return } }
                     bind(stroke.highlighter)
                     draw(upload.vertices, upload.indices, count: mesh.indices.count / 4, origin: SIMD2(ox, oy),
                          colour: MeshRenderer.colour(stroke.colour, custom: stroke.custom, dark: dark, highlighter: stroke.highlighter))
+                }
+                // The grid's candidates come back in drawing order, so stacking and the highlighter's stencil are unchanged.
+                // When the view holds most of the strokes anyway, the straight pass is cheaper than building the list.
+                let view = CGRect(x: CGFloat(viewport.left), y: CGFloat(viewport.top), width: CGFloat(visible.x), height: CGFloat(visible.y))
+                if viewport.unbounded, gridCulling, uploads.count >= Self.gridThreshold, !uploadExtent.isNull,
+                   view.width * view.height < uploadExtent.width * uploadExtent.height / 3 {
+                    for i in index.query(view) { drawUpload(uploads[Int(i)]) }
+                } else {
+                    for upload in uploads { drawUpload(upload) }
                 }
                 if showPaper { _ = clip(to: nil) }
             }

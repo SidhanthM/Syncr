@@ -5,7 +5,7 @@ import Foundation
 enum AppCommand: String, CaseIterable, Sendable {
     case settings, hotkeys, commandPalette
     case showLeftSidebar, hideLeftSidebar
-    case newNote, newNotebook, quickSwitcher, renameNote, moveNote, deleteNote, restoreNote
+    case newNote, newCanvas, newNotebook, quickSwitcher, renameNote, moveNote, deleteNote, restoreNote
     case closeTab, nextTab, previousTab, toggleSidebar, zoomIn, zoomOut, fit
     case importExport, chooseFolder
     case askSyncr, drawSelection, askAllReaders, companionSettings, lastCompanionRequest, undoCompanion, redoCompanion
@@ -62,6 +62,7 @@ enum AppCommand: String, CaseIterable, Sendable {
         case .nextPage: "Next Page"
         case .previousPage: "Previous Page"
         case .newNote: "New Note…"
+        case .newCanvas: "New canvas…"
         case .newNotebook: "New Notebook"
         case .quickSwitcher: "Open Note…"
         case .renameNote: "Rename Note"

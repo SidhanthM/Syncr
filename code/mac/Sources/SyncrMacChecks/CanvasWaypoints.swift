@@ -1,0 +1,1 @@
+../SyncrMac/CanvasWaypoints.swift

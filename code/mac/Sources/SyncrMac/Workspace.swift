@@ -121,7 +121,7 @@ struct SessionState: Codable, Equatable {
     }
 
     func availableCommands() -> Set<AppCommand> {
-        var set: Set<AppCommand> = [.companionSettings, .lastCompanionRequest, .newNote, .newNotebook, .quickSwitcher, .toggleSidebar, .importExport, .chooseFolder, .phoneLink, .followPhone]
+        var set: Set<AppCommand> = [.companionSettings, .lastCompanionRequest, .newNote, .newCanvas, .newNotebook, .quickSwitcher, .toggleSidebar, .importExport, .chooseFolder, .phoneLink, .followPhone]
         set.formUnion([.settings, .hotkeys, .commandPalette, .showLeftSidebar, .hideLeftSidebar,
                        .searchNotes, .dailyNote, .importMarkdown, .browseTags])
         if active != nil { set.formUnion([.findInNote, .exportMarkdown, .documentView, .outline]) }
@@ -181,6 +181,13 @@ struct SessionState: Codable, Equatable {
     /// A paged note, as the New note sheet chose it.
     @discardableResult func newNote(_ options: NewNoteOptions) throws -> String {
         let id = try model.createPagedNote(options, notebook: selectedNotebook)
+        open(id, newTab: true)
+        return id
+    }
+
+    /// A canvas: name only, opened in a new tab (xnotes does not open it; Syncr does).
+    @discardableResult func newCanvas(title: String) throws -> String {
+        let id = try model.createCanvas(title: title, notebook: selectedNotebook)
         open(id, newTab: true)
         return id
     }

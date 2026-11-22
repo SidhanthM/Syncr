@@ -160,6 +160,7 @@ import UniformTypeIdentifiers
         detail.documentEditor.slashCommands = notebook.slashCommands
         detail.documentEditor.onAsk = { [weak self] draw in self?.companion.ask(draw: draw) }
         detail.documentEditor.onLink = { [weak self] title, newTab in self?.attempt { try self?.notebook.openLink(title, newTab: newTab) } }
+        detail.onCanvasWaypoints = { [weak self] in self?.saveCanvasWaypoints($0) }
         detail.onFreeText = { [weak self] x, y in
             guard let self, let id = self.workspace.active else { return }
             // On a page, the box belongs to the page under the click and sits where it was clicked on that page.
@@ -408,11 +409,15 @@ import UniformTypeIdentifiers
         case .slashMenu: slashMenu()
         case .freeText:
             guard let id = workspace.active else { break }
-            if let g = model.drawing?.geometry, g.drawsPaper, !g.hasLegacyPage || g.pages.count > 1, let page = detail.currentPageForText {
+            if detail.showsCanvas {
+                let view = detail.visibleCanvasRect   // a canvas: at the left third of what you are looking at
+                notebook.addFree(note: id, x: view.minX + view.width / 3, y: view.midY - 40)
+            } else if let g = model.drawing?.geometry, g.drawsPaper, !g.hasLegacyPage || g.pages.count > 1, let page = detail.currentPageForText {
                 let at = detail.visibleCanvasRect
                 notebook.addFree(note: id, x: min(max(0, at.midX - page.rect.minX - 300), page.rect.width - 400), y: min(max(0, at.midY - page.rect.minY - 100), page.rect.height - 200), sheet: page.sheetId)
             } else { notebook.addFree(note: id, x: 3400, y: 200); detail.fit() }
         case .newNote: newNote()
+        case .newCanvas: newCanvas()
         case .newNotebook: newNotebook()
         case .quickSwitcher: openSwitcher()
         case .renameNote: if let id = workspace.active { rename(note: id) }
@@ -685,6 +690,19 @@ import UniformTypeIdentifiers
             self.newNoteSheet = nil
             if let options { self.attempt { _ = try self.workspace.newNote(options) } }
         }
+    }
+
+    /// Shift-Cmd-N and the palette's "New canvas…": a name and nothing else, then the canvas opens in a new tab.
+    private func newCanvas() {
+        guard let name = prompt("New canvas", initial: model.nextUntitledCanvas(), ok: "Create") else { return }
+        attempt { _ = try workspace.newCanvas(title: name) }
+    }
+
+    private func saveCanvasWaypoints(_ list: [Waypoint]) {
+        guard let id = workspace.active else { return }
+        model.editNote(id: id, work: { try CanvasCommands.setWaypoints($0, list, newId: { newId() }) }, completion: { [weak self] result in
+            switch result { case .success(let snapshot): self?.model.publishText(snapshot); case .failure(let error): self?.fail(error) }
+        })
     }
 
     private func newNotebook() {

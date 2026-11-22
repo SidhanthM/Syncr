@@ -21,7 +21,7 @@ import AppKit
         }
         add("Syncr", [command(.settings), command(.hotkeys), .separator(), plain("Quit Syncr", #selector(NSApplication.terminate(_:)), "q")])
         add("File", [
-            command(.newNote), command(.newNotebook), command(.quickSwitcher), .separator(),
+            command(.newNote), command(.newCanvas), command(.newNotebook), command(.quickSwitcher), .separator(),
             command(.renameNote), command(.deleteNote), command(.closeTab), .separator(),
             command(.restoreNote), command(.dailyNote), .separator(),
             command(.importMarkdown), command(.exportMarkdown), command(.importExport), command(.chooseFolder)

@@ -170,6 +170,7 @@ func viewportAndOffscreenMeshPixels() throws {
             _ = NSApplication.shared
             if CommandLine.arguments.contains("--hotkeys") { try hotkeyChecks(); return }
             if CommandLine.arguments.contains("--settings") { try settingsChecks(); return }
+            if CommandLine.arguments.contains("--canvas") { try canvasChecks(); try canvasWorkspaceChecks(); try canvasRenderChecks(); print("Canvas checks: OK"); return }
             if CommandLine.arguments.contains("--companion-v2") { try companionV2Checks(); return }
             if CommandLine.arguments.contains("--round2") { try notebookRound2Checks(); return }
             if CommandLine.arguments.contains("--link") { try linkChecks(); print("Phone link checks: OK"); return }
@@ -198,6 +199,7 @@ func viewportAndOffscreenMeshPixels() throws {
             try notebookWorkspaceChecks()
             try hotkeyChecks()
             try settingsChecks()
+            try canvasChecks(); try canvasWorkspaceChecks(); try canvasRenderChecks()
             try switcherAndCommandChecks()
             try readOnlyAndSessionChecks()
             try liveInkChecks()

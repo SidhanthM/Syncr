@@ -273,6 +273,13 @@ import SyncrCore
             do { let added = try model.importCopy(from: URL(fileURLWithPath: String(line.dropFirst(7)))); workspace.libraryChanged(); say("ack import \(added.id)") }
             catch { say("error \(error.localizedDescription)") }
         case "newnote": do { let id = try workspace.newNote(); say("ack newnote \(id)") } catch { say("newnote-failed \(error.localizedDescription)") }
+        case "newcanvas": do { let id = try workspace.newCanvas(title: words.count > 1 ? String(line.dropFirst(10)) : "Canvas"); say("ack newcanvas \(id)") } catch { say("newcanvas-failed \(error.localizedDescription)") }
+        case "camera":
+            // `camera [left top zoom]`: the canvas camera (note units, xnotes zoom); with numbers it sets it.
+            if words.count == 4, let l = Double(words[1]), let t = Double(words[2]), let z = Double(words[3]) { detail.debugSetCamera(CanvasCamera(left: l, top: t, zoom: z)) }
+            if let c = detail.debugCamera { say("camera \(c.left),\(c.top),\(c.zoom)") } else { say("camera none") }
+        case "fit": detail.fit(); say("ack fit")
+        case "panel": if words.count == 2 { detail.debugCanvasPanels(words[1]); say("ack panel \(words[1])") }
         case "forget-phones": forgetPhones(); say("ack forget-phones")
         case "link": if words.count == 2 { link.setEnabled(words[1] == "on"); say("ack link \(words[1])") }
         default: say("unknown-command \(line)")

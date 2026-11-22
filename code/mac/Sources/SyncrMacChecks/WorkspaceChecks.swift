@@ -123,7 +123,7 @@ private func phoneExport(into dir: URL, title: String) throws -> (id: String, fi
     try check(!none.contains(.renameNote) && !none.contains(.closeTab) && none.contains(.newNote), "no note open: only global commands")
     let open = AppCommand.matching("", available: w.availableCommands())
     try check(open.contains(.renameNote) && open.contains(.nextTab) && !open.contains(.restoreNote), "note open: note commands; no restore without trash")
-    try check(AppCommand.matching("new", available: w.availableCommands()).prefix(2) == [.newNote, .newNotebook], "palette orders prefix matches by declaration")
+    try check(AppCommand.matching("new", available: w.availableCommands()).prefix(3) == [.newNote, .newCanvas, .newNotebook], "palette orders prefix matches by declaration")
     try check(Set(AppCommand.matching("import", available: w.availableCommands())) == [.importExport, .importMarkdown], "import lives in the palette")
     try check(Set(AppCommand.matching("sidebar", available: w.availableCommands())) == [.toggleSidebar, .showLeftSidebar, .hideLeftSidebar], "only left sidebar commands are searchable")
     try check(AppCommand.matching("right sidebar", available: w.availableCommands()).isEmpty, "removed right sidebar actions are absent from the palette")

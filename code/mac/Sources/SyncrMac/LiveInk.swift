@@ -11,7 +11,8 @@ extension Viewport {
     /// viewport's top-left. Independent of the actual pixel size of the view. The centred document
     /// view shows space left of the canvas (`left` below zero); that space is not paper, so a point
     /// there lands on the canvas's left edge and ink never leaves the 0...4800 the phone can show.
-    func canvasPoint(_ x: Float, _ y: Float) -> (Float, Float) { (max(0, left + x / zoom), top + y / zoom) }
+    /// A canvas has no left edge to land on: `unbounded` lets the point go below zero.
+    func canvasPoint(_ x: Float, _ y: Float) -> (Float, Float) { (unbounded ? left + x / zoom : max(0, left + x / zoom), top + y / zoom) }
 }
 
 /// What a live-ink frame is allowed to draw into: the note open in the active tab, if writable.

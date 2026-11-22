@@ -53,6 +53,14 @@ import SyncrCore
     private(set) var currentSheet: String? { didSet { if currentSheet != oldValue { strip.reload(items: strip.items, current: currentSheet) } } }
     private var pinchStart: Viewport?
     private var pinchAnchor = SIMD2<Float>(0.5, 0.5)
+    /// A Canvas's camera and panels; idle while a Note is open. The camera is in note units and double precision, and
+    /// `viewport` is made from it, so everything that already speaks `Viewport` (ink, text, the pad) follows it.
+    private let canvasSession = CanvasSession()
+    private var isCanvas: Bool { geometry.isCanvas }
+    var showsCanvas: Bool { isCanvas }
+    private var canvasHeads: String?
+    /// A Canvas's saved views were changed in the panel: the window writes them to the note.
+    var onCanvasWaypoints: (([Waypoint]) -> Void)?
     /// The document view keeps the text column in the middle of the window by showing space left of the canvas (a
     /// negative `left`): ink and text shift together, so nothing moves relative to anything else. The side notes keep
     /// their room on the right, so in a narrow view the column sits left of the middle rather than pushing them off.
@@ -194,7 +202,12 @@ import SyncrCore
         strip.onMenu = { [weak self] in self?.onPageAction?($0, $1) }
         strip.onMove = { [weak self] in self?.onMovePages?($0, $1) }
         strip.picture = { [weak self] id, size in self?.thumbnail(sheet: id, pixels: size) }
-        for view in [tabBar, companionStrip, strip, canvas, textLayer, stickyTitle, emptyArt, empty, pairingCard] as [NSView] {
+        canvasSession.onCamera = { [weak self] camera in self?.applyCamera(camera) }
+        canvasSession.onWaypoints = { [weak self] in self?.onCanvasWaypoints?($0) }
+        canvasSession.loadViews = { [weak model] in model?.readState(CanvasLastViews.file) }
+        canvasSession.saveViews = { [weak model] in model?.writeState(CanvasLastViews.file, $0) }
+        canvasSession.controls.isHidden = true; canvasSession.minimap.isHidden = true
+        for view in [tabBar, companionStrip, strip, canvas, textLayer, canvasSession.controls, canvasSession.minimap, stickyTitle, emptyArt, empty, pairingCard] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
@@ -208,6 +221,12 @@ import SyncrCore
             canvas.trailingAnchor.constraint(equalTo: trailingAnchor), canvas.bottomAnchor.constraint(equalTo: bottomAnchor),
             textLayer.topAnchor.constraint(equalTo: canvas.topAnchor), textLayer.leadingAnchor.constraint(equalTo: canvas.leadingAnchor),
             textLayer.trailingAnchor.constraint(equalTo: canvas.trailingAnchor), textLayer.bottomAnchor.constraint(equalTo: canvas.bottomAnchor),
+            canvasSession.controls.leadingAnchor.constraint(equalTo: canvas.leadingAnchor, constant: 14),
+            canvasSession.controls.bottomAnchor.constraint(equalTo: canvas.bottomAnchor, constant: -14),
+            canvasSession.minimap.trailingAnchor.constraint(equalTo: canvas.trailingAnchor, constant: -CanvasMinimapMap.margin),
+            canvasSession.minimap.bottomAnchor.constraint(equalTo: canvas.bottomAnchor, constant: -CanvasMinimapMap.margin),
+            canvasSession.minimap.widthAnchor.constraint(equalToConstant: CanvasMinimapMap.size.width),
+            canvasSession.minimap.heightAnchor.constraint(equalToConstant: CanvasMinimapMap.size.height),
             stickyTitle.topAnchor.constraint(equalTo: canvas.topAnchor), stickyTitle.leadingAnchor.constraint(equalTo: canvas.leadingAnchor),
             stickyTitle.trailingAnchor.constraint(equalTo: canvas.trailingAnchor), stickyTitle.heightAnchor.constraint(equalToConstant: StickyTitleView.height),
             empty.centerXAnchor.constraint(equalTo: canvas.centerXAnchor), empty.centerYAnchor.constraint(equalTo: centerYAnchor, constant: 40),
@@ -241,6 +260,7 @@ import SyncrCore
     }
 
     func noteChanged() {
+        syncCanvas()
         updateLegacyHeight()
         if pendingFit, let drawing = model.drawing, drawing.geometry.drawsPaper {
             pendingFit = false
@@ -265,6 +285,49 @@ import SyncrCore
     private func notePage() {
         let g = geometry
         currentSheet = g.currentPage(in: visibleCanvasRect)?.sheetId
+    }
+
+    // MARK: Canvas
+
+    /// Opens, feeds or closes the canvas session to match the note on show.
+    private func syncCanvas() {
+        guard let drawing = model.drawing, drawing.geometry.isCanvas, let id = model.shownNote, let state = drawing.canvas else {
+            if canvasSession.active { canvasSession.close(); canvasHeads = nil; strokeRects = nil; viewport = Viewport(); requestRedraw() }
+            return
+        }
+        canvasSession.viewSize = canvas.bounds.size
+        if canvasSession.noteId != id { canvasSession.open(note: id); canvasHeads = nil; strokeRects = nil }
+        // Our own edits come back as new heads; while the panel is open its values are the truth.
+        if canvasHeads != state.waypointsHead.operationId, !canvasSession.panelOpen { canvasSession.waypoints = state.waypoints }
+        canvasHeads = state.waypointsHead.operationId
+        refreshCanvasItems()
+        if !model.loading { canvasSession.applyOpeningView(contentLoaded: true) }
+    }
+
+    private var strokeRects: (drawing: UUID, rects: [CGRect])?
+
+    /// Every item's box in note units: strokes (cached, they only ever arrive at the end), typed text and companion cards.
+    private func refreshCanvasItems() {
+        guard isCanvas, let drawing = model.drawing else { return }
+        if strokeRects?.drawing != drawing.id || (strokeRects?.rects.count ?? 0) > drawing.strokes.count { strokeRects = (drawing.id, []) }
+        var rects = strokeRects?.rects ?? []
+        for s in drawing.strokes.dropFirst(rects.count) {
+            rects.append(CGRect(x: CGFloat(s.mesh.minX + s.originX), y: CGFloat(s.mesh.minY + s.originY),
+                                width: CGFloat(s.mesh.maxX - s.mesh.minX), height: CGFloat(s.mesh.maxY - s.mesh.minY)))
+        }
+        strokeRects = (drawing.id, rects)
+        var all = rects
+        for b in freeEditors { all.append(CGRect(x: b.x, y: b.y, width: b.width, height: max(40, b.editor.textView.frame.maxY))) }
+        for card in companionCards { all.append(CGRect(x: card.1, y: card.2, width: card.3, height: card.4)) }
+        canvasSession.items = all
+    }
+
+    /// The camera moved: the viewport follows, the text and the ink with it.
+    private func applyCamera(_ camera: CanvasCamera) {
+        guard canvasSession.active else { return }
+        centred = false; slide?.invalidate(); slide = nil
+        viewport = camera.viewport(in: canvas.bounds.size)
+        requestRedraw()
     }
 
     func updateHotkeys(_ store: HotkeyStore) {
@@ -305,6 +368,7 @@ import SyncrCore
         }
         for old in previous where !freeEditors.contains(where: { $0.editor === old.editor }) { old.editor.flush(); old.editor.removeFromSuperview() }
         positionText()
+        refreshCanvasItems()
         if let last = freeEditors.last, !previous.contains(where: { $0.editor === last.editor }), blocks.last?.3.writable == true, blocks.last?.3.text.isEmpty == true {
             window?.makeFirstResponder(last.editor.textView)
         }
@@ -330,6 +394,7 @@ import SyncrCore
         }
     }
     func documentView() {
+        guard !isCanvas else { return }   // a canvas has no document to centre
         slide?.invalidate(); slide = nil
         centred = documentVisible
         viewport = Viewport(left: centredLeft(zoom: 1.5), zoom: 1.5); requestRedraw()
@@ -430,7 +495,14 @@ import SyncrCore
         let visible = viewport.visibleSize(textLayer.bounds.size)
         let scale = textLayer.bounds.width / CGFloat(visible.x)
         func place(_ editor: DocumentEditor, x: CGFloat, y: CGFloat, width: CGFloat) {
-            let height = max(4000, editor.textView.frame.maxY + 200)
+            // A canvas block is as tall as its text: at 6400% a 4000-unit view would be a quarter of a million points.
+            let height = isCanvas ? max(60, editor.textView.frame.maxY + 40) : max(4000, editor.textView.frame.maxY + 200)
+            if isCanvas {
+                let on = CGRect(x: x, y: y, width: width, height: height).intersects(CGRect(x: CGFloat(viewport.left), y: CGFloat(viewport.top), width: CGFloat(visible.x), height: CGFloat(visible.y)))
+                let editing = window?.firstResponder === editor.textView
+                if editor.isHidden == on && !editing { editor.isHidden = !on }
+                if !on && !editing { return }
+            }
             placeView(editor,
                       frame: CGRect(x: (x - CGFloat(viewport.left)) * scale, y: (y - CGFloat(viewport.top)) * scale, width: width * scale, height: height * scale),
                       bounds: CGRect(x: 0, y: 0, width: width, height: height))
@@ -441,8 +513,13 @@ import SyncrCore
         // Include negative canvas coordinates so left-margin cards both draw and receive clicks.
         let overlayLeft = min(0, documentEditor.columnLeft - 140 - MarginCard.width)
         let overlayWidth = max(geometry.bounds.maxX, documentEditor.columnRight + 140 + PictureCard.width) - overlayLeft
-        let overlayFrame = CGRect(x: (overlayLeft - CGFloat(viewport.left)) * scale, y: -CGFloat(viewport.top) * scale, width: overlayWidth * scale, height: overlayHeight * scale)
-        let overlayBounds = CGRect(x: overlayLeft, y: 0, width: overlayWidth, height: overlayHeight)
+        var overlayFrame = CGRect(x: (overlayLeft - CGFloat(viewport.left)) * scale, y: -CGFloat(viewport.top) * scale, width: overlayWidth * scale, height: overlayHeight * scale)
+        var overlayBounds = CGRect(x: overlayLeft, y: 0, width: overlayWidth, height: overlayHeight)
+        if isCanvas {
+            // No edges: the overlays are exactly the view, looking at the part of the canvas the view shows.
+            overlayFrame = CGRect(origin: .zero, size: textLayer.bounds.size)
+            overlayBounds = CGRect(x: CGFloat(viewport.left), y: CGFloat(viewport.top), width: CGFloat(visible.x), height: CGFloat(visible.y))
+        }
         placeView(companionOverlay, frame: overlayFrame, bounds: overlayBounds)
         placeView(streamOverlay, frame: overlayFrame, bounds: overlayBounds)
         streamText?.frame = CGRect(x: documentEditor.columnLeft - 140 - MarginCard.width,y: 260,width: MarginCard.width,height: 360)
@@ -469,6 +546,7 @@ import SyncrCore
 
     /// The pad's pen frame reached the edge of the view: the view follows it, by canvas units.
     func padScroll(dx: CGFloat, dy: CGFloat) {
+        if isCanvas { let k = canvasSession.camera.pointsPerUnit; canvasSession.scroll(points: Double(dx) * k, Double(dy) * k); return }
         if dx != 0 { centred = false; slide?.invalidate(); slide = nil }
         move(Float(dx), Float(dy))
     }
@@ -598,6 +676,8 @@ import SyncrCore
         var marginLayout = CompanionMarginLayout(columnLeft: documentEditor.columnLeft,
             columnRight: documentEditor.columnRight, width: MarginCard.width)
         var marginViews: [String: (view: NSView, height: CGFloat, fresh: Bool)] = [:]
+        // On a canvas the cards hang from the boxes their anchors name, placed by the shared `layout_canvas_cards`.
+        var canvasAnchors: [String: CGRect] = [:], canvasRequests: [CanvasCards.Request] = []
         for item in margins {
             guard case .marginNote(let a,let kind,let body,let reader,let state,let urls) = item.body, state != .dismissed else { continue }
             let anchor = byID[a].flatMap { $0.tombstone ? nil : $0 }
@@ -605,7 +685,8 @@ import SyncrCore
             if let anchor, case .anchor(let target) = anchor.body {
                 switch target {
                 case .text(_,let start,let end,let lost): marginAnchor = .text(offset: UInt32(utf16(start))); detached = lost; range = NSRange(location:utf16(start),length:max(0,utf16(end)-utf16(start)))
-                case .canvas(_,_,let cy,_,_): marginAnchor = .canvas(y: Float(cy))
+                case .canvas(_,let cx,let cy,let cw,let ch):
+                    marginAnchor = .canvas(y: Float(cy)); canvasAnchors[a] = CGRect(x: cx, y: cy, width: cw, height: ch)
                 }
             } else { detached = true }
             if range.length > 0, NSMaxRange(range) <= whole.length { passages.append(range) }
@@ -625,6 +706,7 @@ import SyncrCore
             companionOverlay.addSubview(card); cardIDs[item.id] = card
             marginLayout.addNote(item.id, anchor: marginAnchor, height: card.fittedHeight)
             marginViews[item.id] = (card, card.fittedHeight, fresh.contains(item.id))
+            canvasRequests.append(.init(id: item.id, anchor: a, width: MarginCard.width, height: card.fittedHeight))
         }
         if drawings { for item in items where !item.tombstone {
             let embed = "![[syncr-drawing:\(item.id)]]"
@@ -651,11 +733,21 @@ import SyncrCore
                 companionOverlay.addSubview(card); marginViews[item.id] = (card, height * MarginCard.width / PictureCard.width, false)
             }
         }}
-        let placed = marginLayout.place(lines: lines.map { .init(range: $0.range, top: $0.rect.minY) })
-        for p in placed.placements {
-            guard let (view, height, isFresh) = marginViews[p.id] else { continue }
-            companionCards.append((view, CGFloat(p.x), CGFloat(p.y), MarginCard.width, height))
-            if view is MarginCard { arrive(view, p.id, fresh: isFresh) }
+        if isCanvas {
+            let placed = CanvasCards.place(anchors: canvasAnchors, cards: canvasRequests)
+            for r in canvasRequests {
+                guard let (view, height, isFresh) = marginViews[r.id] else { continue }
+                let at = placed[r.id] ?? .zero
+                companionCards.append((view, at.x, at.y, MarginCard.width, height))
+                if view is MarginCard { arrive(view, r.id, fresh: isFresh) }
+            }
+        } else {
+            let placed = marginLayout.place(lines: lines.map { .init(range: $0.range, top: $0.rect.minY) })
+            for p in placed.placements {
+                guard let (view, height, isFresh) = marginViews[p.id] else { continue }
+                companionCards.append((view, CGFloat(p.x), CGFloat(p.y), MarginCard.width, height))
+                if view is MarginCard { arrive(view, p.id, fresh: isFresh) }
+            }
         }
         for (card, at) in answerSpots {
             companionOverlay.addSubview(card); companionCards.append((card, documentEditor.columnLeft, paragraphBottom(at, lines: lines, text: text) + 16, documentEditor.textWidth, card.fittedHeight))
@@ -669,6 +761,7 @@ import SyncrCore
             arrive(view, image.id, fresh: freshImages.contains(image.id))
         }
         positionText()
+        refreshCanvasItems()
         arrivals.forEach { Dither.reveal($0.0, elapsed: $0.1) }
     }
     /// A stored companion item that is no longer shown but still exists (dismissed, or undone): its old card stays where
@@ -920,6 +1013,13 @@ import SyncrCore
         pendingFit = opening
         requestRedraw()
     }
+    /// Debug: what the canvas camera is (nil on a Note).
+    var debugCamera: CanvasCamera? { canvasSession.active ? canvasSession.camera : nil }
+    func debugSetCamera(_ camera: CanvasCamera) { canvasSession.set(camera) }
+    func debugCanvasPanels(_ name: String) {
+        if name == "waypoints" { canvasSession.showWaypoints(from: canvasSession.controls) }
+        else if name == "minimap" { canvasSession.showsMinimap.toggle() }
+    }
 
     /// With live ink wired, every draw goes through the display link: a layer driven by a
     /// CAMetalDisplayLink must not have `nextDrawable` called by anyone else (MTKView would trap). The
@@ -1090,6 +1190,7 @@ import SyncrCore
         // A direct gesture owns both axes. Do not suppress diagonal deltas or let
         // an outstanding centring animation pull against a direction reversal.
         guard x != 0 || y != 0 else { return }
+        if isCanvas { canvasSession.scroll(points: Double(x), Double(y)); return }
         centred = false
         slide?.invalidate(); slide = nil
         if pull(x: x, y: y) { return }
@@ -1260,6 +1361,18 @@ import SyncrCore
     var currentPageForText: NoteGeometry.Page? { activePage }
 
     @objc private func magnifyNote(_ gesture: NSMagnificationGestureRecognizer) {
+        if isCanvas {
+            switch gesture.state {
+            case .began:
+                let point = gesture.location(in: canvas)
+                guard canvas.bounds.contains(point) else { return }
+                canvasSession.viewSize = canvas.bounds.size
+                canvasSession.pinchBegan(at: CGPoint(x: point.x, y: canvas.bounds.height - point.y))
+            case .changed: canvasSession.pinchChanged(magnification: Double(gesture.magnification))
+            default: canvasSession.pinchEnded()
+            }
+            return
+        }
         if gesture.state == .began {
             guard !canvas.isHidden, canvas.bounds.width > 0, canvas.bounds.height > 0 else { return }
             let point = gesture.location(in: canvas)
@@ -1281,8 +1394,8 @@ import SyncrCore
             }
         }
     }
-    @objc func zoomIn() { zoom(to: viewport.zoom * NoteGeometry.zoomStep) }
-    @objc func zoomOut() { zoom(to: viewport.zoom / NoteGeometry.zoomStep) }
+    @objc func zoomIn() { if isCanvas { canvasSession.step(1) } else { zoom(to: viewport.zoom * NoteGeometry.zoomStep) } }
+    @objc func zoomOut() { if isCanvas { canvasSession.step(-1) } else { zoom(to: viewport.zoom / NoteGeometry.zoomStep) } }
     /// The zoom within the limits; within 5% of fitting the current page's width it snaps to the fit (not on the old page, whose
     /// width is the window's own zoom 1).
     private func limited(_ value: Float) -> Float {
@@ -1308,8 +1421,8 @@ import SyncrCore
         }
         move(0, 0)
     }
-    /// Fit to window: the whole page of a Note (the old page keeps its zoom 1 view).
-    @objc func fit() { fitPage(.whole) }
+    /// Fit to window: the whole page of a Note (the old page keeps its zoom 1 view); a Canvas fits all its content.
+    @objc func fit() { if isCanvas { canvasSession.fitAll() } else { fitPage(.whole) } }
 
     // MARK: Thumbnail sidebar
 
@@ -1365,7 +1478,10 @@ import SyncrCore
         return ctx.makeImage()
     }
 
-    func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) { requestRedraw() }
+    func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
+        if canvasSession.active { canvasSession.viewSize = canvas.bounds.size; applyCamera(canvasSession.camera) }
+        requestRedraw()
+    }
     func draw(in view: MTKView) {
         guard !linkDriven else { requestRedraw(); return }  // the link owns the drawables
         guard let drawable = view.currentDrawable else { return }

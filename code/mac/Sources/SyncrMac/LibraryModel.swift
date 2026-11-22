@@ -29,9 +29,12 @@ final class Drawing {
     private(set) var geometry = NoteGeometry.legacy
     private var pages: [PageView] = []
     private var kind = NoteKind.note
+    /// A Canvas's saved views and waypoints, from the snapshot; nil for a Note.
+    var canvas: CanvasState?
     /// Takes the pages of a snapshot, laid out in `view`.
     func adopt(_ snapshot: NoteSnapshot, view: NoteGeometry.View) {
         pages = snapshot.pages; kind = snapshot.kind
+        canvas = CanvasState(snapshot: snapshot)
         relayout(view)
     }
     func relayout(_ view: NoteGeometry.View) {
@@ -225,6 +228,30 @@ private final class LoadToken: @unchecked Sendable {
     func publishPages(_ snapshot: NoteSnapshot) {
         publishText(snapshot)
         if shownNote == snapshot.noteId { drawing?.adopt(snapshot, view: pageView(for: snapshot.noteId)); onChange?() }
+    }
+
+    /// A canvas: one sheet at the origin and no edges, on plain paper.
+    @discardableResult func createCanvas(title: String, notebook: String?) throws -> String {
+        let library = try requireLibrary()
+        let id = newId()
+        owned.insert(id)
+        do {
+            try saveOwned()
+            _ = try library.createNote(request: CreateNoteRequest(operationId: newId(), noteId: id,
+                firstSheetId: newId(), title: Self.clean(title, fallback: "Untitled canvas"), notebook: notebook, kind: .canvas))
+        } catch { owned.remove(id); try? saveOwned(); throw error }
+        try refresh()
+        onCommit?(id)
+        return id
+    }
+
+    /// "Untitled canvas", then "Untitled canvas 2", ...: the first name no live note has.
+    func nextUntitledCanvas() -> String {
+        let taken = Set(notes.map { $0.title.lowercased() })
+        if !taken.contains("untitled canvas") { return "Untitled canvas" }
+        var n = 2
+        while taken.contains("untitled canvas \(n)") { n += 1 }
+        return "Untitled canvas \(n)"
     }
 
     private static func clean(_ text: String, fallback: String) -> String {
@@ -649,7 +676,7 @@ private final class LoadToken: @unchecked Sendable {
     }
 
     func publishText(_ snapshot: NoteSnapshot) {
-        if shownNote == snapshot.noteId { drawing?.textBlocks = snapshot.textBlocks }
+        if shownNote == snapshot.noteId { drawing?.textBlocks = snapshot.textBlocks; drawing?.canvas = CanvasState(snapshot: snapshot) }
         if let i = notes.firstIndex(where: { $0.id == snapshot.noteId }) { notes[i].localSequence = snapshot.localSequence }
         onChange?()
     }
