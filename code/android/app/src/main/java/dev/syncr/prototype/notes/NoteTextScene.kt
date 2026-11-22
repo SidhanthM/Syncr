@@ -358,6 +358,8 @@ internal class NoteTextSceneBuilder(private val shaper: Shaper, private val marg
     /** Thread messages grouped by what they hang from: the margin note's anchor, or an anchor itself. */
     private fun threadsByPassage(items: List<CompanionItemView>, byId: Map<String, CompanionItemView>): List<Thread> {
         val groups = items.mapNotNull { it.body as? CompanionBody.ThreadMessage }.groupBy { it.marginId }
+            // A dismissed answer is gone from the page (the Mac does the same), so it can dissolve out.
+            .filterKeys { (byId[it]?.body as? CompanionBody.MarginNote)?.state != MarginState.DISMISSED }
         return groups.map { (root, messages) ->
             val rootBody = byId[root]?.body
             val anchor = when (rootBody) {

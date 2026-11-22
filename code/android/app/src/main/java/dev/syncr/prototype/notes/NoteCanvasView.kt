@@ -497,6 +497,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         scene.placement = placement
         val sheet = snapshot?.let { PageNav.textSheet(it, spots) }
         textOffset = sheet?.let(placement::get) ?: (0f to 0f)
+        text.paper = sheet?.let { id -> spots.firstOrNull { it.sheetId == id } }?.resolved?.resolvedStyle?.paper?.argb()
         textOffsets = placement.mapValues { (_, v) -> (v.first - textOffset.first) to (v.second - textOffset.second) }
         focusRow = focusRow.coerceIn(0, maxOf(0, PageSpots.rows(spots).size - 1))
     }

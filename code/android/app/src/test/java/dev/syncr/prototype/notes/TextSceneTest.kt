@@ -155,6 +155,24 @@ class TextSceneTest {
         assertTrue(t.none { it.text == "Question" }); assertTrue(t.any { it.text == "Why?" })
     }
 
+    @Test fun aDismissedAnswerLeavesThePageAndTheTextBelowMovesBackUp() {
+        fun asked(state: MarginState) = listOf(
+            item("anchor", CompanionBody.Anchor(AnchorTarget.Text("tb", 0u, 8u, false))),
+            item("root", CompanionBody.MarginNote("anchor", MarginKind.QUESTION, "Question", "You", state, emptyList())),
+            item("q", CompanionBody.ThreadMessage("root", 0u, MessageWho.YOU, "How?", emptyList())),
+            item("a", CompanionBody.ThreadMessage("root", 1u, MessageWho.COMPANION, "Use a map.", emptyList())),
+        )
+        val text = "question\nlater"
+        val open = scene(note(listOf(block(text)), asked(MarginState.OPEN)))
+        val dismissed = scene(note(listOf(block(text)), asked(MarginState.DISMISSED)))
+        val plain = scene(note(listOf(block(text))))
+        assertTrue("root" in open.items); assertFalse("root" in dismissed.items)
+        assertTrue(texts(dismissed).none { it.text == "Use a map." })
+        val later = { sc: NoteTextScene -> texts(sc).first { it.text == "later" }.baseline }
+        assertEquals(later(plain), later(dismissed), 0.01f)
+        assertTrue(later(open) > later(dismissed) + 100f)
+    }
+
     @Test fun answerThreadSitsUnderItsPassageAndPushesLaterTextDown() {
         val plain = scene(note(listOf(block("question\nlater"))))
         val items = listOf(

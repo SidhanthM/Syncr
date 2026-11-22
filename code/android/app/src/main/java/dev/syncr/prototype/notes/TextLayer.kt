@@ -22,6 +22,7 @@ import dev.syncr.core.NoteSnapshot
 import dev.syncr.core.PictureDisplayList
 import dev.syncr.core.PictureItem
 import dev.syncr.core.pictureDisplayList
+import dev.syncr.prototype.stipple.PageChange
 import dev.syncr.prototype.stipple.Stipple
 import dev.syncr.prototype.ui.theme.CodeColours
 import dev.syncr.prototype.ui.theme.Motion
@@ -43,11 +44,16 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
     private class Band(val top: Float, val bottom: Float, val picture: Picture, val left: Float = 0f, val right: Float = Float.POSITIVE_INFINITY)
     private class Done(val key: Long, val dark: Boolean, val bands: List<Band>, val bottom: Float, val hits: List<ContentHit> = emptyList(),
         val hidden: String? = null, val scene: NoteTextScene = NoteTextScene.EMPTY, val noteId: String? = null,
-        /** The covers of each item that is new in this scene, to dissolve it in: step 0 hides everything, the last nothing. */
-        val arrivals: Map<String, List<Bitmap>> = emptyMap())
+        /** What differs from the scene on screen before it (items that came or went), to animate; null when nothing did. */
+        val change: Change? = null)
 
-    /** A companion item dissolving in on the page: [covers] are paper-coloured stipple over its box, from full to none. */
-    private class Dissolve(val box: ItemBox, val start: Long, val covers: List<Bitmap>)
+    /** Paper-coloured stipple over an item's [box], from full (step 0) to none (the last step). */
+    private class Cover(val box: ItemBox, val frames: List<Bitmap>)
+
+    /** Companion items that came and went between two scenes: [old] is the page they left, drawn while they dissolve out. */
+    private class Change(val plan: PageChange.Plan, val old: List<Band>, val leaving: List<Cover>, val arriving: List<Cover>)
+
+    private class Running(val change: Change, val timeline: PageChange.Timeline, val start: Long)
 
     @Volatile private var done: Done? = null
     private var queuedKey = 0L
@@ -56,12 +62,13 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
     private var queuedNote: String? = null
     @Volatile private var generation = 0
     private class Request(val note: NoteSnapshot, val key: Long, val dark: Boolean, val hide: String?, val title: TitleDisplay?, val cell: Float, val mine: Int,
-        val offsets: Map<String, Placement>, val canvas: Boolean = false)
+        val offsets: Map<String, Placement>, val canvas: Boolean = false, val paper: Int? = null)
     private val latest = LatestWork<Request>(executor, ::process)
     /** Jobs that started and jobs that gave up halfway, for the tests. */
     @Volatile var rendered = 0; @Volatile var abandoned = 0
     private val main = Handler(Looper.getMainLooper())
-    private val dissolves = ArrayList<Dissolve>()
+    /** The change animating on screen, if any (main thread only). */
+    private var running: Running? = null
     private val coverPaint = Paint()
 
     /** The unbounded canvas: free text and cards anywhere, recorded in tiles instead of bands the width of a page. */
@@ -80,6 +87,8 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
     var reduced = false
     /** A stipple cell in canvas units (about 3 dp at the page's zoom). */
     var cellUnits = 10f
+    /** The paper colour of the page the text sits on (a page can have its own), which the covers of a dissolve match; null: the house paper. */
+    var paper: Int? = null
 
     /** Called from [NoteCanvasView.update] on the main thread; does no layout. */
     internal fun show(note: NoteSnapshot?, dark: Boolean, hide: String? = null, title: TitleDisplay? = null, offsets: Map<String, Placement> = emptyMap()) {
@@ -89,7 +98,7 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
         if (note.noteId != queuedNote) { done = null; onExtent(0f) }
         queuedNote = note.noteId; queuedKey = key; queuedDark = dark; queuedHide = hide
         val mine = ++generation
-        latest.submit(Request(note, key, dark, hide, title, cellUnits, mine, offsets, canvasMode))
+        latest.submit(Request(note, key, dark, hide, title, cellUnits, mine, offsets, canvasMode, paper))
     }
 
     private fun process(r: Request) {
@@ -101,9 +110,13 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
         main.post {
             if (r.mine == generation) {
                 done = result; version++; onExtent(result.bottom)
-                // Items new to a note already on screen dissolve in, unless the pen is busy or animations are off.
-                if (!reduced && (Stipple.freeze != null || !penBusy())) for ((id, covers) in result.arrivals) {
-                    result.scene.items[id]?.let { dissolves += Dissolve(it, SystemClock.uptimeMillis(), covers) }
+                // Items that came or went on a note already on screen dissolve and the text glides, unless the pen is busy or
+                // animations are off: then the new page simply lands finished. A newer scene ends what was running.
+                running = null
+                val change = result.change
+                if (change != null && !reduced && (Stipple.freeze != null || !penBusy())) {
+                    val timeline = PageChange.Timeline(change.leaving.isNotEmpty(), change.plan.glides, change.arriving.isNotEmpty())
+                    running = Running(change, timeline, SystemClock.uptimeMillis())
                 }
                 invalidate()
             }
@@ -134,20 +147,60 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
     fun clear() {
         generation++
         queuedNote = null; queuedKey = 0L
-        done = null
+        done = null; running = null
         onExtent(0f)
     }
 
     /** Draws the bands that intersect [view] (canvas units); the canvas is already in canvas space. */
     fun draw(canvas: Canvas, view: CullRect) {
         val current = done ?: return
-        for (band in current.bands) {
-            if (band.bottom < view.top || band.top > view.bottom || band.right < view.left || band.left > view.right) continue
+        val run = running
+        if (run == null) { drawBands(canvas, view, current.bands); return }
+        val frozen = Stipple.freeze
+        // A pen going down ends the animation where it stands: the page is drawn finished.
+        if (frozen == null && penBusy()) { running = null; drawBands(canvas, view, current.bands); return }
+        val step = if (frozen != null) run.timeline.frozen(frozen) else run.timeline.at(SystemClock.uptimeMillis() - run.start)
+        val change = run.change
+        when (step.phase) {
+            // Items leaving dissolve out over the old page, text still where it was.
+            PageChange.Phase.LEAVE -> {
+                drawBands(canvas, view, change.old)
+                covers(canvas, change.leaving, Stipple.frame(step.progress, leaving = true))
+            }
+            // Then room opens or closes: the text below the change glides to where it belongs, arriving items still hidden.
+            PageChange.Phase.GLIDE -> {
+                val offset = -change.plan.delta * (1f - Motion.EASE_OUT.transform(step.progress))
+                drawBands(canvas, view, current.bands, to = minOf(change.plan.fromY, change.plan.fromY - change.plan.delta))
+                covers(canvas, change.arriving, 0)
+                drawBands(canvas, view, current.bands, from = change.plan.fromY, dy = offset)
+            }
+            PageChange.Phase.ARRIVE -> {
+                drawBands(canvas, view, current.bands)
+                covers(canvas, change.arriving, Stipple.frame(step.progress))
+            }
+            PageChange.Phase.DONE -> { running = null; drawBands(canvas, view, current.bands) }
+        }
+    }
+
+    /** The bands in [bands] between [from] and [to] (canvas y), moved down by [dy]; the rest are not drawn. */
+    private fun drawBands(canvas: Canvas, view: CullRect, bands: List<Band>, from: Float = NO_LIMIT_TOP, to: Float = NO_LIMIT_BOTTOM, dy: Float = 0f) {
+        val limited = from > NO_LIMIT_TOP || to < NO_LIMIT_BOTTOM
+        for (band in bands) {
+            if (band.bottom + dy < view.top || band.top + dy > view.bottom || band.right < view.left || band.left > view.right) continue
+            if (band.bottom < from || band.top >= to) continue
             canvas.save()
+            canvas.translate(0f, dy)
+            // A page band is as wide as the page and has no right edge of its own (infinity): clip to a finite one.
+            if (limited) canvas.clipRect(band.left - 1f, from, if (band.right.isInfinite()) NO_LIMIT_BOTTOM else band.right + 1f, to)
             canvas.translate(band.left, band.top)
             canvas.drawPicture(band.picture)
             canvas.restore()
         }
+    }
+
+    private fun covers(canvas: Canvas, covers: List<Cover>, step: Int) {
+        if (step >= Motion.STIPPLE_FRAMES) return
+        for (c in covers) canvas.drawBitmap(c.frames[step.coerceIn(0, c.frames.lastIndex)], null, RectF(c.box.x, c.box.y, c.box.x + c.box.w, c.box.y + c.box.h), coverPaint)
     }
 
     private fun fingerprint(note: NoteSnapshot): Long {
@@ -160,38 +213,28 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
         return h
     }
 
-    /** Draws the dissolves in progress (canvas space). True while one is still running and the view must draw again. */
-    fun drawDissolves(canvas: Canvas): Boolean {
-        if (dissolves.isEmpty()) return false
-        val now = SystemClock.uptimeMillis()
-        val frozen = Stipple.freeze
-        var running = false
-        val each = dissolves.iterator()
-        while (each.hasNext()) {
-            val d = each.next()
-            val p = frozen ?: ((now - d.start).toFloat() / Motion.REVEAL_MS)
-            if (frozen == null && p >= 1f) { each.remove(); continue }
-            val step = Stipple.frame(p).coerceIn(0, d.covers.lastIndex)
-            if (step < Motion.STIPPLE_FRAMES) canvas.drawBitmap(d.covers[step], null, RectF(d.box.x, d.box.y, d.box.x + d.box.w, d.box.y + d.box.h), coverPaint)
-            if (frozen == null) running = true
-        }
-        return running
+    /** True while a change is still animating, so the view must draw again ([draw] steps it and ends it). */
+    fun drawDissolves(@Suppress("UNUSED_PARAMETER") canvas: Canvas): Boolean = running != null
+
+    /** Paper-coloured covers of [box], from hiding everything to hiding nothing, one cell about 3 dp. */
+    private fun cover(box: ItemBox, paper: Int, cell: Float): Cover {
+        val columns = Stipple.columns(box.w, cell); val rows = Stipple.rows(box.h, cell)
+        return Cover(box, (0..Motion.STIPPLE_FRAMES).map { k ->
+            val shown = Stipple.mask(columns, rows, k)
+            Bitmap.createBitmap(IntArray(columns * rows) { if (shown[it]) 0 else paper }, columns, rows, Bitmap.Config.ARGB_8888)
+        })
     }
 
-    /** The covers for each item that is in [scene] and was not in what was on screen for the same note. */
-    private fun arrivals(note: String, scene: NoteTextScene, before: Done?, dark: Boolean, cell: Float): Map<String, List<Bitmap>> {
-        if (before == null || before.noteId != note || before.scene === NoteTextScene.EMPTY) return emptyMap()
-        val paper = PaperPalette.paper(dark).toInt()
-        val out = HashMap<String, List<Bitmap>>()
-        for ((id, box) in scene.items) {
-            if (id in before.scene.items || box.w < 1f || box.h < 1f) continue
-            val columns = Stipple.columns(box.w, cell); val rows = Stipple.rows(box.h, cell)
-            out[id] = (0..Motion.STIPPLE_FRAMES).map { k ->
-                val shown = Stipple.mask(columns, rows, k)
-                Bitmap.createBitmap(IntArray(columns * rows) { if (shown[it]) 0 else paper }, columns, rows, Bitmap.Config.ARGB_8888)
-            }
-        }
-        return out
+    /** What items came and went between [before] and [scene] on the same note, with the covers to animate them. */
+    private fun change(note: String, scene: NoteTextScene, before: Done?, dark: Boolean, cell: Float, pageColour: Int?): Change? {
+        if (before == null || before.noteId != note || before.scene === NoteTextScene.EMPTY) return null
+        val plan = PageChange.plan(before.scene.items.keys, scene.items.keys, before.scene.documentText, scene.documentText, before.scene.lines, scene.lines) ?: return null
+        val paper = pageColour ?: PaperPalette.paper(dark)
+        fun covers(ids: Set<String>, from: Map<String, ItemBox>) = ids.mapNotNull { id -> from[id]?.takeIf { it.w >= 1f && it.h >= 1f }?.let { cover(it, paper, cell) } }
+        val leaving = covers(plan.leaving, before.scene.items)
+        val arriving = covers(plan.arriving, scene.items)
+        if (leaving.isEmpty() && arriving.isEmpty()) return null
+        return Change(plan, before.bands, leaving, arriving)
     }
 
     /** The scene for [r], or null when a newer request came in before it was done (nothing is published then). */
@@ -207,7 +250,7 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
         val painter = TextPainter(dark, scene.pictures)
         if (r.canvas) {
             val tiles = tiled(scene, painter) { stale() } ?: return null
-            return Done(key, dark, tiles, scene.bottom, scene.hits, hide, scene, note.noteId, arrivals(note.noteId, scene, before, dark, cell))
+            return Done(key, dark, tiles, scene.bottom, scene.hits, hide, scene, note.noteId, change(note.noteId, scene, before, dark, cell, r.paper))
         }
         val bands = ArrayList<Band>()
         var top = 0f
@@ -226,7 +269,7 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
             top = bottom
         }
         if (stale()) return null
-        return Done(key, dark, bands, scene.bottom, scene.hits, hide, scene, note.noteId, arrivals(note.noteId, scene, before, dark, cell))
+        return Done(key, dark, bands, scene.bottom, scene.hits, hide, scene, note.noteId, change(note.noteId, scene, before, dark, cell, r.paper))
     }
 
     /**
@@ -260,6 +303,8 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
         const val TILE_W = 2400f
         const val SPILL = 2000f
         const val BAND = 1200f
+        const val NO_LIMIT_TOP = -1e7f
+        const val NO_LIMIT_BOTTOM = 1e7f
         val executor = Executors.newSingleThreadExecutor(ThreadFactory { r ->
             Thread({ Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND); r.run() }, "note-text").apply { isDaemon = true }
         })
