@@ -118,17 +118,18 @@ private fun CanvasBar(percent: Int, minimap: Boolean, onOut: () -> Unit, onIn: (
         Text("$percent%", style = Syncr.type.label, color = c.ink, maxLines = 1,
             modifier = Modifier.width(48.dp).semantics { contentDescription = "Zoom $percent percent" }, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         BarButton(SyncrIcons.Plus, "Zoom in", onIn)
-        BarButton(SyncrIcons.Fit, "Fit all", onFit)
+        BarButton(SyncrIcons.Fit, "Fit all", onFit, art = PenArtData.FIT)
         BarButton(CanvasIcons.Map, if (minimap) "Hide minimap" else "Show minimap", onMinimap, on = minimap)
         BarButton(CanvasIcons.Waypoint, "Waypoints", onWaypoints)
     }
 }
 
 @Composable
-private fun BarButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit, on: Boolean = false) {
+private fun BarButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit, on: Boolean = false, art: PenArt? = null) {
     val c = Syncr.colors
     Box(Modifier.size(width = 44.dp, height = TouchTarget).clickable(onClickLabel = label, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
         .semantics { contentDescription = label }, contentAlignment = Alignment.Center) {
-        SyncrIcon(icon, if (on) c.accent else c.ink, size = 22.dp)
+        if (art != null) PenAction(art, if (on) c.accent else c.ink, size = 26.dp)
+        else SyncrIcon(icon, if (on) c.accent else c.ink, size = 22.dp)
     }
 }

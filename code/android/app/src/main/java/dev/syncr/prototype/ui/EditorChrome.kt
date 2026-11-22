@@ -101,7 +101,8 @@ internal fun EditorPanel(open: Boolean, rows: List<PanelRow>, selected: Int, gro
 }
 
 /** One button of the toolbar. [on] marks a format that holds at the caret. */
-internal class ToolButton(val icon: ImageVector, val label: String, val enabled: Boolean = true, val on: Boolean = false, val onClick: () -> Unit)
+internal class ToolButton(val icon: ImageVector, val label: String, val enabled: Boolean = true, val on: Boolean = false, val art: PenArt? = null,
+    val onClick: () -> Unit)
 
 /** The editing toolbar above the keyboard: one row that scrolls, its last button (Hide keyboard) always in reach (§5.3). */
 @Composable
@@ -111,7 +112,8 @@ internal fun EditorToolbar(buttons: List<ToolButton>, modifier: Modifier = Modif
         Box(Modifier.size(TouchTarget).padding(3.dp).clip(androidx.compose.foundation.shape.CircleShape).background(if (b.on) c.selectedFill else Color.Transparent)
             .clickable(enabled = b.enabled, role = Role.Button, onClick = b.onClick)
             .semantics { contentDescription = b.label; selected = b.on }, contentAlignment = Alignment.Center) {
-            SyncrIcon(b.icon, if (b.enabled) c.ink else c.faint, size = 22.dp)
+            if (b.art != null) PenAction(b.art, if (b.enabled) c.ink else c.faint, size = 26.dp)
+            else SyncrIcon(b.icon, if (b.enabled) c.ink else c.faint, size = 22.dp)
         }
     }
     Row(modifier.fillMaxWidth().raised(Level.TWO, RectangleShape).border(1.dp, c.dots).padding(horizontal = Space.xs), verticalAlignment = Alignment.CenterVertically) {

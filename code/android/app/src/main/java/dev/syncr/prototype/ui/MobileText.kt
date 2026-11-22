@@ -210,8 +210,8 @@ internal fun MobileTextEditor(repo: NotesRepository, block: String?, canvas: Not
 
     val formatOn = { f: Typing.Format -> Typing.active(state, f) }
     val buttons = listOf(
-        ToolButton(SyncrIcons.Undo, "Undo", enabled = canUndo) { canvas?.undoText() },
-        ToolButton(SyncrIcons.Redo, "Redo", enabled = canRedo) { canvas?.redoText() },
+        ToolButton(SyncrIcons.Undo, "Undo", enabled = canUndo, art = PenArtData.UNDO) { canvas?.undoText() },
+        ToolButton(SyncrIcons.Redo, "Redo", enabled = canRedo, art = PenArtData.REDO) { canvas?.redoText() },
         ToolButton(SyncrIcons.Slash, "Slash commands") { openSlash() },
         ToolButton(SyncrIcons.Heading, "Heading") { apply(Typing::cycleHeading) },
         ToolButton(SyncrIcons.Bold, "Bold", on = formatOn(Typing.Format.BOLD)) { apply { Typing.toggle(it, Typing.Format.BOLD) } },

@@ -98,7 +98,7 @@ fun PenGlyph(head: Head = Head.FOUNTAIN) = PenHead(head, size = 34.dp)
  */
 @Composable
 private fun BarItem(icon: ImageVector?, description: String, modifier: Modifier, selected: Boolean = false, width: Dp = TouchTarget,
-    enabled: Boolean = true, onLongClick: (() -> Unit)? = null, head: Head? = null, onClick: () -> Unit) {
+    enabled: Boolean = true, onLongClick: (() -> Unit)? = null, head: Head? = null, art: PenArt? = null, onClick: () -> Unit) {
     val c = Syncr.colors
     // The selected tool's disc grows and fades in (and out) as the selection moves; no box at rest, never a square flash.
     val on by animateFloatAsState(if (selected) 1f else 0f, if (Syncr.reducedMotion) snap() else Motion.quick<Float>(), label = "tool disc")
@@ -121,6 +121,7 @@ private fun BarItem(icon: ImageVector?, description: String, modifier: Modifier,
         contentAlignment = Alignment.Center) {
         if (head != null) PenHead(head, size = 32.dp, line = if (enabled) c.ink else c.faint,
             playKey = if (selected) true else null, freeze = if (selected) StippleDebug.freeze else null)
+        else if (art != null) PenAction(art, if (enabled) c.ink else c.faint, size = 26.dp)
         else if (icon != null) SyncrIcon(icon, if (enabled) c.ink else c.faint, size = 22.dp)
     }
 }
@@ -153,12 +154,12 @@ fun BubbleBarScope.NoteToolBar(brush: Brush, eraser: Boolean, typing: Boolean, c
         BarItem(null, Head.CARET.spoken, Modifier.morphItem(4, n, active), typing, w, head = Head.CARET, onClick = onTyping)
         Box(Modifier.morphItem(5, n, active).size(BarLayout.GRIP.dp, TouchTarget).floatingDrag(onDrag, onRelease)
             .semantics { contentDescription = "Drag to move the tool bar" }, contentAlignment = Alignment.Center) {
-            SyncrIcon(SyncrIcons.Grip, c.faint, size = 18.dp)
+            PenAction(PenArtData.GRIP, c.faint, size = 22.dp)
         }
         Box(Modifier.morphItem(6, n, active).size(BarLayout.SEPARATOR.dp, 24.dp).background(Syncr.colors.lineStrong))
-        BarItem(SyncrIcons.Undo, "Undo", Modifier.morphItem(7, n, active), width = w, enabled = canUndo, onClick = onUndo)
-        BarItem(SyncrIcons.Redo, "Redo", Modifier.morphItem(8, n, active), width = w, enabled = canRedo, onClick = onRedo)
-        BarItem(SyncrIcons.More, "More: note, storage and modes", Modifier.morphItem(9, n, active), width = w, onClick = onMore)
+        BarItem(null, "Undo", Modifier.morphItem(7, n, active), width = w, enabled = canUndo, art = PenArtData.UNDO, onClick = onUndo)
+        BarItem(null, "Redo", Modifier.morphItem(8, n, active), width = w, enabled = canRedo, art = PenArtData.REDO, onClick = onRedo)
+        BarItem(null, "More: note, storage and modes", Modifier.morphItem(9, n, active), width = w, art = PenArtData.MORE, onClick = onMore)
     }
 }
 
