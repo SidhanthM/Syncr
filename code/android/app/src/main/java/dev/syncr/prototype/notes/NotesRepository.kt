@@ -27,6 +27,7 @@ class NotesRepository(
     private val id: () -> String = ::newId,
 ) {
     private val session = CoreSession(root, core, io)
+    private val core0 = core
     private val editor = OpenNoteEditor(session, core, id)
     private val drafts = DraftQueue(session, core, editor, id)
     private val library = LibraryOperations(session, core, thumbnailDir, now)
@@ -113,16 +114,62 @@ class NotesRepository(
 
     // ---- Open note ----
 
-    suspend fun create(title: String, notebook: String? = null) {
+    suspend fun create(title: String, notebook: String? = null, kind: NoteKind = NoteKind.NOTE, layout: NewNoteLayout? = null) {
         // IDs are allocated once, before dispatch, so a failed or lost reply retries the same request.
         if (state.value.creation == null) {
             session.update {
-                val request = CreateNoteRequest(id(), id(), id(), title, notebook, NoteKind.NOTE)
-                it.copy(creation = request, error = null, recoveryExported = false)
+                val request = CreateNoteRequest(id(), id(), id(), title, notebook, kind)
+                it.copy(creation = request, creationLayout = layout.takeIf { kind == NoteKind.NOTE }, error = null, recoveryExported = false)
             }
         }
         retry()
     }
+
+    // ---- Pages ----
+
+    /** Stages one page command built from the open note, delivers it, and says what the core thought. Returns whether it was saved. */
+    private suspend fun stagePage(build: (dev.syncr.core.NoteSnapshot) -> dev.syncr.core.Command?): Boolean {
+        val noteId = state.value.snapshot?.noteId ?: return false
+        val staged = try {
+            editor.stageContent(noteId, build)
+        } catch (e: PageCommands.Refused) {
+            message(e.message ?: "That page action is not possible."); return false
+        } catch (e: IllegalArgumentException) {
+            message(e.message ?: "Wait for the current changes to finish saving."); return false
+        }
+        if (staged) retry()
+        return staged && !state.value.unsaved
+    }
+
+    /** A page after [after] (null: first), [width] by [height]; the new page's sheet ID, or null if nothing was added. */
+    suspend fun addPage(after: String?, width: Float, height: Float): String? {
+        var added: String? = null
+        val ok = stagePage { note -> PageCommands.add(note, after, width, height, id).let { (command, sheet) -> added = sheet; command } }
+        return added.takeIf { ok }
+    }
+
+    suspend fun resizePage(sheetId: String, width: Float, height: Float) = stagePage { PageCommands.resize(it, sheetId, width, height, id) }
+
+    suspend fun rotatePages(sheetIds: List<String>, turn: PageTurn) = stagePage { PageCommands.rotate(it, sheetIds, turn, id) }
+
+    /** Copies after the last picked page; the copies' sheet IDs. */
+    suspend fun duplicatePages(sheetIds: List<String>): List<String> {
+        val noteId = state.value.snapshot?.noteId ?: return emptyList()
+        var made = emptyList<String>()
+        val staged = try {
+            editor.stageContents(noteId, id()) { note ->
+                val (commands, ids) = PageCommands.duplicate(note, sheetIds, state.value.samples::get, core0::encode, id)
+                made = ids; commands
+            }
+        } catch (e: PageCommands.Refused) { message(e.message ?: "That page action is not possible."); return emptyList()
+        } catch (e: IllegalArgumentException) { message(e.message ?: "Wait for the current changes to finish saving."); return emptyList() }
+        if (staged) retry()
+        return made.takeIf { staged && !state.value.unsaved }.orEmpty()
+    }
+
+    suspend fun deletePages(sheetIds: List<String>) = stagePage { PageCommands.delete(it, sheetIds, id) }
+
+    suspend fun movePages(sheetIds: List<String>, after: String?) = stagePage { PageCommands.move(it, sheetIds, after, id) }
 
     suspend fun open(noteId: String) = session.work {
         check(session.note == null && !session.current.unsaved)
@@ -138,7 +185,7 @@ class NotesRepository(
     /** Stages one atomic Marks command for a whole selection or eraser gesture. */
     fun stageMarks(edit: MarkEdit): Boolean = editor.stageMarks(edit)
 
-    fun textDraft(blockId: String? = null): TextDraft = TextCommands.draft(requireNotNull(state.value.snapshot), blockId)
+    fun textDraft(blockId: String? = null, place: FreePlace? = null): TextDraft = TextCommands.draft(requireNotNull(state.value.snapshot), blockId, place)
 
     suspend fun saveText(draft: TextDraft, text: String) {
         if (editor.stageContent(draft.noteId) { TextCommands.save(it, draft, text, id) }) retry()
@@ -259,6 +306,7 @@ class NotesRepository(
                         samples = emptyMap(),
                         pending = emptyList(),
                         creation = null,
+                        creationLayout = null,
                         error = null,
                         recoveryExported = false,
                     )

@@ -29,6 +29,15 @@ internal class CanvasScene {
     var firstSheet: String? = null
         private set
 
+    /**
+     * Where each sheet sits on the paper, in canvas units: its page's place, or page 1's for a sheet inside it. Empty for a
+     * legacy column and a canvas (every sheet at its own origin). Set by the view from the page layout.
+     */
+    var placement: Map<String, Placement> = emptyMap()
+
+    /** Sheets of deleted pages: their ink is neither drawn nor selectable. */
+    private var deadSheets = emptySet<String>()
+
     private val handedOffStrokes = mutableListOf<InkPreview>()
     private var handedOffErases = emptySet<String>()
     private var handedOffTransforms = emptyMap<String, Affine>()
@@ -45,13 +54,14 @@ internal class CanvasScene {
         val snapshot = next.snapshot
         sheets = snapshot?.sheets.orEmpty().associateBy { it.id }
         firstSheet = snapshot?.sheets?.firstOrNull()?.id
+        deadSheets = snapshot?.pages.orEmpty().filter { it.tombstone }.map { it.sheetId }.toSet()
         strokes = snapshot?.strokes.orEmpty().associateBy { it.id }
         pendingTransforms = next.pending.flatMap { it.transforms.entries }.associate { it.key to it.value }
         val pendingRestyles = next.pending.flatMap { it.restyles.entries }.associate { it.key to it.value }
         pendingHidden = next.pending.flatMap { it.hidden }.toSet()
         previews = buildList {
             snapshot?.strokes?.forEach { stroke ->
-                if (stroke.tombstone) return@forEach
+                if (stroke.tombstone || stroke.sheetId in deadSheets) return@forEach
                 val samples = next.samples[stroke.id] ?: return@forEach
                 add(InkPreview(stroke.id, stroke.sheetId, samples, pendingRestyles[stroke.id] ?: stroke.brush))
             }
@@ -90,7 +100,7 @@ internal class CanvasScene {
     fun handOffTransform(ids: Set<String>, gesture: Affine) {
         handedOffTransforms = handedOffTransforms + ids.associateWith { id ->
             val sheet = sheets.getValue(strokes.getValue(id).sheetId)
-            compose(localGesture(sheet, gesture), transformOf(id))
+            compose(localGesture(sheet, gesture, offsetOf(sheet.id)), transformOf(id))
         }
     }
 
@@ -112,8 +122,10 @@ internal class CanvasScene {
     /** The stroke's transform into canvas space: its sheet's fixed origin after its local transform. */
     fun canvasTransformOf(id: String, sheetId: String): Affine {
         val local = transformOf(id)
-        return sheets[sheetId]?.let { canvasTransform(it, local) } ?: local
+        return sheets[sheetId]?.let { canvasTransform(it, local, offsetOf(sheetId)) } ?: local
     }
+
+    fun offsetOf(sheetId: String): Placement = placement[sheetId] ?: (0f to 0f)
 
     /** Sample bounds per stroke for the eraser's cull, by samples identity; pruned on [load]. */
     private var hitBounds = IdentityHashMap<SampleChannels, Bounds?>()
@@ -183,7 +195,7 @@ internal class CanvasScene {
 
     private fun storedTransform(id: String): Affine = pendingTransforms[id] ?: strokes[id]?.transform ?: IDENTITY
 
-    private fun isSelectable(stroke: StrokeView) = !stroke.tombstone && !isHidden(stroke.id)
+    private fun isSelectable(stroke: StrokeView) = !stroke.tombstone && stroke.sheetId !in deadSheets && !isHidden(stroke.id)
 
     private inline fun hits(stroke: StrokeView, test: (SampleChannels, Affine) -> Boolean): Boolean {
         val samples = state.samples[stroke.id] ?: return false

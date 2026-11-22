@@ -36,6 +36,9 @@ import androidx.compose.ui.unit.dp
 import dev.syncr.core.DeletedNoteSummary
 import dev.syncr.core.NoteSummary
 import dev.syncr.prototype.notes.LibraryFilter
+import dev.syncr.prototype.notes.NewNoteChoiceCodec
+import dev.syncr.prototype.notes.NewNoteLayout
+import dev.syncr.prototype.notes.nextUntitled
 import dev.syncr.prototype.notes.NotesState
 import dev.syncr.prototype.ui.theme.Motion
 import dev.syncr.prototype.ui.theme.Radius
@@ -47,7 +50,9 @@ import kotlinx.coroutines.delay
 /** Library actions; all storage happens in the repository's worker. */
 class LibraryActions(
     val onFilter: (LibraryFilter) -> Unit,
-    val onNew: () -> Unit,
+    /** Creates a note with its first page's size and look, or a canvas; each opens what it made. */
+    val onCreateNote: (title: String, layout: NewNoteLayout) -> Unit,
+    val onCreateCanvas: (title: String) -> Unit,
     val onOpen: (String) -> Unit,
     val onPointer: () -> Unit,
     val onSettings: () -> Unit,
@@ -74,6 +79,8 @@ private sealed interface LibraryDialog {
     data class MoveNote(val note: NoteSummary) : LibraryDialog
     data class RenameNote(val note: NoteSummary) : LibraryDialog
     data class Purge(val note: DeletedNoteSummary) : LibraryDialog
+    data object NewNote : LibraryDialog
+    data object NewCanvas : LibraryDialog
 }
 
 /**
@@ -108,7 +115,7 @@ fun LibraryScreen(state: NotesState, filter: LibraryFilter, ready: Boolean, acti
                 if (filter == LibraryFilter.Deleted) RecentlyDeletedList(state.deleted, now, enabled, ready, content,
                     onRestore = actions.onRestoreNote, onPurge = { dialog = LibraryDialog.Purge(it) })
                 else NoteGrid(state, filter, now, enabled, ready, content, NoteGridActions(
-                    onNew = actions.onNew, onOpen = actions.onOpen,
+                    onNewNote = { dialog = LibraryDialog.NewNote }, onNewCanvas = { dialog = LibraryDialog.NewCanvas }, onOpen = actions.onOpen,
                     onMove = { dialog = LibraryDialog.MoveNote(it) }, onRename = { dialog = LibraryDialog.RenameNote(it) },
                     onArchive = { actions.onArchiveNote(it.id, !it.archived) }, onDelete = { actions.onDeleteNote(it.id) }))
             }
@@ -123,14 +130,24 @@ fun LibraryScreen(state: NotesState, filter: LibraryFilter, ready: Boolean, acti
                 onUndo = actions.onUndoDelete, onTimeout = actions.onDismissDeleted)
         }
     }
-    LibraryDialogs(dialog, state, onClose = { dialog = null }, actions)
+    LibraryDialogs(dialog, state, filter, onClose = { dialog = null }, actions)
 }
 
 @Composable
-private fun LibraryDialogs(dialog: LibraryDialog?, state: NotesState, onClose: () -> Unit, actions: LibraryActions) {
+private fun LibraryDialogs(dialog: LibraryDialog?, state: NotesState, filter: LibraryFilter, onClose: () -> Unit, actions: LibraryActions) {
     val names = state.notebooks.map { it.name }
+    val context = androidx.compose.ui.platform.LocalContext.current
     when (dialog) {
         null -> Unit
+        LibraryDialog.NewNote -> NewNoteScreen(filter.newNoteNotebook ?: "Inbox", defaultNoteTitle(System.currentTimeMillis()),
+            remember { NewNoteChoiceCodec.get(context) }, onClose = onClose,
+            onCreate = { name, choice ->
+                val layout = choice.layout() ?: return@NewNoteScreen
+                NewNoteChoiceCodec.set(context, choice) // the last choices are the next defaults
+                onClose(); actions.onCreateNote(name, layout)
+            })
+        LibraryDialog.NewCanvas -> NewCanvasDialog(nextUntitled(state.notes.map { it.title }), onDismiss = onClose,
+            onCreate = { onClose(); actions.onCreateCanvas(it) })
         LibraryDialog.NewNotebook -> NotebookNameDialog("New notebook", "", names, null,
             onDismiss = onClose, onSave = { onClose(); actions.onCreateNotebook(it) })
         is LibraryDialog.RenameNotebook -> NotebookNameDialog("Rename notebook", dialog.name, names, dialog.name,

@@ -3,10 +3,18 @@ package dev.syncr.prototype.notes
 import dev.syncr.core.*
 
 /** Immutable UI draft: exact note and head prevent overwriting a newer synced revision. */
-data class TextDraft(val noteId: String, val blockId: String?, val head: String?, val text: String)
+/** Where a new free text block goes: [blockId] is chosen up front so a retry saves the same block; [x] and [y] are sheet-local. */
+data class FreePlace(val sheetId: String, val x: Float, val y: Float, val width: Float, val blockId: String)
+
+data class TextDraft(val noteId: String, val blockId: String?, val head: String?, val text: String, val place: FreePlace? = null)
 
 internal object TextCommands {
-    fun draft(note: NoteSnapshot, id: String? = null): TextDraft {
+    /** The draft of block [id], or of the document; with [place] and no [id], of the free block being made there (empty until saved). */
+    fun draft(note: NoteSnapshot, id: String? = null, place: FreePlace? = null): TextDraft {
+        if (id == null && place != null) {
+            val made = note.textBlocks.firstOrNull { !it.tombstone && it.id == place.blockId }
+            return if (made != null) TextDraft(note.noteId, made.id, made.head.operationId, made.text) else TextDraft(note.noteId, null, null, "", place)
+        }
         val block = note.textBlocks.firstOrNull { !it.tombstone && if (id == null) it.role == TextRole.DOCUMENT else it.id == id }
         require(id == null || block != null) { "This text no longer exists." }
         return TextDraft(note.noteId, block?.id, block?.head?.operationId, block?.text.orEmpty())
@@ -15,10 +23,19 @@ internal object TextCommands {
     fun save(note: NoteSnapshot, draft: TextDraft, text: String, id: () -> String): Command? {
         require(note.noteId == draft.noteId) { "The open note changed. Your draft was kept." }
         require(text.toByteArray().size <= 1_000_000) { "Text is too large (1 MB maximum)." }
+        if (draft.blockId == null && draft.place != null) {
+            val place = draft.place
+            if (text.isEmpty()) return null
+            require(note.pages.none { it.sheetId == place.sheetId && it.tombstone } && note.sheets.any { it.id == place.sheetId }) { "That page no longer exists. Your text was kept in the field." }
+            val sheet = note.sheets.first { it.id == place.sheetId }
+            return Command(id(), listOf(sheet.creationOperationId), CommandBody.Marks(listOf(
+                MarkMutation.AddText(place.blockId, sheet.id, TextRole.FREE, place.x, place.y, place.width, text, TextStyle(BrushSize.MEDIUM, InkColour.INK)))))
+        }
         if (draft.blockId == null) {
             require(note.textBlocks.none { !it.tombstone && it.role == TextRole.DOCUMENT }) { "Text arrived from another device. Reopen the editor before saving." }
             if (text.isEmpty()) return null
-            val sheet = note.sheets.first()
+            // The document goes on the first live page (the only sheet of a note without a page list).
+            val sheet = note.pages.firstOrNull { !it.tombstone }?.let { p -> note.sheets.first { it.id == p.sheetId } } ?: note.sheets.first()
             return Command(id(), listOf(sheet.creationOperationId), CommandBody.Marks(listOf(
                 MarkMutation.AddText(id(), sheet.id, TextRole.DOCUMENT, 0f, 0f, 1600f, text, TextStyle(BrushSize.MEDIUM, InkColour.INK)))))
         }

@@ -48,36 +48,81 @@ interface NoteGeometry {
 }
 
 /**
- * Paper in columns: today's note is one page 4,800 wide with no bottom edge, panned down to the lowest ink
- * plus one screen. Visible bounds stay inside x = 0..4800, y = 0..[lowestInk] + one current screen.
+ * Paper in pages. With no [spots] it is today's note: one column 4,800 wide with no bottom edge, panned down to the lowest
+ * ink plus one screen (visible bounds stay inside x = 0..4800, y = 0..[lowestInk] + one current screen). With [spots] it is
+ * the note's live pages as `layout_pages` placed them: the visible bounds stay on the pages plus a margin, and a document
+ * smaller than the view is centred.
  */
-data class PagedGeometry(val lowestInk: Float = 0f) : NoteGeometry {
-    override fun fitScale(viewWidth: Int, viewHeight: Int) =
-        (min(viewWidth, viewHeight).toFloat() / LegacyPage.PHONE_COLUMN).coerceAtLeast(0.001f)
+data class PagedGeometry(val lowestInk: Float = 0f, val spots: List<PageSpot> = emptyList(), val focusRow: Int? = null) : NoteGeometry {
+    private val legacy get() = spots.isEmpty()
+    /** What the view may pan over: every page, or in paginated mode only the row being read. */
+    private val region = focusRow?.let { r -> spots.filter { it.row == r } }?.takeIf { it.isNotEmpty() } ?: spots
+    private val left = region.minOfOrNull { it.x } ?: 0f
+    private val top = region.minOfOrNull { it.y } ?: 0f
+    private val right = region.maxOfOrNull { it.right } ?: LegacyPage.WIDTH
+    private val bottom = region.maxOfOrNull { it.bottom } ?: 0f
 
-    override fun scaleRange(fit: Float) = (fit * 0.5f)..max(fit * 6f, 3f)
+    /** What fit-width fits: the widest row, but a legacy auto-height page counts as its 1,600 phone column. */
+    private fun fitWidth(): Float {
+        val rows = PageSpots.rows(spots)
+        return rows.maxOf { row ->
+            row.maxOf { if (it.autoHeight) it.x + minOf(it.width, LegacyPage.PHONE_COLUMN) else it.right } - row.minOf { it.x }
+        }
+    }
+
+    override fun fitScale(viewWidth: Int, viewHeight: Int) =
+        if (legacy) (min(viewWidth, viewHeight).toFloat() / LegacyPage.PHONE_COLUMN).coerceAtLeast(0.001f)
+        else (viewWidth / (fitWidth() + 2 * Xn.SIDE_MARGIN)).coerceAtLeast(0.001f)
+
+    override fun scaleRange(fit: Float) =
+        if (legacy) (fit * 0.5f)..max(fit * 6f, 3f) else Xn.scaleOf(Xn.MIN_ZOOM)..Xn.scaleOf(Xn.MAX_ZOOM)
+
+    /** min and max offsets for [scale]: x then y. A document smaller than the view has one offset (centred). */
+    private fun limits(scale: Float, viewWidth: Int, viewHeight: Int): FloatArray {
+        val minX: Float; val maxX: Float; val minY: Float; val maxY: Float
+        val width = (right - left + 2 * Xn.SIDE_MARGIN) * scale
+        if (width <= viewWidth) { minX = (viewWidth - (right + left) * scale) / 2; maxX = minX }
+        else { maxX = (Xn.SIDE_MARGIN - left) * scale; minX = viewWidth - (right + Xn.SIDE_MARGIN) * scale }
+        val height = (bottom - top + 2 * Xn.VERTICAL_MARGIN) * scale
+        if (height <= viewHeight) { minY = (viewHeight - (bottom + top) * scale) / 2; maxY = minY }
+        else { maxY = (Xn.VERTICAL_MARGIN - top) * scale; minY = viewHeight - (bottom + Xn.VERTICAL_MARGIN) * scale }
+        return floatArrayOf(minX, maxX, minY, maxY)
+    }
 
     override fun clamp(m: SheetMapping, viewWidth: Int, viewHeight: Int): SheetMapping {
-        val minScale = viewWidth / LegacyPage.WIDTH
-        val scale = max(m.scale, minScale)
-        val minX = min(0f, viewWidth - LegacyPage.WIDTH * scale)
-        val minY = -max(0f, lowestInk) * scale
-        return SheetMapping(scale, m.tx.coerceIn(minX, 0f), m.ty.coerceIn(minY, 0f))
+        if (legacy) {
+            val minScale = viewWidth / LegacyPage.WIDTH
+            val scale = max(m.scale, minScale)
+            val minX = min(0f, viewWidth - LegacyPage.WIDTH * scale)
+            val minY = -max(0f, lowestInk) * scale
+            return SheetMapping(scale, m.tx.coerceIn(minX, 0f), m.ty.coerceIn(minY, 0f))
+        }
+        val range = scaleRange(0f)
+        val scale = m.scale.coerceIn(range.start, range.endInclusive)
+        val l = limits(scale, viewWidth, viewHeight)
+        return SheetMapping(scale, m.tx.coerceIn(l[0], l[1]), m.ty.coerceIn(l[2], l[3]))
     }
 
     override fun flingBounds(m: SheetMapping, viewWidth: Int, viewHeight: Int): FlingBounds {
-        val minX = minOf(0f, viewWidth - LegacyPage.WIDTH * m.scale)
-        val minY = -lowestInk * m.scale
-        return FlingBounds(m.tx.toInt(), m.ty.toInt(), minX.toInt(), minY.toInt())
+        if (legacy) {
+            val minX = minOf(0f, viewWidth - LegacyPage.WIDTH * m.scale)
+            val minY = -lowestInk * m.scale
+            return FlingBounds(m.tx.toInt(), m.ty.toInt(), minX.toInt(), minY.toInt())
+        }
+        val l = limits(m.scale, viewWidth, viewHeight)
+        return FlingBounds(m.tx.toInt(), m.ty.toInt(), l[0].toInt(), l[2].toInt(), l[1].toInt(), l[3].toInt())
     }
 
-    override fun contains(x: Float, y: Float) = x in 0f..LegacyPage.WIDTH && y >= 0f
+    override fun contains(x: Float, y: Float) = if (legacy) x in 0f..LegacyPage.WIDTH && y >= 0f else spots.any { it.contains(x, y) }
 
-    override fun inkClip(x: Float, y: Float): CanvasRect? = column
+    override fun inkClip(x: Float, y: Float): CanvasRect? = if (legacy) column else spots.firstOrNull { it.contains(x, y) }?.rect
 
-    override val paper: List<CanvasRect> get() = listOf(column)
+    override val paper: List<CanvasRect> get() = if (legacy) listOf(column) else spots.map { it.rect }
 
-    override val thumbnailWidth get() = LegacyPage.WIDTH
+    /** The page a canvas point is on; null on the desk, or always on a legacy column (which is not a page list). */
+    fun pageAt(x: Float, y: Float): PageSpot? = spots.firstOrNull { it.contains(x, y) }
+
+    override val thumbnailWidth get() = spots.firstOrNull()?.width ?: LegacyPage.WIDTH
     override val thumbnailHeight get() = LegacyPage.VIEW_HEIGHT
 
     private val column get() = CanvasRect(0f, 0f, LegacyPage.WIDTH, Float.POSITIVE_INFINITY)

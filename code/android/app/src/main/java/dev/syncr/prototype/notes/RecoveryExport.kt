@@ -16,7 +16,7 @@ fun writeRecovery(output: OutputStream, data: RecoveryData) {
         data.creation?.let {
             json.beginObject().name("operation_id").value(it.operationId).name("note_id").value(it.noteId)
                 .name("first_sheet_id").value(it.firstSheetId).name("title").value(it.title)
-                .name("notebook").value(it.notebook).endObject()
+                .name("notebook").value(it.notebook).name("kind").value(it.kind.name).endObject()
         } ?: json.nullValue()
         json.name("commands").beginArray()
         data.commands.forEach { command ->
@@ -59,9 +59,27 @@ fun writeRecovery(output: OutputStream, data: RecoveryData) {
                             is MarkMutation.AddText, is MarkMutation.SpliceText, is MarkMutation.SetTextWidth,
                             is MarkMutation.DeleteText, is MarkMutation.RestoreText, is MarkMutation.TransformText,
                             is MarkMutation.RestyleText -> error("Text edits are not supported in phone recovery commands")
-                            // Page commands are new (notes and canvases v1); the phone does not stage them yet.
-                            is MarkMutation.AddPage, is MarkMutation.ResizePage, is MarkMutation.MovePage,
-                            is MarkMutation.DeletePage, is MarkMutation.RestorePage -> error("Page edits are not supported in phone recovery commands")
+                            is MarkMutation.AddPage -> {
+                                json.name("type").value("AddPage").name("sheet_id").value(mutation.sheetId).name("after").value(mutation.after)
+                                    .name("width").value(mutation.width.toDouble()).name("height").value(mutation.height.toDouble())
+                            }
+                            is MarkMutation.ResizePage -> {
+                                json.name("type").value("ResizePage").name("sheet_id").value(mutation.sheetId)
+                                json.base(mutation.base)
+                                json.name("width").value(mutation.width.toDouble()).name("height").value(mutation.height.toDouble())
+                            }
+                            is MarkMutation.MovePage -> {
+                                json.name("type").value("MovePage").name("sheet_id").value(mutation.sheetId).name("after").value(mutation.after)
+                                json.base(mutation.base)
+                            }
+                            is MarkMutation.DeletePage -> {
+                                json.name("type").value("DeletePage").name("sheet_id").value(mutation.sheetId)
+                                json.base(mutation.base)
+                            }
+                            is MarkMutation.RestorePage -> {
+                                json.name("type").value("RestorePage").name("sheet_id").value(mutation.sheetId)
+                                json.base(mutation.base)
+                            }
                         }
                         json.endObject()
                     }
@@ -94,8 +112,14 @@ fun writeRecovery(output: OutputStream, data: RecoveryData) {
                 is CommandBody.CompanionMarks, is CommandBody.SetCompanionSettings ->
                     error("Companion edits are not supported in phone recovery commands")
                 is CommandBody.ImageMarks -> error("Image edits are not supported in phone recovery commands")
-                is CommandBody.SetPageStyle, is CommandBody.SetCanvasBackground, is CommandBody.SetWaypoints ->
-                    error("Page and canvas edits are not supported in phone recovery commands")
+                is CommandBody.SetPageStyle -> {
+                    json.name("type").value("SetPageStyle").name("sheet_id").value(body.sheetId).name("template").value(body.template.name)
+                    json.name("paper").value(body.paper?.argb()?.toLong()).name("pattern_colour").value(body.patternColour?.argb()?.toLong())
+                    json.name("spacing").value(body.spacing?.toDouble())
+                    json.base(body.base)
+                }
+                is CommandBody.SetCanvasBackground, is CommandBody.SetWaypoints ->
+                    error("Canvas edits are not supported in phone recovery commands")
             }
             json.endObject().endObject()
         }

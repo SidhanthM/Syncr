@@ -45,6 +45,9 @@ internal class CanvasViewport {
         mapping = Viewport.fitColumn(geometry, mapping, width, height)
     }
 
+    /** Jumps to [m] (a page, a fit), kept on the paper. */
+    fun setMapping(m: SheetMapping) { mapping = clamp(m) }
+
     /** Zooms to [scale] about a screen point, without the pinch scale limits. */
     fun zoomTo(scale: Float, focusX: Float, focusY: Float) {
         val m = mapping ?: return
@@ -56,17 +59,44 @@ internal class CanvasViewport {
         mapping = clamp(SheetMapping(scale, tx, anchorScreenY - anchorSheetY * scale))
     }
 
-    /** Pan by ([dx], [dy]) and zoom by [factor] about a screen point, within [Viewport.scaleRange]. */
-    fun navigate(dx: Float, dy: Float, factor: Float, focusX: Float, focusY: Float) {
+    /**
+     * How far (px) the finger has dragged past the end of the paper without the paper following: [pullX] is positive toward
+     * the end (the next page), negative toward the start; [pullY] is positive past the bottom. Only a pan with no zoom adds to
+     * them, and dragging back takes them off first. They feed the pull-to-add and the page flip, and are drawn as a stretch.
+     */
+    var pullX = 0f
+        private set
+    var pullY = 0f
+        private set
+
+    fun setPull(x: Float, y: Float) { pullX = x; pullY = y }
+
+    /** Pan by ([dx], [dy]) and zoom by [factor] about a screen point, within the geometry's scale range. */
+    fun navigate(dx: Float, dy: Float, factor: Float, focusX: Float, focusY: Float, track: Boolean = false) {
         val m = mapping ?: return
+        var mx = dx; var my = dy
+        if (factor == 1f && track) {
+            // Dragging back from a pull first takes the pull off.
+            if (pullX > 0f && mx > 0f) { val a = minOf(pullX, mx); pullX -= a; mx -= a }
+            if (pullX < 0f && mx < 0f) { val a = minOf(-pullX, -mx); pullX += a; mx += a }
+            if (pullY > 0f && my > 0f) { val a = minOf(pullY, my); pullY -= a; my -= a }
+        }
         val next = (m.scale * factor).coerceIn(geometry.scaleRange(fitScale))
-        mapping = clamp(m.navigate(dx, dy, next / m.scale, focusX, focusY))
+        val moved = m.navigate(mx, my, next / m.scale, focusX, focusY)
+        val clamped = clamp(moved)
+        if (factor == 1f && track) {
+            // What the paper refused to move is the finger's pull past its end.
+            pullX -= moved.tx - clamped.tx
+            if (moved.ty < clamped.ty) pullY += clamped.ty - moved.ty
+        }
+        mapping = clamped
     }
 
-    /** Pinch end: snap to fit-width or 100% when close to either. */
+    /** Pinch end: snap to fit-width (and, on a legacy column, 100%) when close. Pages snap to fit-width within 5%. */
     fun snapAfterPinch(focusX: Float, focusY: Float) {
         val m = mapping ?: return
-        val target = Viewport.snapScale(m.scale, fitScale)
+        val paged = (geometry as? PagedGeometry)?.spots?.isNotEmpty() == true
+        val target = if (paged) PageNav.snapToFit(m.scale, fitScale) else Viewport.snapScale(m.scale, fitScale)
         if (target != m.scale) zoomTo(target, focusX, focusY)
     }
 
@@ -144,7 +174,7 @@ internal class PanZoomTracker {
         val previous = focus
         if (!(xs.size == 1 && withinTapSlop) && previous != null) {
             val factor = if (spread > 0 && span > 0) spread / span else 1f
-            viewport.navigate(x - previous.first, y - previous.second, factor, previous.first, previous.second)
+            viewport.navigate(x - previous.first, y - previous.second, factor, previous.first, previous.second, track = true)
         }
         focus = x to y
         span = spread

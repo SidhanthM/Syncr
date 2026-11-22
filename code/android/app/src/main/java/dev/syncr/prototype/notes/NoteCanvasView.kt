@@ -68,6 +68,46 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     private var editingBlock: String? = null
     private var editorBottom = 0f
     private var textSnapshot: dev.syncr.core.NoteSnapshot? = null
+    /** Where the text sits on the paper (its sheet's page place), and the other sheets' places relative to it, for free text. */
+    private var textOffset: Placement = 0f to 0f
+    private var textOffsets: Map<String, Placement> = emptyMap()
+
+    /** Reading settings for this note on this device (Single, Double, Cover; scroll or flip); setting them lays the pages out again. */
+    var viewSettings = PageViewSettings()
+        set(value) {
+            if (field == value) return
+            val before = currentPage()?.sheetId
+            field = value
+            layoutPages(); refreshGeometry()
+            // A new layout shows the whole row of the page you were on (both pages of a pair), fitted to the width.
+            before?.let { id ->
+                goToPage(id)
+                val spot = spots.firstOrNull { it.sheetId == id }
+                if (spot != null && width > 0) viewport.setMapping(PageNav.fitRow(spots.filter { it.row == spot.row }, width, height))
+            }
+        }
+    private var spots = emptyList<PageSpot>()
+    private var layoutKey: Triple<dev.syncr.core.NoteKind, List<dev.syncr.core.PageView>, PageViewSettings>? = null
+    private var focusRow = 0
+    private var flipAnimating = false
+    /** Hears the page in view (index, count, sheet ID) whenever it changes. */
+    var onPages: (Int, Int, String?) -> Unit = { _, _, _ -> }
+    private var reportedPage = Triple(-2, -2, null as String?)
+    /** The page after which a new one goes, and its size: the current page's (or A4 under the legacy column). */
+    var onAddPage: (after: String?, width: Float, height: Float) -> Unit = { _, _, _ -> }
+    private var goToSheet: String? = null
+    private val paper = PagePaper()
+    private var inkSheet: String? = null
+    private var inkShift: Placement = 0f to 0f
+    private var padShift: Placement = 0f to 0f
+    private var inkGroupsFor: List<InkPreview>? = null
+    private var inkGroupsSpots: List<PageSpot>? = null
+    private var inkGroups = emptyMap<String, List<InkPreview>>()
+    private var pullArmed = false
+    private var lastMoveTime = 0L
+    private var pullAnimator: android.animation.ValueAnimator? = null
+    private val textView = CullRect()
+    private val hintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER; textSize = 14f * context.resources.displayMetrics.scaledDensity }
     private var titleDisplay: TitleDisplay? = null
 
     /**
@@ -78,34 +118,40 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         textInput.onState = state
         textInput.onPan = { dy -> viewport.navigate(0f, dy, 1f, 0f, 0f); invalidate() }
         textInput.onFling = { vy -> fling(0f, vy) }
-        textInput.onExtent = { bottom -> editorBottom = if (bottom > 0f) bottom + 900f else 0f; viewport.setGeometry(PagedGeometry(maxOf(scene.lowestInk(), textBottom, editorBottom))) }
+        textInput.onExtent = { bottom -> editorBottom = if (bottom > 0f) bottom + 900f else 0f; refreshGeometry() }
         val block = textSnapshot?.textBlocks?.firstOrNull { it.id == draft.blockId }
         val document = block == null || block.role == dev.syncr.core.TextRole.DOCUMENT
-        val rect = draft.blockId?.let(text::bounds) ?: if (document) {
+        val place = draft.place?.takeIf { draft.blockId == null }
+        val rect = draft.blockId?.let(text::bounds) ?: if (place != null) {
+            // A new free block: its field sits where the tap was, the text 45 units below the block's origin as drawn.
+            val (dx, dy) = textOffsets[place.sheetId] ?: (0f to 0f)
+            RectF(place.x + dx, place.y + dy + 45f, place.x + dx + place.width, place.y + dy + 45f + 64f)
+        } else if (document) {
             RectF(100f, 260f, (block?.width ?: 1600f) - 100f, 324f)
         } else {
             RectF(block!!.originX + block.transform.tx.toFloat(), block.originY + block.transform.ty.toFloat(),
                 block.originX + block.transform.tx.toFloat() + block.width, block.originY + block.transform.ty.toFloat() + 64f)
         }
-        editingBlock = draft.blockId ?: textSnapshot?.textBlocks?.firstOrNull { it.role == dev.syncr.core.TextRole.DOCUMENT && !it.tombstone }?.id
+        editingBlock = draft.blockId ?: place?.blockId ?: textSnapshot?.textBlocks?.firstOrNull { it.role == dev.syncr.core.TextRole.DOCUMENT && !it.tombstone }?.id
         // Where the tap landed on the page, kept in canvas units so a zoom changes nothing about it.
-        val sheetTap = lastTextTap?.let { viewport.mapping?.toSheet(it.first, it.second) } ?: (rect.left to rect.top)
+        val sheetTap = lastTextTap?.let { textMapping()?.toSheet(it.first, it.second) } ?: (rect.left to rect.top)
         legibleZoom(rect, sheetTap)
         val extras = text.extras()?.takeIf { it.third == value }
         val placed = caretWish?.let { TapRouter.place(it, value) }
         startedOnNewLine = placed?.third == true
-        textInput.begin(placed?.first ?: value, rect, sheetTap, dev.syncr.prototype.editor.EditorExtras(extras?.first.orEmpty(), extras?.second.orEmpty()), dark, placed?.second)
+        textInput.begin(placed?.first ?: value, rect, sheetTap, dev.syncr.prototype.editor.EditorExtras(extras?.first.orEmpty(), extras?.second.orEmpty()), contentDark, placed?.second)
         lastTextTap = null; caretWish = null
-        text.show(textSnapshot, dark, editingBlock, titleDisplay)
+        text.show(textSnapshot, contentDark, editingBlock, titleDisplay, textOffsets)
     }
 
     /** Zooms so the text column fills the width with a 16 dp gutter when body text would be under 15 sp (§5.3). */
     private fun legibleZoom(rect: RectF, anchor: Pair<Float, Float>) {
         val m = viewport.mapping ?: return
+        val tm = textMapping() ?: return
         if (MacMetrics.BODY * m.scale / density >= LEGIBLE_SP) return
         val target = (width - 2f * GUTTER_DP * density) / rect.width()
         if (target <= m.scale) return
-        viewport.fitText(target, GUTTER_DP * density - rect.left * target, anchor.second, m.toScreen(anchor.first, anchor.second).second)
+        viewport.fitText(target, GUTTER_DP * density - (rect.left + textOffset.first) * target, anchor.second + textOffset.second, tm.toScreen(anchor.first, anchor.second).second)
         invalidate()
     }
 
@@ -120,14 +166,30 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     internal fun resetText(value: String) = textInput.reset(value)
     internal fun setTextInset(px: Int) { textInput.bottomInset = px }
 
+    /** A new free text block the next editor opens on (set by a tap on a page other than the one the document lives on). */
+    private var freePlace: FreePlace? = null
+    private var pendingFreeTap: FreePlace? = null
+    internal fun takeFreePlace(): FreePlace? = freePlace.also { freePlace = null }
+
+    /** Where a tap on empty paper makes a free block: on a page that does not hold the document, at the tap. */
+    private fun freePlaceAt(x: Float, y: Float): FreePlace? {
+        val snapshot = textSnapshot ?: return null
+        val (cx, cy) = viewport.mapping?.toSheet(x, y) ?: return null
+        val page = spots.firstOrNull { it.contains(cx, cy) } ?: return null
+        if (page.sheetId == PageNav.textSheet(snapshot, spots)) return null
+        val ox = (cx - page.x).coerceIn(40f, maxOf(40f, page.width - 340f))
+        val oy = (cy - page.y - 45f).coerceIn(0f, maxOf(0f, page.height - 140f))
+        return FreePlace(page.sheetId, ox, oy, minOf(900f, page.width - ox - 40f).coerceAtLeast(300f), dev.syncr.core.newId())
+    }
+
     /** The Type tool: typing starts where the caret was last, or on a new line at the end of the document. */
     fun startTyping() {
         caretWish = lastCaret?.let { CaretWish.At(it) } ?: CaretWish.EndOfDocumentNewLine
         onContent(ContentTarget("", false))
     }
 
-    fun endTextEditing() { if (textInput.active) lastCaret = textInput.current().end; textInput.end(); editingBlock = null; editorBottom = 0f; textSnapshot?.let { text.show(it, dark, null, titleDisplay) }
-        viewport.setGeometry(PagedGeometry(maxOf(scene.lowestInk(), textBottom))) }
+    fun endTextEditing() { if (textInput.active) lastCaret = textInput.current().end; textInput.end(); editingBlock = null; editorBottom = 0f; textSnapshot?.let { text.show(it, contentDark, null, titleDisplay, textOffsets) }
+        refreshGeometry() }
     fun setTextEditingEnabled(enabled: Boolean) = textInput.setEnabled(enabled)
 
     /** Any new touch on the paper, e.g. to collapse floating tool chrome. */
@@ -205,6 +267,8 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     private val slop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
     private val accent = DustyRose.toArgb()
     private var dark = false
+    /** Whether what is written on the paper (ink and text) uses the dark theme's colours: the theme's, unless a page has a custom paper colour, which decides. */
+    private var contentDark = false
 
     private val scene = CanvasScene()
     private val viewport = CanvasViewport()
@@ -213,7 +277,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     private var textBottom = 0f
     private val text = TextLayer(invalidate = ::invalidate, onExtent = { bottom ->
         textBottom = bottom
-        viewport.setGeometry(PagedGeometry(maxOf(scene.lowestInk(), textBottom, editorBottom)))
+        refreshGeometry()
     })
     private val panZoom = PanZoomTracker()
     private val pen = PenCapture(scene, lassoStepPx = density)
@@ -274,7 +338,6 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
 
     /** The visible canvas in canvas units, refreshed each draw (reused, no per-frame allocation). */
     private val viewRect = CullRect()
-    private val pagePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val outlinePath = Path()
     private val dottedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -292,10 +355,6 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         style = Paint.Style.STROKE
         strokeWidth = 1.3f * density
         color = accent
-    }
-    private val edgePaint = Paint().apply {
-        style = Paint.Style.STROKE
-        strokeWidth = 1f * density
     }
 
     init {
@@ -315,17 +374,118 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         if (noteId != scene.noteId) startNote(noteId)
         dark = night
         textSnapshot = state.snapshot
+        layoutPages()
+        contentDark = paperDark(night)
         titleDisplay = state.snapshot?.let { snap -> titleDisplayOf(snap.title, snap.notebook, state.notes.firstOrNull { it.id == snap.noteId }?.modifiedAtMs) }
         scene.load(state)
         selection.dropIfStale()
-        viewport.setGeometry(PagedGeometry(maxOf(scene.lowestInk(), textBottom, editorBottom)))
+        refreshGeometry()
+        goToPending()
         text.penBusy = { activePointer != -1 || android.os.SystemClock.uptimeMillis() - lastPenUp < dev.syncr.prototype.ui.theme.Motion.PEN_QUIET_MS }
         text.reduced = runCatching { dev.syncr.prototype.ui.theme.Motion.reducedMotion(context) }.getOrDefault(false)
         text.cellUnits = dev.syncr.prototype.stipple.Stipple.cellUnits(viewport.mapping?.scale ?: 1f, density)
-        text.show(state.snapshot, night, editingBlock, titleDisplay)
-        dry.show(scene.previews, night)
+        text.show(state.snapshot, contentDark, editingBlock, titleDisplay, textOffsets)
+        dry.show(scene.previews, contentDark)
         invalidate()
     }
+
+    // ---- Pages ----
+
+    /** Places the note's pages (the core's layout) and every sheet's offset. Cheap; the geometry follows in [refreshGeometry]. */
+    private fun layoutPages() {
+        val snapshot = textSnapshot
+        // The core lays the pages out only when they, the kind or the reading settings change; every edit refreshes the snapshot.
+        val key = snapshot?.let { Triple(it.kind, it.pages, viewSettings) }
+        if (key != layoutKey) { spots = if (snapshot == null) emptyList() else PageSpots.of(snapshot, viewSettings); layoutKey = key }
+        val placement = if (snapshot == null) emptyMap() else PageNav.placements(snapshot, spots)
+        scene.placement = placement
+        val sheet = snapshot?.let { PageNav.textSheet(it, spots) }
+        textOffset = sheet?.let(placement::get) ?: (0f to 0f)
+        textOffsets = placement.mapValues { (_, v) -> (v.first - textOffset.first) to (v.second - textOffset.second) }
+        focusRow = focusRow.coerceIn(0, maxOf(0, PageSpots.rows(spots).size - 1))
+    }
+
+    /** The paper's rules for the viewport: the legacy column, the page list, or the canvas, whichever the note is. */
+    private fun refreshGeometry() {
+        val next = when {
+            textSnapshot?.kind == dev.syncr.core.NoteKind.CANVAS -> CanvasGeometry
+            spots.isEmpty() -> PagedGeometry(maxOf(scene.lowestInk(), textBottom, editorBottom))
+            else -> PagedGeometry(0f, spots, if (viewSettings.flip && !flipAnimating) focusRow else null)
+        }
+        viewport.setGeometry(next)
+    }
+
+    /** Ink and text follow the paper: a custom paper colour decides light or dark ink, else the theme does. */
+    private fun paperDark(night: Boolean): Boolean {
+        val paper = spots.firstOrNull()?.resolved?.resolvedStyle?.paper ?: return night
+        return (0.299f * paper.r.toInt() + 0.587f * paper.g.toInt() + 0.114f * paper.b.toInt()) / 255f < 0.5f
+    }
+
+    /** Text space (the text's own coordinates) to screen. */
+    private fun textMapping(m: SheetMapping? = viewport.mapping): SheetMapping? =
+        m?.let { SheetMapping(it.scale, it.tx + textOffset.first * it.scale, it.ty + textOffset.second * it.scale) }
+
+    private fun SheetMapping.shifted(by: Placement) = SheetMapping(scale, tx + by.first * scale, ty + by.second * scale)
+
+    /** The page in view, or null on a legacy column or a canvas. */
+    fun currentPage(): PageSpot? = viewport.mapping?.let { PageNav.currentPage(spots, it, width, height) }
+
+    fun pageCount() = spots.size
+
+    /** Shows page [sheetId] from its top at the current zoom. */
+    fun goToPage(sheetId: String) {
+        val spot = spots.firstOrNull { it.sheetId == sheetId } ?: return
+        val m = viewport.mapping ?: return
+        scroller.forceFinished(true)
+        if (viewSettings.flip) { focusRow = spot.row; refreshGeometry() }
+        viewport.setMapping(PageNav.showing(spot, m.scale, width, height))
+        invalidate()
+    }
+
+    /** Asks for the page to be shown once the next snapshot has it (a page that was just added). */
+    fun goToWhenAdded(sheetId: String) { goToSheet = sheetId; goToPending() }
+
+    private fun goToPending() {
+        val id = goToSheet ?: return
+        if (spots.none { it.sheetId == id } || width == 0) return
+        goToSheet = null
+        goToPage(id)
+    }
+
+    fun fitPage(fit: PageFit) {
+        val page = currentPage() ?: run { fit(); return }
+        if (activePointer != -1) return
+        scroller.forceFinished(true)
+        viewport.setMapping(PageNav.showing(page, PageNav.fitScale(page, fit, width, height), width, height))
+        invalidate()
+    }
+
+    /** One zoom button: ×1.25 about the view's centre, within 12%..1600%, snapping to fit-width within 5%. */
+    fun zoomStep(up: Boolean) {
+        val m = viewport.mapping ?: return
+        if (activePointer != -1) return
+        scroller.forceFinished(true)
+        val range = viewport.geometry.scaleRange(viewport.fitScale)
+        var target = (m.scale * (if (up) Xn.ZOOM_STEP else 1f / Xn.ZOOM_STEP)).coerceIn(range)
+        if (spots.isNotEmpty()) target = PageNav.snapToFit(target, viewport.fitScale)
+        viewport.zoomTo(target, width / 2f, height / 2f)
+        invalidate()
+    }
+
+    /** Zoom as xnotes percent, for the label. */
+    fun zoomPercent(): Int = Math.round(Xn.zoomOf(viewport.mapping?.scale ?: 1f) * 100f)
+
+    /** Adds a page after the current one, sized like it (A4 under a legacy column). */
+    fun addPage() = requestAddPage(currentPage())
+
+    private fun requestAddPage(after: PageSpot?) {
+        val last = after ?: spots.lastOrNull()
+        val sheet = last?.sheetId ?: scene.firstSheet ?: return
+        val size = last?.takeIf { !it.autoHeight }?.let { it.width to it.height } ?: A4
+        onAddPage(sheet, size.first, size.second)
+    }
+
+    private fun addPageAtEnd() = requestAddPage(spots.lastOrNull())
 
     /** The title band's words: the stamp title humanised, and "Notebook · Edited ..." under it. */
     private fun titleDisplayOf(title: String, notebook: String?, editedMs: Long?): TitleDisplay {
@@ -428,40 +588,112 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         if (scroller.computeScrollOffset()) {
             viewport.scrollTo(scroller.currX.toFloat(), scroller.currY.toFloat())
             postInvalidateOnAnimation()
+        } else if (flipAnimating) {
+            flipAnimating = false
+            refreshGeometry()
+            postInvalidateOnAnimation()
         }
+    }
+
+    /** Haptic tick when a pull crosses the point where letting go will act. */
+    private fun checkPullHaptic() {
+        val flip = viewSettings.flip && spots.isNotEmpty()
+        val armed = if (flip) kotlin.math.abs(viewport.pullX) >= FlipPolicy.pullPx(width.toFloat(), density, Xn.zoomOf(viewport.mapping?.scale ?: 1f) * 100f)
+            else FlipPolicy.armed(viewport.pullY)
+        if (armed && !pullArmed) performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+        pullArmed = armed
+    }
+
+    /**
+     * The finger lifted after a pan. Past the end of the document, a deep enough pull adds a page (vertical), and in paginated
+     * mode a pull past the row's edge flips by [FlipPolicy]; either way the stretch springs back. True when the lift was used
+     * that way, so no fling follows.
+     */
+    private fun liftPull(vx: Float, now: Long): Boolean {
+        val px = viewport.pullX; val py = viewport.pullY
+        val flip = viewSettings.flip && spots.isNotEmpty()
+        val used = if (flip) px != 0f else py > 0f
+        if (!used) { viewport.setPull(0f, 0f); return false }
+        if (flip) {
+            val rows = PageSpots.rows(spots).size
+            val zoom = Xn.zoomOf(viewport.mapping?.scale ?: 1f) * 100f
+            when (FlipPolicy.decide(px, -vx, now - lastMoveTime, focusRow >= rows - 1, width.toFloat(), density, zoom)) {
+                Flip.NEXT -> { flipRow(+1); return true }
+                Flip.PREVIOUS -> { flipRow(-1); return true }
+                Flip.ADD -> addPageAtEnd()
+                Flip.STAY -> Unit
+            }
+        } else if (FlipPolicy.armed(py)) addPageAtEnd()
+        springBack()
+        return true
+    }
+
+    private fun springBack() {
+        pullAnimator?.cancel()
+        val x0 = viewport.pullX; val y0 = viewport.pullY
+        if (x0 == 0f && y0 == 0f) return
+        if (dev.syncr.prototype.ui.theme.Motion.reducedMotion(context)) { viewport.setPull(0f, 0f); invalidate(); return }
+        pullAnimator = android.animation.ValueAnimator.ofFloat(1f, 0f).apply {
+            duration = 180
+            addUpdateListener { viewport.setPull(x0 * it.animatedValue as Float, y0 * it.animatedValue as Float); invalidate() }
+            start()
+        }
+    }
+
+    /** Paginated mode: to the next or previous row of pages, the page's top-left in view, with a short glide. */
+    private fun flipRow(delta: Int) {
+        val rows = PageSpots.rows(spots)
+        val target = (focusRow + delta).coerceIn(0, rows.size - 1)
+        val real = viewport.mapping ?: return
+        val shown = stretched(real)
+        viewport.setPull(0f, 0f)
+        if (target == focusRow) { viewport.setMapping(shown); springBack(); return }
+        focusRow = target
+        flipAnimating = true
+        refreshGeometry() // the whole strip while gliding
+        viewport.setMapping(shown)
+        val end = PageNav.showing(rows[target].first(), shown.scale, width, height)
+        scroller.forceFinished(true)
+        scroller.startScroll(shown.tx.toInt(), shown.ty.toInt(), (end.tx - shown.tx).toInt(), (end.ty - shown.ty).toInt(), 260)
+        postInvalidateOnAnimation()
     }
 
     // ---- Drawing ----
 
     override fun onDraw(canvas: Canvas) {
         canvas.drawColor(PaperPalette.desk(dark))
-        val m = viewport.mapping ?: return
-        scene.noteId?.let { onViewportChanged(it, m) }
-        pad.viewMayHaveChanged(m, width, height) // a moved canvas hands the pad's strokes to dry ink first
+        val real = viewport.mapping ?: return
+        scene.noteId?.let { onViewportChanged(it, real) }
+        pad.viewMayHaveChanged(real.shifted(padShift), width, height) // a moved canvas hands the pad's strokes to dry ink first
         // The page's own title (canvas y 70 to about 165) hides the floating title chip while any of it is on screen.
-        val titleShown = m.toScreen(0f, MacMetrics.TITLE_Y + 100f).second > 24f * density
+        val titleShown = real.toScreen(textOffset.first, textOffset.second + MacMetrics.TITLE_Y + 100f).second > 24f * density
         if (titleShown != titleVisible) { titleVisible = titleShown; post { onTitleVisible(titleShown) } }
-        if (!lastTy.isNaN() && m.ty != lastTy) onScrolled(lastTy - m.ty)
-        lastTy = m.ty
-        val under = m.ty < -1f
+        if (!lastTy.isNaN() && real.ty != lastTy) onScrolled(lastTy - real.ty)
+        lastTy = real.ty
+        val under = real.ty < -1f
         if (under != underTop) { underTop = under; post { onContentUnderTop(under) } }
-        textInput.position(m, dark)
+        // A finger pulling past the end of the paper stretches what is drawn; the real mapping stays put.
+        val m = stretched(real)
+        textInput.position(m.shifted(textOffset), contentDark)
         dry.beginFrame()
-        // The paper: each sheet the geometry names, from its top edge down past the bottom of the screen.
-        pagePaint.color = PaperPalette.paper(dark)
-        edgePaint.color = PaperPalette.hairline(dark)
-        for (paper in viewport.geometry.paper) {
-            pageRect.set(m.tx + paper.left * m.scale, m.ty + paper.top * m.scale, m.tx + paper.right * m.scale,
-                if (paper.bottom.isInfinite()) height.toFloat() else m.ty + paper.bottom * m.scale)
-            canvas.drawRect(pageRect, pagePaint)
-            canvas.drawLine(pageRect.left, pageRect.top, pageRect.left, pageRect.bottom, edgePaint)
-            canvas.drawLine(pageRect.right, pageRect.top, pageRect.right, pageRect.bottom, edgePaint)
-        }
-        pageRect.set(m.tx, m.ty, m.tx + LegacyPage.WIDTH * m.scale, height.toFloat())
+        viewRect.set(-m.tx / m.scale, -m.ty / m.scale, (width - m.tx) / m.scale, (height - m.ty) / m.scale)
+        if (spots.isEmpty()) drawColumn(canvas, m) else drawPages(canvas, m)
+        drawLassoAndSelection(canvas, m)
+        drawPullHint(canvas, m)
+        reportPage(real)
+    }
+
+    /** A legacy column (or a canvas): the paper from its top edge down past the bottom of the screen, today's drawing. */
+    private fun drawColumn(canvas: Canvas, m: SheetMapping) {
+        for (page in viewport.geometry.paper) paper.draw(canvas, m, page, null, dark, width, height, density, edges = false)
+        if (viewport.geometry === CanvasGeometry) {
+            // A canvas has no edges: paper everywhere and nothing clips (its own background and view come from the canvas editor).
+            canvas.drawColor(PaperPalette.paper(dark))
+            pageRect.set(-1e7f, -1e7f, 1e7f, 1e7f)
+        } else pageRect.set(m.tx, m.ty, m.tx + LegacyPage.WIDTH * m.scale, height.toFloat())
         canvas.withClip(pageRect) {
             translate(m.tx, m.ty)
             scale(m.scale, m.scale)
-            viewRect.set(-m.tx / m.scale, -m.ty / m.scale, (width - m.tx) / m.scale, (height - m.ty) / m.scale)
             save()
             // Until the page's own copy of the words has been rebuilt without them, the field covers them.
             textInput.bounds?.let { if (!text.hides(editingBlock)) clipOutRect(it) }
@@ -479,7 +711,88 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
                 pen.inkChannels()?.let { dry.drawLive(this, it, pen.brush, m.scale) }
             }
         }
-        drawLassoAndSelection(canvas, m)
+    }
+
+    /** Pages: each page's paper and pattern, then the text (which may sit off the page, like margin notes), then each page's ink clipped to it. */
+    private fun drawPages(canvas: Canvas, m: SheetMapping) {
+        for (spot in spots) {
+            val r = spot.rect
+            if (m.tx + r.right * m.scale < 0 || m.tx + r.left * m.scale > width || m.ty + r.bottom * m.scale < 0 || m.ty + r.top * m.scale > height) continue
+            paper.draw(canvas, m, r, spot.resolved.resolvedStyle, dark, width, height, density)
+        }
+        canvas.save()
+        canvas.translate(m.tx, m.ty)
+        canvas.scale(m.scale, m.scale)
+        canvas.save()
+        canvas.translate(textOffset.first, textOffset.second)
+        textView.set(viewRect.left - textOffset.first, viewRect.top - textOffset.second, viewRect.right - textOffset.first, viewRect.bottom - textOffset.second)
+        textInput.bounds?.let { if (!text.hides(editingBlock)) canvas.clipOutRect(it) }
+        text.draw(canvas, textView)
+        if (text.drawDissolves(canvas)) postInvalidateOnAnimation()
+        canvas.restore()
+        trace(TraceNames.DRY_DRAW) {
+            val groups = inkByPage()
+            for (spot in spots) {
+                if (spot.right < viewRect.left || spot.x > viewRect.right || spot.bottom < viewRect.top || spot.y > viewRect.bottom) continue
+                canvas.save()
+                canvas.clipRect(spot.x, spot.y, spot.right, spot.bottom)
+                groups[spot.sheetId]?.forEach { drawStroke(canvas, it, m.scale) }
+                scene.strokeHandoffs.forEach { handoff ->
+                    if (ownerPage(handoff.sheetId) == spot.sheetId && dry.previews.none { it.id == handoff.id }) drawStroke(canvas, handoff, m.scale)
+                }
+                if (pen.mode == PenMode.INK && !wet.isDrawing && !wetBridge.isAttached && inkSheet == spot.sheetId) {
+                    pen.inkChannels()?.let {
+                        canvas.save()
+                        canvas.translate(inkShift.first, inkShift.second)
+                        dry.drawLive(canvas, it, pen.brush, m.scale)
+                        canvas.restore()
+                    }
+                }
+                canvas.restore()
+            }
+        }
+        canvas.restore()
+    }
+
+    /** The page whose ink a sheet's strokes are drawn with: itself, or page 1 for an older sheet inside it. */
+    private fun ownerPage(sheetId: String): String? =
+        if (spots.any { it.sheetId == sheetId }) sheetId else scene.firstSheet
+
+    private fun inkByPage(): Map<String, List<InkPreview>> {
+        if (inkGroupsFor !== dry.previews || inkGroupsSpots !== spots) {
+            inkGroups = dry.previews.groupBy { ownerPage(it.sheetId) ?: "" }
+            inkGroupsFor = dry.previews; inkGroupsSpots = spots
+        }
+        return inkGroups
+    }
+
+    /** The mapping as drawn: the real one, stretched by a finger pulling past the end (vertical scroll) or flipping (paginated). */
+    private fun stretched(m: SheetMapping): SheetMapping {
+        val px = viewport.pullX; val py = viewport.pullY
+        val flip = viewSettings.flip && spots.isNotEmpty()
+        val sx = if (flip) (px * 0.5f).coerceIn(-0.35f * width, 0.35f * width) else 0f
+        val sy = if (!flip && py > 0f) FlipPolicy.stretch(py) else 0f
+        return if (sx == 0f && sy == 0f) m else SheetMapping(m.scale, m.tx - sx, m.ty - sy)
+    }
+
+    /** What the stretch is for, said in the space it opens at the bottom (or the side): pull to add, release to add. */
+    private fun drawPullHint(canvas: Canvas, m: SheetMapping) {
+        val py = viewport.pullY; val px = viewport.pullX
+        val flip = viewSettings.flip && spots.isNotEmpty()
+        val atLast = flip && focusRow >= PageSpots.rows(spots).size - 1
+        val shown = if (!flip) py > 0f else (atLast && px > 0f)
+        if (!shown) return
+        val armed = if (!flip) FlipPolicy.armed(py) else px >= FlipPolicy.addPx(width.toFloat())
+        hintPaint.color = if (armed) accent else PaperPalette.quiet(dark)
+        val text = if (armed) "Release to add a page" else "Pull to add a page"
+        if (!flip) canvas.drawText(text, width / 2f, height - 20f * density, hintPaint)
+        else canvas.drawText(text, width - 90f * density, height / 2f, hintPaint)
+    }
+
+    private fun reportPage(real: SheetMapping) {
+        val page = PageNav.currentPage(spots, real, width, height)
+        val now = Triple(page?.index ?: -1, spots.size, page?.sheetId)
+        if (now != reportedPage) { reportedPage = now; post { onPages(now.first, now.second, now.third) } }
     }
 
     private fun drawStroke(canvas: Canvas, preview: InkPreview, scale: Float) {
@@ -684,9 +997,14 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         }
         if (!lasso) selection.clear()
         val device = event.device
+        // Ink is recorded in the local space of the page under the pen: the frozen mapping is shifted to that page, so the
+        // wet layers, the mirror and the samples all work in sheet units, and the paper clip is that page's rect.
+        val page = if (mode == PenMode.INK) pageAt(x, y) else null
+        inkSheet = page?.sheetId ?: scene.firstSheet
+        inkShift = page?.let { it.x to it.y } ?: (0f to 0f)
         pen.start(
             mode,
-            viewport.mapping!!,
+            if (mode == PenMode.INK) viewport.mapping!!.shifted(inkShift) else viewport.mapping!!,
             hasTilt = device?.getMotionRange(MotionEvent.AXIS_TILT) != null,
             hasOrientation = device?.getMotionRange(MotionEvent.AXIS_ORIENTATION) != null,
         )
@@ -696,12 +1014,14 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         }
         sample(event, index, CURRENT)
         if (mode == PenMode.INK && !pen.rejected) {
-            val inkBrush = InkBrushes.brush(pen.brush, dark)
+            val inkBrush = InkBrushes.brush(pen.brush, contentDark)
             val solid = pen.brush.family != BrushFamily.HIGHLIGHTER && (inkBrush.colorIntArgb ushr 24) == 0xff
+            padShift = inkShift
             pad.viewMayHaveChanged(pen.frozen, width, height)
             wet = if (chooseWetPath(prefs.frontBufferInk, FrontInkPad.available != false, rotation == 0f, solid, pad.canStart(pen.frozen, width, height)) == WetPath.PAD) pad else wetBridge
-            val (penX, penY) = pen.frozen.toSheet(x, y)
-            wet.start(event, event.getPointerId(index), pen.frozen, width, height, viewport.geometry.inkClip(penX, penY), inkBrush, dark, prefs)
+            val (penX, penY) = viewport.mapping!!.toSheet(x, y)
+            val clip = viewport.geometry.inkClip(penX, penY)?.let { CanvasRect(it.left - inkShift.first, it.top - inkShift.second, it.right - inkShift.first, it.bottom - inkShift.second) }
+            wet.start(event, event.getPointerId(index), pen.frozen, width, height, clip, inkBrush, contentDark, prefs)
             startMirror(event, index)
         }
     }
@@ -711,6 +1031,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         val target = mirror ?: return
         val note = scene.noteId ?: return
         val sheet = scene.firstSheet ?: return
+        if (inkSheet != sheet) return // the Mac does not know later pages yet: ink on them is not mirrored
         val device = event.device
         val id = target.begin(
             note, sheet, pen.brush, pen.frozen.scale, pen.frozen.tx, pen.frozen.ty,
@@ -756,7 +1077,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
             when (pen.mode) {
                 PenMode.INK -> {
                     val preview = pen.inkChannels()?.let { channels ->
-                        scene.firstSheet?.let { sheet -> onStroke(sheet, channels, pen.brush)?.also(scene::handOffStroke) }
+                        inkSheet?.let { sheet -> onStroke(sheet, channels, pen.brush)?.also(scene::handOffStroke) }
                     }
                     wet.finish(event, preview)
                 }
@@ -838,6 +1159,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     private fun finger(event: MotionEvent) {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                pullAnimator?.cancel(); viewport.setPull(0f, 0f); pullArmed = false
                 tapStart = Triple(event.x, event.y, event.eventTime)
                 tapCandidate = true
                 velocity?.recycle()
@@ -866,7 +1188,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
                 }
                 when (fingerMode) {
                     FingerMode.SELECTION -> selection.updateGesture(event.x, event.y)
-                    FingerMode.PAN -> pan(event)
+                    FingerMode.PAN -> { pan(event); lastMoveTime = event.eventTime; checkPullHaptic() }
                     FingerMode.NONE -> Unit
                 }
             }
@@ -877,19 +1199,21 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
                 } else if (fingerMode == FingerMode.PAN) {
                     if (panZoom.pinched) {
                         val (fx, fy) = panZoom.focus ?: (width / 2f to height / 2f)
+                        viewport.setPull(0f, 0f)
                         viewport.snapAfterPinch(fx, fy)
                     } else if (!tapCandidate) {
                         velocity?.let { v ->
                             v.addMovement(event)
                             v.computeCurrentVelocity(1000)
-                            fling(v.xVelocity, v.yVelocity)
+                            if (!liftPull(v.xVelocity, event.eventTime)) fling(v.xVelocity, v.yVelocity)
                         }
                     }
                 }
                 val start = tapStart
                 if (tapCandidate && start != null && event.eventTime - start.third < ViewConfiguration.getTapTimeout() * 3L) {
                     viewport.mapping?.let { mapping ->
-                        val (x, y) = mapping.toSheet(event.x, event.y)
+                        val (cx, cy) = mapping.toSheet(event.x, event.y)
+                        val x = cx - textOffset.first; val y = cy - textOffset.second
                         val textTools = typing || (!lasso && !eraser)
                         val onStroke = strokeAt(event.x, event.y) != null
                         val action = TapRouter.route(y, TapContext(
@@ -903,6 +1227,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
                             is TapAction.Task -> onTask(action.block, action.line)
                             is TapAction.Content -> { lastTextTap = event.x to event.y; lastWriteY = event.y; onContent(action.target) }
                             is TapAction.Type -> {
+                                pendingFreeTap = freePlaceAt(event.x, event.y)
                                 lastTextTap = event.x to event.y
                                 val wait = typingWaitMs(doubleTapFit, typing, ViewConfiguration.getDoubleTapTimeout().toLong())
                                 if (fitTookTap) Unit
@@ -955,7 +1280,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
                 if (activePointer != -1) return
                 if (tap.command == TapCommand.FIT) {
                     if (!doubleTapFit) return
-                    viewport.mapping?.toSheet(tap.x, tap.y)?.let { (x, y) -> if (text.hit(x, y) != null) return }
+                    textMapping()?.toSheet(tap.x, tap.y)?.let { (x, y) -> if (text.hit(x, y) != null) return }
                     if (strokeAt(tap.x, tap.y) != null) return // design §8.4: double-tap acts on empty paper only
                     if (viewport.mapping == null) return
                     if (!viewport.zoomInFromFit(tap.x, tap.y)) fit()
@@ -971,7 +1296,8 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         val wish = pendingWish ?: return
         pendingWish = null
         if (textInput.active) return
-        caretWish = wish
+        freePlace = pendingFreeTap; pendingFreeTap = null
+        caretWish = if (freePlace != null) null else wish
         onContent(ContentTarget("", false))
     }
 
@@ -999,6 +1325,13 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
 
     private fun isOnCanvas(x: Float, y: Float) = scene.firstSheet != null && viewport.contains(x, y)
 
+    /** The page under a screen point, or null (a legacy column, a canvas, or the desk). */
+    private fun pageAt(x: Float, y: Float): PageSpot? {
+        if (spots.isEmpty()) return null
+        val (cx, cy) = viewport.mapping?.toSheet(x, y) ?: return null
+        return spots.firstOrNull { it.contains(cx, cy) }
+    }
+
     /** Topmost visible stroke near a screen point. */
     private fun strokeAt(x: Float, y: Float): String? {
         if (!isOnCanvas(x, y)) return null
@@ -1010,6 +1343,10 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     private fun mainScope() = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     companion object {
+        /** A4 portrait in note units: what a page added under a legacy column is. */
+        val A4: Pair<Float, Float> by lazy {
+            try { dev.syncr.core.pageSizes().first { it.name == "A4" }.let { it.width to it.height } } catch (_: Throwable) { 1600f to 2262.9f }
+        }
         const val PALM_MS = 300L
         private const val LEGIBLE_SP = 15f
         private const val GUTTER_DP = 16f

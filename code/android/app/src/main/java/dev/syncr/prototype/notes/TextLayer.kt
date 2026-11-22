@@ -55,7 +55,8 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
     private var queuedHide: String? = null
     private var queuedNote: String? = null
     @Volatile private var generation = 0
-    private class Request(val note: NoteSnapshot, val key: Long, val dark: Boolean, val hide: String?, val title: TitleDisplay?, val cell: Float, val mine: Int)
+    private class Request(val note: NoteSnapshot, val key: Long, val dark: Boolean, val hide: String?, val title: TitleDisplay?, val cell: Float, val mine: Int,
+        val offsets: Map<String, Placement>)
     private val latest = LatestWork<Request>(executor, ::process)
     /** Jobs that started and jobs that gave up halfway, for the tests. */
     @Volatile var rendered = 0; @Volatile var abandoned = 0
@@ -71,14 +72,14 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
     var cellUnits = 10f
 
     /** Called from [NoteCanvasView.update] on the main thread; does no layout. */
-    internal fun show(note: NoteSnapshot?, dark: Boolean, hide: String? = null, title: TitleDisplay? = null) {
+    internal fun show(note: NoteSnapshot?, dark: Boolean, hide: String? = null, title: TitleDisplay? = null, offsets: Map<String, Placement> = emptyMap()) {
         if (note == null) { clear(); return }
-        val key = fingerprint(note) * 31 + (title?.hashCode() ?: 0)
+        val key = (fingerprint(note) * 31 + (title?.hashCode() ?: 0)) * 31 + offsets.hashCode()
         if (note.noteId == queuedNote && key == queuedKey && dark == queuedDark && hide == queuedHide) return
         if (note.noteId != queuedNote) { done = null; onExtent(0f) }
         queuedNote = note.noteId; queuedKey = key; queuedDark = dark; queuedHide = hide
         val mine = ++generation
-        latest.submit(Request(note, key, dark, hide, title, cellUnits, mine))
+        latest.submit(Request(note, key, dark, hide, title, cellUnits, mine, offsets))
     }
 
     private fun process(r: Request) {
@@ -190,7 +191,7 @@ internal class TextLayer(private val invalidate: () -> Unit, private val onExten
         if (stale()) return null
         val shaper = AndroidShaper()
         val cache = HashMap<String, PictureDisplayList?>()
-        val scene = NoteTextSceneBuilder(shaper) { svg -> cache.getOrPut(svg) { try { pictureDisplayList(svg) } catch (_: Exception) { null } } }.build(note, hide, title)
+        val scene = NoteTextSceneBuilder(shaper) { svg -> cache.getOrPut(svg) { try { pictureDisplayList(svg) } catch (_: Exception) { null } } }.build(note, hide, title, r.offsets)
         if (stale()) return null
         val painter = TextPainter(dark, scene.pictures)
         val bands = ArrayList<Band>()

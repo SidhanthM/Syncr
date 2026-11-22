@@ -10,6 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import dev.syncr.prototype.link.android.LinkController
@@ -19,7 +20,11 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.syncr.core.NoteKind
 import dev.syncr.prototype.notes.NotesState
+import dev.syncr.prototype.notes.PageArrangement
+import dev.syncr.prototype.notes.PageFit
+import dev.syncr.prototype.notes.PageViewSettings
 import dev.syncr.prototype.ui.theme.Space
 import dev.syncr.prototype.ui.theme.Syncr
 
@@ -33,6 +38,14 @@ class MoreActions(
     val onLibrary: () -> Unit,
     val onArchive: (Boolean) -> Unit,
     val onDelete: () -> Unit,
+    /** Pages (a Note only): reading settings for this note on this device, and what the page chrome asks of the editor. */
+    val view: PageViewSettings = PageViewSettings(),
+    val onView: (PageViewSettings) -> Unit = {},
+    val onAddPage: () -> Unit = {},
+    val onFitPage: (PageFit) -> Unit = {},
+    val onZoom: (Boolean) -> Unit = {},
+    val zoomPercent: () -> Int = { 100 },
+    val onPageList: (() -> Unit)? = null,
 )
 
 /**
@@ -70,6 +83,7 @@ fun MoreSheet(state: NotesState, actions: MoreActions) {
             icon = SyncrIcons.Export, onClick = actions.onExport)
 
         Hairline(Modifier.padding(top = Space.l, bottom = Space.s))
+        if (snapshot.kind == NoteKind.NOTE) PagesSection(actions, editable)
         MenuRow("Fit page to screen", "Double-tap empty paper does the same", icon = SyncrIcons.Fit, onClick = actions.onFit)
         MenuRow("Move to notebook…", enabled = editable, icon = SyncrIcons.Folder, onClick = actions.onMove)
         MenuRow("Rename…", enabled = editable, icon = SyncrIcons.Pencil, onClick = actions.onRename)
@@ -96,4 +110,34 @@ fun MoreSheet(state: NotesState, actions: MoreActions) {
             "then drag to move or pull a corner to resize; tap empty paper to deselect.",
             style = Syncr.type.caption, color = c.muted)
     }
+}
+
+/** Pages: add one, see them all, how they are laid out and read, how to fit them, and the zoom. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun PagesSection(actions: MoreActions, editable: Boolean) {
+    val c = Syncr.colors
+    var percent by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(actions.zoomPercent()) }
+    MenuRow("Add page", "After this page, the same size", editable, icon = SyncrIcons.Plus, onClick = actions.onAddPage)
+    actions.onPageList?.let { MenuRow("Pages", "Thumbnails: reorder, duplicate, rotate, resize, delete", icon = SyncrIcons.NotePage, onClick = it) }
+    Text("Layout", style = Syncr.type.caption, color = c.muted, modifier = Modifier.padding(top = Space.s))
+    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(Space.s)) {
+        for ((label, mode) in listOf("Single" to PageArrangement.SINGLE, "Double" to PageArrangement.DOUBLE, "Cover" to PageArrangement.COVER))
+            Chip(label, actions.view.mode == mode, description = "$label page layout") { actions.onView(actions.view.copy(mode = mode)) }
+        Chip("Scroll", !actions.view.flip, description = "Scroll pages vertically") { actions.onView(actions.view.copy(flip = false)) }
+        Chip("Flip", actions.view.flip, description = "Flip between pages") { actions.onView(actions.view.copy(flip = true)) }
+    }
+    Text("Fit", style = Syncr.type.caption, color = c.muted, modifier = Modifier.padding(top = Space.s))
+    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(Space.s)) {
+        Chip("Whole page", false, description = "Fit whole page") { actions.onFitPage(PageFit.WHOLE) }
+        Chip("Page width", false, description = "Fit page width") { actions.onFitPage(PageFit.WIDTH) }
+        Chip("Page height", false, description = "Fit page height") { actions.onFitPage(PageFit.HEIGHT) }
+    }
+    Row(Modifier.padding(top = Space.xs), verticalAlignment = Alignment.CenterVertically) {
+        Text("Zoom", style = Syncr.type.body, color = c.ink, modifier = Modifier.weight(1f))
+        IconAction(SyncrIcons.Minus, "Zoom out", { actions.onZoom(false); percent = actions.zoomPercent() })
+        Text("$percent%", style = Syncr.type.label, color = c.ink, modifier = Modifier.width(64.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        IconAction(SyncrIcons.Plus, "Zoom in", { actions.onZoom(true); percent = actions.zoomPercent() })
+    }
+    Hairline(Modifier.padding(vertical = Space.s))
 }

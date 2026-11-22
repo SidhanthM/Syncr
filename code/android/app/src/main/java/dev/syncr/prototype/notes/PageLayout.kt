@@ -7,10 +7,18 @@ import kotlin.math.abs
 fun canvasTransform(sheet: SheetView, local: Affine): Affine =
     compose(translation(sheet.originX.toDouble(), sheet.originY.toDouble()), local)
 
+/** A sheet's place on the paper: where its page was laid out, or page 1's for an older sheet inside it. */
+typealias Placement = Pair<Float, Float>
+
+/** [canvasTransform] for a sheet that [offset] moves to its page. */
+fun canvasTransform(sheet: SheetView, local: Affine, offset: Placement): Affine =
+    compose(translation((sheet.originX + offset.first).toDouble(), (sheet.originY + offset.second).toDouble()), local)
+
 /** A canvas-space selection gesture must be conjugated into each target sheet's local space. */
-fun localGesture(sheet: SheetView, canvas: Affine): Affine = compose(
-    translation(-sheet.originX.toDouble(), -sheet.originY.toDouble()),
-    compose(canvas, translation(sheet.originX.toDouble(), sheet.originY.toDouble())))
+fun localGesture(sheet: SheetView, canvas: Affine, offset: Placement = 0f to 0f): Affine {
+    val ox = (sheet.originX + offset.first).toDouble(); val oy = (sheet.originY + offset.second).toDouble()
+    return compose(translation(-ox, -oy), compose(canvas, translation(ox, oy)))
+}
 
 /** Every navigation rule below asks the [NoteGeometry] where the paper is; this object holds only the geometry-free arithmetic. */
 object Viewport {

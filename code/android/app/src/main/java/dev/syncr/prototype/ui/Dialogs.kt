@@ -44,6 +44,12 @@ fun RenameDialog(initial: String, onDismiss: () -> Unit, onSave: (String) -> Uni
     NameDialog("Rename note", "Title", initial, problem = { if (it.isBlank()) "" else null }, onDismiss, onSave)
 }
 
+/** "New canvas": only a name, the next untitled one filled in and selected; Create makes the canvas and opens it. */
+@Composable
+fun NewCanvasDialog(initial: String, onDismiss: () -> Unit, onCreate: (String) -> Unit) {
+    NameDialog("New canvas", "Name", initial, problem = { if (it.isBlank()) "" else null }, onDismiss, onCreate, confirmLabel = "Create")
+}
+
 /** Name entry for a new or renamed notebook. Trims, and blocks reserved names and case-insensitive duplicates. */
 @Composable
 fun NotebookNameDialog(heading: String, initial: String, existing: List<String>, renaming: String?, onDismiss: () -> Unit,
@@ -57,7 +63,7 @@ fun NotebookNameDialog(heading: String, initial: String, existing: List<String>,
  */
 @Composable
 private fun NameDialog(heading: String, fieldLabel: String, initial: String, problem: (String) -> String?,
-    onDismiss: () -> Unit, onSave: (String) -> Unit) {
+    onDismiss: () -> Unit, onSave: (String) -> Unit, confirmLabel: String = "Save") {
     var value by remember { mutableStateOf(TextFieldValue(initial, TextRange(0, initial.length))) }
     var touched by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
@@ -65,7 +71,7 @@ private fun NameDialog(heading: String, fieldLabel: String, initial: String, pro
     val save = { if (issue == null) onSave(value.text.trim()) }
     LaunchedEffect(Unit) { focus.requestFocus() }
     SyncrDialog(onDismiss, title = heading,
-        confirm = { TextAction("Save", save, enabled = issue == null) },
+        confirm = { TextAction(confirmLabel, save, enabled = issue == null) },
         dismiss = { TextAction("Cancel", onDismiss) }) {
         SyncrTextField(value, { value = it; touched = true }, Modifier.fillMaxWidth().focusRequester(focus),
             label = fieldLabel, singleLine = true, error = if (touched && !issue.isNullOrEmpty()) issue else null,

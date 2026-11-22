@@ -42,7 +42,7 @@ sealed interface MarkEdit {
     data class Delete(override val ids: Set<String>, val gesture: String? = null) : MarkEdit
 
     /** Canvas-space [gesture], converted to each sheet's local space before composing with existing ink. */
-    data class Transform(override val ids: Set<String>, val gesture: Affine) : MarkEdit
+    data class Transform(override val ids: Set<String>, val gesture: Affine, val placement: Map<String, Placement> = emptyMap()) : MarkEdit
 
     data class Restyle(override val ids: Set<String>, val colour: InkColour) : MarkEdit
 }
@@ -94,6 +94,8 @@ data class NotesState(
     val samples: Map<String, SampleChannels> = emptyMap(),
     val pending: List<PendingEdit> = emptyList(),
     val creation: CreateNoteRequest? = null,
+    /** The page size and look to give the new note once it exists; consumed with [creation]. */
+    val creationLayout: NewNoteLayout? = null,
     val authorId: String? = null,
     val busy: Boolean = false,
     val closing: Boolean = false,

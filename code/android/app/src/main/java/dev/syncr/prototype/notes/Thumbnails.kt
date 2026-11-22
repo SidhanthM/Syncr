@@ -20,10 +20,13 @@ class Thumbnail(val localSequence: ULong, val width: Float, val viewHeight: Floa
 /** Pure: keeps at most about [maxPoints] points overall by taking every k-th sample (and each last one). */
 fun buildThumbnail(snapshot: NoteSnapshot, samples: (String) -> SampleChannels?, maxPoints: Int = 4000, geometry: NoteGeometry = PagedGeometry()): Thumbnail {
     val sheets = snapshot.sheets.associateBy { it.id }
-    val strokes = snapshot.strokes.filter { !it.tombstone && it.sheetId in sheets }.mapNotNull { s -> samples(s.id)?.let { s to it } }
+    // A note of pages shows its first page, at the page's own width; a legacy column shows the top of the column.
+    val firstPage = if (PageSpots.isLegacy(snapshot) || snapshot.kind == dev.syncr.core.NoteKind.CANVAS) null else snapshot.pages.firstOrNull { !it.tombstone }
+    val strokes = snapshot.strokes.filter { !it.tombstone && it.sheetId in sheets && (firstPage == null || it.sheetId == firstPage.sheetId) }
+        .mapNotNull { s -> samples(s.id)?.let { s to it } }
     val total = strokes.sumOf { it.second.x.size }
     val step = maxOf(1, (total + maxPoints - 1) / maxPoints)
-    return Thumbnail(snapshot.localSequence, geometry.thumbnailWidth, geometry.thumbnailHeight, strokes.map { (stroke, channels) ->
+    return Thumbnail(snapshot.localSequence, firstPage?.width ?: geometry.thumbnailWidth, geometry.thumbnailHeight, strokes.map { (stroke, channels) ->
         val kept = channels.x.indices.filter { it % step == 0 || it == channels.x.lastIndex }
         val points = FloatArray(kept.size * 2)
         kept.forEachIndexed { i, index ->

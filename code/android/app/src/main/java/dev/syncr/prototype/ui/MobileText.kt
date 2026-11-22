@@ -33,8 +33,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 private val draftSaver = listSaver<TextDraft, String>(
-    save = { listOf(it.noteId, it.blockId.orEmpty(), it.head.orEmpty(), it.text) },
-    restore = { TextDraft(it[0], it[1].ifEmpty { null }, it[2].ifEmpty { null }, it[3]) })
+    save = { listOf(it.noteId, it.blockId.orEmpty(), it.head.orEmpty(), it.text) + (it.place?.let { p -> listOf(p.sheetId, p.x.toString(), p.y.toString(), p.width.toString(), p.blockId) } ?: emptyList()) },
+    restore = { TextDraft(it[0], it[1].ifEmpty { null }, it[2].ifEmpty { null }, it[3],
+        if (it.size >= 9) FreePlace(it[4], it[5].toFloat(), it[6].toFloat(), it[7].toFloat(), it[8]) else null) })
 
 /**
  * Typing on the page, Obsidian-style (editor-v2 §3 to §5.3): the field lives in [canvas]; this holds what is around
@@ -46,7 +47,7 @@ private val draftSaver = listSaver<TextDraft, String>(
 @Composable
 internal fun MobileTextEditor(repo: NotesRepository, block: String?, canvas: NoteCanvasView?, dismiss: () -> Unit) {
     val context = LocalContext.current
-    val initial = rememberSaveable(saver = draftSaver) { repo.textDraft(block) }
+    val initial = rememberSaveable(saver = draftSaver) { repo.textDraft(block, canvas?.takeFreePlace()) }
     var draft by remember { mutableStateOf(initial) }
     var state by remember { mutableStateOf(TextSel(initial.text, 0)) }
     var canUndo by remember { mutableStateOf(false) }
@@ -73,7 +74,7 @@ internal fun MobileTextEditor(repo: NotesRepository, block: String?, canvas: Not
             settle()
             // What is stored now: the same words under a newer head is only this editor's own last save arriving; other
             // words are another device's edit, which this one must never overwrite.
-            val current = repo.textDraft(draft.blockId)
+            val current = repo.textDraft(draft.blockId, draft.place)
             if (current.text == draft.text) draft = current
             else { conflict = true; error = "changed"; return@withLock false }
             if (text == draft.text) return@withLock true
@@ -82,7 +83,7 @@ internal fun MobileTextEditor(repo: NotesRepository, block: String?, canvas: Not
             try { repo.saveText(draft, text) }
             catch (e: CancellationException) { throw e }
             catch (e: IllegalStateException) { settle() } // staged but not delivered yet: delivery goes on in the background
-            draft = repo.textDraft(draft.blockId)
+            draft = repo.textDraft(draft.blockId, draft.place)
             if (draft.text != text) { error = "Could not save. Your text is still here."; return@withLock false }
             error = ""
             true
@@ -112,7 +113,7 @@ internal fun MobileTextEditor(repo: NotesRepository, block: String?, canvas: Not
         val receiver = object : android.content.BroadcastReceiver() {
             override fun onReceive(c: Context, i: Intent) {
                 scope.launch {
-                    val stored = repo.textDraft(draft.blockId)
+                    val stored = repo.textDraft(draft.blockId, draft.place)
                     runCatching { repo.saveText(stored, stored.text + "\nedited elsewhere") }
                 }
             }
@@ -145,7 +146,7 @@ internal fun MobileTextEditor(repo: NotesRepository, block: String?, canvas: Not
         scope.launch {
             val ok = flush()
             if (!ok) return@launch
-            passage = repo.textDraft(draft.blockId); askPicture = picture; asking = true
+            passage = repo.textDraft(draft.blockId, draft.place); askPicture = picture; asking = true
         }
     }
     fun pick(index: Int) {
@@ -200,7 +201,7 @@ internal fun MobileTextEditor(repo: NotesRepository, block: String?, canvas: Not
             TextAction("Copy my text", { copyText(context, canvas?.currentText()?.text.orEmpty()) })
             TextAction("Reload", {
                 scope.launch {
-                    val fresh = repo.textDraft(draft.blockId)
+                    val fresh = repo.textDraft(draft.blockId, draft.place)
                     draft = fresh; conflict = false; error = ""; canvas?.resetText(fresh.text)
                 }
             })

@@ -60,8 +60,11 @@ internal class OpenNoteEditor(
         val state = session.current
         val snapshot = state.snapshot ?: return false
         if (state.closing) return false
-        // New ink only ever goes to the first sheet, with that sheet's exact creation provenance.
-        val sheet = snapshot.sheets.firstOrNull()?.takeIf { it.id == preview.sheetId } ?: return false
+        // New ink goes to the page under the pen, with that sheet's exact creation provenance; never to a deleted page.
+        // A note with a page list takes ink on its live pages only; one without (and older sheets inside a legacy page) on its first sheet.
+        val sheet = snapshot.sheets.firstOrNull { it.id == preview.sheetId }?.takeIf { s ->
+            if (snapshot.pages.isEmpty()) s.id == snapshot.sheets.first().id else snapshot.pages.any { it.sheetId == s.id && !it.tombstone }
+        } ?: return false
         val queuedSamples = state.pending.sumOf { it.preview?.channels?.x?.size ?: 0 }
         if (state.pending.size >= MAX_PENDING_EDITS || queuedSamples + preview.channels.x.size > MAX_PENDING_SAMPLES) {
             message("Too many unsaved changes. Retry saving, export a copy or discard them before writing more.")
@@ -117,7 +120,7 @@ internal class OpenNoteEditor(
                 is MarkEdit.Delete -> MarkMutation.DeleteStroke(stroke.id, base)
                 is MarkEdit.Transform -> {
                     val sheet = snapshot.sheets.first { it.id == stroke.sheetId }
-                    val next = compose(localGesture(sheet, edit.gesture), stroke.transform)
+                    val next = compose(localGesture(sheet, edit.gesture, edit.placement[sheet.id] ?: (0f to 0f)), stroke.transform)
                     if (!isValidTransform(next)) {
                         message("That move couldn't be applied, so nothing changed.")
                         return false
@@ -208,6 +211,18 @@ internal class OpenNoteEditor(
         require(note != null && note.noteId == noteId) { "The open note changed." }
         val command = build(note) ?: return false
         stageCommand(command)
+        return true
+    }
+
+    /** Stages several commands in order as one undo step (history takes a gesture's commands together). */
+    fun stageContents(noteId: String, gesture: String, build: (dev.syncr.core.NoteSnapshot) -> List<Command>): Boolean {
+        val state = session.current
+        require(!state.unsaved && !state.busy && !state.closing) { "Wait for the current changes to finish saving." }
+        val note = state.snapshot
+        require(note != null && note.noteId == noteId) { "The open note changed." }
+        val commands = build(note)
+        if (commands.isEmpty()) return false
+        for (command in commands) { gestures[command.operationId] = gesture; stageCommand(command) }
         return true
     }
 

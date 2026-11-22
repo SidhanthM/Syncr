@@ -53,7 +53,7 @@ private val sampleNotes = listOf(
 )
 private val sampleState = NotesState(notes = sampleNotes,
     notebooks = listOf(NotebookSummary("Physics", 1u), NotebookSummary("Journal", 1u)))
-private val noActions = LibraryActions({}, {}, {}, {}, {}, {}, { _, _ -> }, {}, { _, _ -> }, { _, _ -> }, { _, _ -> },
+private val noActions = LibraryActions({}, { _, _ -> }, {}, {}, {}, {}, {}, { _, _ -> }, {}, { _, _ -> }, { _, _ -> }, { _, _ -> },
     {}, {}, {}, {}, {})
 
 @ThemePreviews

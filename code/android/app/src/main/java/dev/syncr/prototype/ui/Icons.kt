@@ -52,6 +52,11 @@ object SyncrIcons {
     /** A laptop: the Mac. */
     val Laptop = icon("Laptop", "M5.5 5h13A1.5 1.5 0 0 1 20 6.5V16H4V6.5A1.5 1.5 0 0 1 5.5 5z", "M2.5 19h19")
     val Plus = icon("Plus", "M12 5v14", "M5 12h14")
+    /** A paged note: a sheet with its ruled lines. Straight lines, centred. */
+    val NotePage = icon("NotePage", "M6.5 4h11v16h-11z", "M9.5 9h5", "M9.5 12h5", "M9.5 15h3")
+    /** A canvas: a plane with no edges, a cross of two straight lines through a frame. */
+    val CanvasPlane = icon("CanvasPlane", "M4 4h16v16H4z", "M4 12h16", "M12 4v16")
+    val Minus = icon("Minus", "M5 12h14")
     val Close = icon("Close", "M6.5 6.5l11 11", "M17.5 6.5l-11 11")
     val Check = icon("Check", "M5 12.5l4.5 4.5L19 7.5")
     val Folder = icon("Folder", "M3.5 7A1.5 1.5 0 0 1 5 5.5h4.2l2 2.3H19a1.5 1.5 0 0 1 1.5 1.5v8.7A1.5 1.5 0 0 1 19 19.5H5A1.5 1.5 0 0 1 3.5 18z")

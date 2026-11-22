@@ -26,7 +26,19 @@ internal class DraftQueue(
         session.update { it.copy(creation = null) }
         session.reloadLibrary()
         if (session.note == null) session.openNote(request.noteId)
+        // The new-note screen's page size and look land before the editor first sees the note, so it never shows the legacy page.
+        session.current.creationLayout?.let { layout ->
+            session.update { it.copy(creationLayout = null) }
+            try { applyLayout(request.noteId, layout) } catch (e: Exception) { session.update { it.copy(error = "The note was made, but its page size could not be set: ${diagnostic(e)}") } }
+        }
         editor.refresh()
+    }
+
+    private fun applyLayout(noteId: String, layout: NewNoteLayout) {
+        val handle = session.note ?: return
+        val snapshot = handle.snapshot()
+        if (snapshot.noteId != noteId) return
+        for (command in PageCommands.layout(snapshot, layout, newId)) handle.submit(command)
     }
 
     /** Submits pending edits in order. A failure stops the queue, so later edits wait behind it. */

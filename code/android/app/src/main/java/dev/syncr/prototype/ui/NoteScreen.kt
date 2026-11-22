@@ -61,6 +61,7 @@ import dev.syncr.prototype.notes.strokeArgb
 import dev.syncr.core.Oklch
 import dev.syncr.prototype.notes.InkPreview
 import dev.syncr.prototype.notes.NoteCanvasView
+import dev.syncr.prototype.notes.PageViewSettings
 import dev.syncr.prototype.notes.NotesState
 import dev.syncr.prototype.notes.TapCommand
 import dev.syncr.prototype.notes.inkColour
@@ -103,7 +104,7 @@ class NoteActions(
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun NoteScreen(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: ToolState, actions: NoteActions,
+fun NoteScreen(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: ToolState, viewSettings: PageViewSettings, actions: NoteActions,
     banner: @Composable () -> Unit) {
     val snapshot = state.snapshot ?: return
     val c = Syncr.colors
@@ -127,7 +128,7 @@ fun NoteScreen(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: Tool
         band = band.tick(SystemClock.uptimeMillis())
     }
     Box(Modifier.fillMaxSize().background(c.desk).imePadding()) {
-        NoteCanvas(vm, state, dark, tools, actions, onView = { view = it }, onSelection = { selected = it },
+        NoteCanvas(vm, state, dark, tools, viewSettings, actions, onView = { view = it }, onSelection = { selected = it },
             onTitle = { band = band.masthead(it) }, onUnderTop = { underTop = it },
             onScrolled = { dy -> if (dy > TitleBand.SCROLL_SLOP_PX) band = band.scrolledDown() else if (dy < -TitleBand.SCROLL_SLOP_PX) band = band.scrolledUp() },
             onPenContact = { down -> band = if (down) band.penDown() else band.penUp(SystemClock.uptimeMillis(), view?.lastWriteY.underBand(bandBottom)) },
@@ -205,7 +206,7 @@ private fun StickyTitle(band: TitleBand, title: String, notebook: String, modifi
 
 /** The canvas view, wired to the repository and the tool state. */
 @Composable
-private fun NoteCanvas(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: ToolState, actions: NoteActions,
+private fun NoteCanvas(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: ToolState, viewSettings: PageViewSettings, actions: NoteActions,
     onView: (NoteCanvasView) -> Unit, onSelection: (Int) -> Unit, onTitle: (Boolean) -> Unit, onUnderTop: (Boolean) -> Unit,
     onScrolled: (Float) -> Unit, onPenContact: (Boolean) -> Unit, onTemporaryEraser: (Boolean) -> Unit,
     onContent: (dev.syncr.prototype.notes.ContentTarget) -> Unit) {
@@ -228,6 +229,8 @@ private fun NoteCanvas(vm: NotesViewModel, state: NotesState, dark: Boolean, too
             canvas.sideButtonErases = gestures.sideButton == SideButtonAction.ERASE
             canvas.doubleTapFit = gestures.doubleTapFit; canvas.palmMs = gestures.palmDelay.millis
             canvas.onError = repo::message
+            canvas.viewSettings = viewSettings
+            canvas.onAddPage = { after, width, height -> vm.run { repo.addPage(after, width, height)?.let(canvas::goToWhenAdded) } }
             canvas.mirror = mirror
             canvas.onStroke = { sheetId, channels, usedBrush ->
                 // A mirrored stroke is saved under the ID the Mac's preview already carries.

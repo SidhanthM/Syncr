@@ -86,7 +86,7 @@ internal class NoteTextSceneBuilder(private val shaper: Shaper, private val marg
     }
 
     /** [hide] is the ID of a text block being edited in the field above the page: its own words are left out, the rest is built as usual. */
-    fun build(note: NoteSnapshot, hide: String? = null, title: TitleDisplay? = null): NoteTextScene {
+    fun build(note: NoteSnapshot, hide: String? = null, title: TitleDisplay? = null, offsets: Map<String, Placement> = emptyMap()): NoteTextScene {
         val prims = ArrayList<Prim>()
         val hits = ArrayList<ContentHit>()
         val pictures = HashMap<String, PictureDisplayList>()
@@ -214,12 +214,14 @@ internal class NoteTextSceneBuilder(private val shaper: Shaper, private val marg
         // Free text blocks: the editor sits at the block's origin, its text 45 units lower.
         for (block in note.textBlocks) {
             if (block.role != TextRole.FREE || block.tombstone) continue
-            val free = typeset.document(block.text, block.originX + block.transform.tx.toFloat(), block.originY + block.transform.ty.toFloat() + 45f, block.width)
+            // A block on a later page sits at its page's place; [offsets] are relative to the text's own origin (page 1).
+            val (dx, dy) = offsets[block.sheetId] ?: (0f to 0f)
+            val bx = block.originX + block.transform.tx.toFloat() + dx
+            val by = block.originY + block.transform.ty.toFloat() + dy
+            val free = typeset.document(block.text, bx, by + 45f, block.width)
             if (block.id != hide) prims += free.prims
             free.tasks.forEach { taskHits += TaskHit(block.id, it.logical, it.x, it.y, it.w, it.h) }
-            hits += ContentHit(ContentTarget(block.id, false), block.originX + block.transform.tx.toFloat(),
-                block.originY + block.transform.ty.toFloat() + 45f, block.width,
-                max(64f, free.bottom - block.originY - block.transform.ty.toFloat() - 45f))
+            hits += ContentHit(ContentTarget(block.id, false), bx, by + 45f, block.width, max(64f, free.bottom - by - 45f))
             bottom = max(bottom, free.bottom)
         }
         val embeds = HashMap<Int, Float>()

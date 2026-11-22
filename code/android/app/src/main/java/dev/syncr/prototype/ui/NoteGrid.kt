@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -48,6 +49,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.createBitmap
+import dev.syncr.core.NoteKind
 import dev.syncr.core.NoteSummary
 import dev.syncr.prototype.notes.LibraryFilter
 import dev.syncr.prototype.notes.NotesState
@@ -61,7 +63,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 class NoteGridActions(
-    val onNew: () -> Unit,
+    val onNewNote: () -> Unit,
+    val onNewCanvas: () -> Unit,
     val onOpen: (String) -> Unit,
     val onMove: (NoteSummary) -> Unit,
     val onRename: (NoteSummary) -> Unit,
@@ -77,7 +80,7 @@ fun NoteGrid(state: NotesState, filter: LibraryFilter, now: Long, enabled: Boole
     val showNotebook = filter == LibraryFilter.All || filter == LibraryFilter.Archived
     LazyVerticalGrid(GridCells.Adaptive(CARD_MIN_WIDTH), Modifier.fillMaxSize(), contentPadding = contentPadding,
         horizontalArrangement = Arrangement.spacedBy(Space.m), verticalArrangement = Arrangement.spacedBy(Space.l)) {
-        if (filter.allowsNewNotes) item(key = "new") { NewNoteCard(enabled, actions.onNew) }
+        if (filter.allowsNewNotes) item(key = "new") { NewCard(enabled, actions.onNewNote, actions.onNewCanvas) }
         when {
             !ready -> items(3, key = { "placeholder-$it" }) { PlaceholderCard() }
             shown.isEmpty() -> item(span = { GridItemSpan(maxLineSpan) }, key = "empty") {
@@ -106,19 +109,26 @@ internal fun emptyCopy(filter: LibraryFilter, libraryEmpty: Boolean): Triple<Ima
     else -> Triple(SyncrIcons.Pen, "No notes here", "Archived notes are under Archived.")
 }
 
-/** The first cell (design `.lib-new`): a dashed outline, a plus and "New note". */
+/** The first cell (design `.lib-new`): a dashed outline, a plus and "New"; tapping opens a menu of New note and New canvas. */
 @Composable
-private fun NewNoteCard(enabled: Boolean, onNew: () -> Unit) {
+private fun NewCard(enabled: Boolean, onNote: () -> Unit, onCanvas: () -> Unit) {
     val c = Syncr.colors
     val tint = if (enabled) c.muted else c.faint
+    var menu by remember { mutableStateOf(false) }
     // Quieter than a card: no fill, a soft dashed edge and muted marks, so the notes are what the eye finds first.
-    Column(Modifier.fillMaxWidth().aspectRatio(CARD_ASPECT).clip(Radius.card)
-        .dashedOutline(c.lineStrong.copy(alpha = c.lineStrong.alpha * 0.5f))
-        .combinedClickable(enabled = enabled, role = Role.Button, onClick = onNew)
-        .semantics(mergeDescendants = true) { contentDescription = "New note" },
-        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        SyncrIcon(SyncrIcons.Plus, tint, size = 24.dp)
-        Text("New note", style = Syncr.type.caption, color = tint, modifier = Modifier.padding(top = Space.s))
+    Box {
+        Column(Modifier.fillMaxWidth().aspectRatio(CARD_ASPECT).clip(Radius.card)
+            .dashedOutline(c.lineStrong.copy(alpha = c.lineStrong.alpha * 0.5f))
+            .combinedClickable(enabled = enabled, role = Role.Button, onClick = { menu = true })
+            .semantics(mergeDescendants = true) { contentDescription = "New, note or canvas" },
+            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            SyncrIcon(SyncrIcons.Plus, tint, size = 24.dp)
+            Text("New", style = Syncr.type.caption, color = tint, modifier = Modifier.padding(top = Space.s))
+        }
+        SyncrMenu(menu, { menu = false }) {
+            MenuItem("New note", { menu = false; onNote() }, SyncrIcons.NotePage, enabled)
+            MenuItem("New canvas", { menu = false; onCanvas() }, SyncrIcons.CanvasPlane, enabled)
+        }
     }
 }
 
@@ -139,7 +149,7 @@ fun NoteCard(note: NoteSummary, thumbnail: Thumbnail?, showNotebook: Boolean, no
             .combinedClickable(enabled = enabled, role = Role.Button, onLongClickLabel = "Note options",
                 onLongClick = { menu = true }, onClick = onOpen)
             .semantics(mergeDescendants = true) {
-                contentDescription = "$shown. Edited ${date.lowercase()}, in $notebook${if (note.archived) ", archived" else ""}"
+                contentDescription = "$shown, ${if (note.kind == NoteKind.CANVAS) "canvas" else "note"}. Edited ${date.lowercase()}, in $notebook${if (note.archived) ", archived" else ""}"
                 if (enabled) customActions = listOf(
                     CustomAccessibilityAction("Move to notebook") { onMove(); true },
                     CustomAccessibilityAction("Rename") { onRename(); true },
@@ -150,6 +160,7 @@ fun NoteCard(note: NoteSummary, thumbnail: Thumbnail?, showNotebook: Boolean, no
             Box(Modifier.fillMaxWidth().aspectRatio(CARD_ASPECT).cardSurface(color = c.paper).clip(Radius.card)) {
                 if (image != null) Image(image, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter)
                 else if (thumbnail == null || thumbnail.strokes.isEmpty()) Box(Modifier.fillMaxSize().stippledPaper())
+                KindGlyph(note.kind, Modifier.align(Alignment.TopEnd).padding(Space.s))
             }
             Text(shown, style = Syncr.type.noteTitle, color = c.ink, maxLines = 2, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = Space.m, start = Space.xs, end = Space.xs))
@@ -162,6 +173,15 @@ fun NoteCard(note: NoteSummary, thumbnail: Thumbnail?, showNotebook: Boolean, no
             MenuItem(archiveLabel, { menu = false; onArchive() }, if (note.archived) SyncrIcons.Unarchive else SyncrIcons.Archive, enabled)
             MenuItem("Delete", { menu = false; onDelete() }, SyncrIcons.Trash, enabled, ActionTone.DESTRUCTIVE)
         }
+    }
+}
+
+/** The small glyph on a card that says whether it is a paged note or a canvas: straight line art, centred, no dot. */
+@Composable
+internal fun KindGlyph(kind: NoteKind, modifier: Modifier = Modifier) {
+    val c = Syncr.colors
+    Box(modifier.size(24.dp).background(c.surface1.copy(alpha = 0.88f), Radius.s), contentAlignment = Alignment.Center) {
+        SyncrIcon(if (kind == NoteKind.CANVAS) SyncrIcons.CanvasPlane else SyncrIcons.NotePage, c.muted, size = 16.dp)
     }
 }
 

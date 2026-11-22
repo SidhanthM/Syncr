@@ -16,8 +16,11 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import dev.syncr.core.NoteKind
 import dev.syncr.prototype.notes.LibraryFilter
 import dev.syncr.prototype.notes.NoteCanvasView
+import dev.syncr.prototype.notes.NoteViewStore
+import dev.syncr.prototype.notes.PageViewSettings
 import dev.syncr.prototype.notes.NotesState
 import kotlinx.coroutines.delay
 
@@ -62,6 +65,9 @@ fun SyncrApp(vm: NotesViewModel = viewModel(), dark: Boolean, appearance: Appear
     BackHandler(enabled = state.snapshot != null && tools.barOpen) { tools = tools.folded() }
 
     val snapshot = state.snapshot
+    val context = androidx.compose.ui.platform.LocalContext.current
+    // How this note's pages are laid out and read on this phone: kept on the device, never in the note.
+    var viewSettings by remember(snapshot?.noteId) { mutableStateOf(snapshot?.let { NoteViewStore.get(context, it.noteId) } ?: PageViewSettings()) }
     LaunchedEffect(snapshot == null) {
         if (snapshot == null) {
             if (overlay != Overlay.SETTINGS) overlay = Overlay.NONE
@@ -88,7 +94,7 @@ fun SyncrApp(vm: NotesViewModel = viewModel(), dark: Boolean, appearance: Appear
         LibraryScreen(state, filter, libraryReady, libraryActions(vm, filter, onFilter = { filter = it },
             onPointer = { closeNote(onPointer) }, onSettings = { overlay = Overlay.SETTINGS }), banner = banner)
     } else {
-        NoteScreen(vm, state, dark, tools, NoteActions(
+        NoteScreen(vm, state, dark, tools, viewSettings, NoteActions(
             onTools = { tools = it }, onPaper = { paper = it },
             onUndo = { paper?.cancelGesture(); paper?.deselect(); vm.run { repo.history(false) } },
             onRedo = { paper?.cancelGesture(); paper?.deselect(); vm.run { repo.history(true) } },
@@ -110,7 +116,13 @@ fun SyncrApp(vm: NotesViewModel = viewModel(), dark: Boolean, appearance: Appear
             onLibrary = { overlay = Overlay.NONE; closeNote {} },
             onArchive = { archived -> vm.run { repo.archiveOpenNote(archived) } },
             // Close through the guard (unsaved changes), then delete the now-closed note; the library offers Undo.
-            onDelete = { val id = snapshot.noteId; overlay = Overlay.NONE; closeNote { vm.run { repo.deleteNote(id) } } }))
+            onDelete = { val id = snapshot.noteId; overlay = Overlay.NONE; closeNote { vm.run { repo.deleteNote(id) } } },
+            view = viewSettings,
+            onView = { next -> viewSettings = next; NoteViewStore.set(context, snapshot.noteId, next) },
+            onAddPage = { overlay = Overlay.NONE; paper?.addPage() },
+            onFitPage = { fit -> overlay = Overlay.NONE; paper?.fitPage(fit) },
+            onZoom = { up -> paper?.zoomStep(up) },
+            zoomPercent = { paper?.zoomPercent() ?: 100 }))
         overlay == Overlay.RENAME -> RenameDialog(snapshot.title, onDismiss = { overlay = Overlay.NONE },
             onSave = { title -> overlay = Overlay.NONE; vm.run { repo.rename(title) } })
         overlay == Overlay.MOVE -> MoveNoteDialog(snapshot.title, snapshot.notebook, state.notebooks.map { it.name },
@@ -128,7 +140,8 @@ private fun libraryActions(vm: NotesViewModel, filter: LibraryFilter, onFilter: 
     val repo = vm.repository
     return LibraryActions(
         onFilter = onFilter,
-        onNew = { vm.run { repo.create(defaultNoteTitle(System.currentTimeMillis()), filter.newNoteNotebook) } },
+        onCreateNote = { title, layout -> vm.run { repo.create(title, filter.newNoteNotebook, NoteKind.NOTE, layout) } },
+        onCreateCanvas = { title -> vm.run { repo.create(title, filter.newNoteNotebook, NoteKind.CANVAS) } },
         onOpen = { id -> vm.run { repo.open(id) } },
         onPointer = onPointer,
         onSettings = onSettings,

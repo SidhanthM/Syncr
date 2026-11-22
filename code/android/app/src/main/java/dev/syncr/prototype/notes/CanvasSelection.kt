@@ -114,7 +114,7 @@ internal class CanvasSelection(
         gesture = null
         val selection = selected ?: return
         if (!moved || isIdentity(committed)) return
-        if (onMarks(MarkEdit.Transform(selection.ids, committed))) {
+        if (onMarks(MarkEdit.Transform(selection.ids, committed, scene.placement))) {
             scene.handOffTransform(selection.ids, committed)
             selected = Selected(selection.ids, transformPolygon(selection.outline, committed))
         }
