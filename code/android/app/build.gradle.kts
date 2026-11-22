@@ -4,6 +4,15 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// The repo-root VERSION is Syncr's one version; scripts/version.sh holds the same formula.
+val syncrVersion = rootProject.file("../../VERSION").readText().trim()
+val syncrVersionCode = run {
+    val match = Regex("""(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})""").matchEntire(syncrVersion)
+    requireNotNull(match) { "VERSION must be MAJOR.MINOR.PATCH, each below 1000, found '$syncrVersion'" }
+    val (major, minor, patch) = match.destructured.toList().map { it.toInt() }
+    (major * 1_000_000 + minor * 1_000 + patch).also { require(it >= 1) { "VERSION 0.0.0 cannot ship" } }
+}
+
 android {
     namespace = "dev.syncr.prototype"
     compileSdk = 36
@@ -12,8 +21,8 @@ android {
         applicationId = "dev.syncr.prototype"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1"
+        versionCode = syncrVersionCode
+        versionName = syncrVersion
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

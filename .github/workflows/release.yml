@@ -1,0 +1,114 @@
+name: Release
+
+# A v* tag builds both apps into a DRAFT GitHub Release; publishing it stays a human step.
+# Manual runs build the same artifacts as a dry run and never create a release.
+# Phase 1: artifacts are unsigned (Mac ad-hoc, Android unsigned). See runbooks/release.md.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Serialize runs for the same ref; never cancel an upload in flight.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    name: Tag matches VERSION
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: v
+        run: echo "version=$(sh scripts/version.sh version)" >> "$GITHUB_OUTPUT"
+      - if: github.event_name == 'push'
+        run: sh scripts/version.sh check-tag "$GITHUB_REF_NAME"
+
+  mac:
+    name: Mac app
+    needs: guard
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      VERSION: ${{ needs.guard.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      # Git does not keep this ignored generated-source directory on a fresh clone.
+      - run: mkdir -p code/mac/Sources/SyncrCore
+      - run: sh code/mac/prepare.sh
+      - run: swift build -c release --package-path code/mac --product SyncrMac
+      - run: SYNCR_BUILD_CONFIG=release sh code/mac/bundle.sh "$RUNNER_TEMP/Syncr.app"
+      - run: |
+          mkdir -p dist
+          ditto -c -k --keepParent "$RUNNER_TEMP/Syncr.app" "dist/Syncr-$VERSION-mac-arm64.zip"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mac
+          path: dist/*.zip
+          if-no-files-found: error
+
+  android:
+    name: Android app
+    needs: guard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      VERSION: ${{ needs.guard.outputs.version }}
+      NDK_VERSION: 28.2.13676358
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      # build-android.sh pins this exact NDK and refuses any other.
+      - run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;$NDK_VERSION" > /dev/null
+      - run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION" code/core/scripts/build-android.sh arm64-v8a
+      - working-directory: code/android
+        run: ./gradlew --no-daemon assembleRelease
+      - run: |
+          mkdir -p dist
+          cp code/android/app/build/outputs/apk/release/app-release-unsigned.apk "dist/Syncr-$VERSION-android-arm64-unsigned.apk"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: android
+          path: dist/*.apk
+          if-no-files-found: error
+
+  release:
+    name: Draft release
+    if: github.event_name == 'push'
+    needs: [guard, mac, android]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
+      VERSION: ${{ needs.guard.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      # A published release is what users' apps see: never touch one. Re-runs reuse the draft.
+      - run: |
+          if draft=$(gh release view "$TAG" --json isDraft -q .isDraft 2>/dev/null); then
+            [ "$draft" = true ] || { echo "::error::$TAG is already published; refusing to modify it."; exit 1; }
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --draft --verify-tag --title "Syncr $VERSION" --generate-notes
+          fi
+          gh release view "$TAG" --json assets -q '.assets[].name'
