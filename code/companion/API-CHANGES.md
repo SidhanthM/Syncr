@@ -18,3 +18,7 @@ Public v2 entry points (implemented in corresponding Swift files):
 - `swift run SyncrJudge` defaults to offline recorded judgment; `--route codex --live-manual` opts into signed-in baseline. See README.
 
 Streaming pictures are not enabled for storage without a production inspector. A rejected/check-failing picture falls back to words; the host need not link the core into this package.
+
+## Speed round (companion-speed, 2026-11-22)
+- `CompanionEngine(..., trace: TraceSink? = TraceSink.fromEnvironment())`: opt-in stage trace. Off unless a sink is given or `SYNCR_COMPANION_TRACE=<file>` is set; then one JSON line per pass: stage times in milliseconds since `ask` (`started`, `answer.request_built`, `answer.provider_start`, `answer.child_ready`, `answer.prompt_sent`, `answer.first_record`, `answer.first_text`, `answer.first_byte`, `text_shown`, `picture_step_parsed`, `picture_step_shown`, `done`, and the same under `gate.` / `repair.`) and a few short facts (`answer.cold` 1 when the provider process had to be started, `answer.promptBytes`, `step.filter_ms`, `step.check_ms`, `outcome`). Fixed names, numbers only: never prompt, note or answer text.
+- `StreamRequest.trace` (set by the engine) lets a provider mark its own stages.

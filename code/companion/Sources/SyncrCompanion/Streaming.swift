@@ -11,6 +11,8 @@ public struct StreamRequest: Sendable {
     public var model: String; public var input: RequestInput; public var purpose: StreamPurpose
     public var system: String; public var prefix: String; public var context: String; public var changed: String
     public var images: [NoteImage]
+    /// Set by the engine when tracing; the provider marks its stages on it.
+    public var trace: TraceLeg?
     public var prompt: String { [prefix, context, changed].filter { !$0.isEmpty }.joined(separator: "\n\n") }
     public init(model: String, input: RequestInput, purpose: StreamPurpose = .answer, patterns: [PicturePattern]? = nil) throws {
         _ = try CompanionRequest(model: model, input: input)

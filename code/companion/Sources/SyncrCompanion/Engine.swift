@@ -22,8 +22,9 @@ public actor CompanionEngine {
     private var sink: AsyncStream<EngineOutput>.Continuation?
     private var previews = Set<String>(); private var lastStep: CompanionStep?
     public private(set) var lastRequest: String?
-    public init(provider: CompanionProvider, models: ModelSettings, inspector: PictureInspector? = nil, stateFolder: URL? = nil, budget: BudgetMeter = BudgetMeter(day: BudgetMeter.dayKey())) {
-        self.provider = provider; self.models = models; self.inspector = inspector; self.budget = budget; self.stateFolder = stateFolder
+    private let traceSink: TraceSink?; private var pass: PassTrace?
+    public init(provider: CompanionProvider, models: ModelSettings, inspector: PictureInspector? = nil, stateFolder: URL? = nil, budget: BudgetMeter = BudgetMeter(day: BudgetMeter.dayKey()), trace: TraceSink? = TraceSink.fromEnvironment()) {
+        traceSink = trace; self.provider = provider; self.models = models; self.inspector = inspector; self.budget = budget; self.stateFolder = stateFolder
         log = stateFolder.map { LocalDecisionLog(stateFolder: $0) }
     }
     public func configure(mode: CompanionMode, unpinnedNotes: Int) async {
@@ -37,7 +38,7 @@ public actor CompanionEngine {
     public func setModels(_ value: ModelSettings) async { await cancel(); models = value }
     public func cancel() async {
         guard active != nil else { return }
-        active = nil; readingPass = false; cancelling = true; task?.cancel(); task = nil
+        active = nil; readingPass = false; cancelling = true; task?.cancel(); task = nil; endTrace("cancelled")
         for id in previews { sink?.yield(.pictureReplace(id: id, svg: nil, findings: [])) }; previews = []
         sink?.yield(.textPreview(nil)); sink?.yield(.cancelled); sink?.finish(); sink = nil; trigger.finish()
         await provider.cancelStream(); cancelling = false
@@ -55,6 +56,7 @@ public actor CompanionEngine {
             guard trigger.tick(at: time) else { return AsyncStream { $0.finish() } }
         } else { try trigger.ask(at: time, confirmedBudget: confirmedBudget) }
         let id = UUID(); active = id; readingPass = reading; lastStep = nil
+        pass = traceSink == nil ? nil : PassTrace(purpose: reading ? "read" : "ask"); pass?.mark(.ask)
         return AsyncStream { continuation in
             sink = continuation
             continuation.onTermination = { [weak self] reason in if case .cancelled = reason { Task { await self?.cancelIfActive(id) } } }
@@ -63,15 +65,29 @@ public actor CompanionEngine {
     }
     private func cancelIfActive(_ id: UUID) async { if active == id { await cancel() } }
     private func alive(_ id: UUID) throws { guard active == id, !Task.isCancelled else { throw CancellationError() } }
-    private func emit(_ event: EngineOutput, id: UUID) throws { try alive(id); sink?.yield(event) }
+    private func emit(_ event: EngineOutput, id: UUID) throws {
+        try alive(id)
+        switch event {
+        case .textPreview(let preview?) where !preview.text.isEmpty: pass?.mark(.textShown)
+        case .item(.margin), .item(.reply): pass?.mark(.textShown)
+        case .pictureStep: pass?.mark(.pictureStepShown)
+        default: break
+        }
+        sink?.yield(event)
+    }
+    private func endTrace(_ outcome: String) {
+        guard let pass else { return }
+        pass.mark(.done); pass.fact("outcome", outcome); traceSink?.write(pass.line()); self.pass = nil
+    }
     private func step(_ value: CompanionStep, id: UUID) throws { guard lastStep != value else { return }; try emit(.step(value), id: id); lastStep = value }
     private func run(id: UUID, input original: RequestInput, reading: Bool) async {
         do {
-            var input = original
+            var input = original; pass?.mark(.started)
             if reading {
                 try step(.deciding, id: id)
                 let start = Date(); var gateInput = input; gateInput.web = false; gateInput.pagePNG = nil; gateInput.images = []
-                let request = try StreamRequest(model: models.gate, input: gateInput, purpose: .gate, patterns: [])
+                var request = try StreamRequest(model: models.gate, input: gateInput, purpose: .gate, patterns: [])
+                request.trace = pass?.leg("gate"); request.trace?.mark(.requestBuilt)
                 let text = try await collect(request, id: id, limit: 2048)
                 let decision = try GateDecision.decode(text); let elapsed = Date().timeIntervalSince(start)
                 try await log?.append(LocalLogEntry(event: "gate", passage: selected(input), model: models.gate, gate: decision, seconds: elapsed))
@@ -87,7 +103,8 @@ public actor CompanionEngine {
             }
             let pinned = try stateFolder.map { try PatternBook.loadPinned(at: $0) } ?? []
             let patterns = PatternBook.closest(to: input.instruction, additional: pinned)
-            let request = try StreamRequest(model: models.answer, input: input, patterns: patterns)
+            var request = try StreamRequest(model: models.answer, input: input, patterns: patterns)
+            request.trace = pass?.leg("answer"); request.trace?.mark(.requestBuilt)
             var parser = ItemStreamParser(input: input, marginWords: reading || input.askThreadID != nil ? 60 : 150); var pending: [StreamItem] = []; var deferred = false; var marginCount = 0
             let start = Date(); var first = true; var metered = false
             lastRequest = try provider.streamPreview(request)
@@ -98,7 +115,7 @@ public actor CompanionEngine {
                     switch event {
                     case .usage(let usage): budget.record(usage, day: BudgetMeter.dayKey()); metered = true; try emit(.usage(usage), id: id)
                     case .text(let text):
-                        if first && !text.isEmpty { first = false; try emit(.firstToken(seconds: Date().timeIntervalSince(start)), id: id) }
+                        if first && !text.isEmpty { first = false; request.trace?.mark(.firstByte); try emit(.firstToken(seconds: Date().timeIntervalSince(start)), id: id) }
                         var parsed: [ParsedStreamEvent] = []
                         do { try parser.append(text) { parsed.append($0) } }
                         catch {
@@ -141,6 +158,7 @@ public actor CompanionEngine {
             case .textPreview(let preview): if preview != nil { try self.step(.writing, id: id) }; try emit(.textPreview(preview), id: id)
             case .pictureStart: try step(.sketching, id: id)
             case .pictureStep(let pictureID, let svg, let step):
+                pass?.mark(.pictureStepParsed)
                 if let inspector, let clean = try? inspector.filter(svg: svg), let list = try? inspector.displayList(svg: clean), PictureCheck.acceptable(PictureCheck.inspect(list)) {
                     previews.insert(pictureID); try emit(.pictureStep(id: pictureID, svg: clean, step: step), id: id)
                 }
@@ -210,6 +228,7 @@ public actor CompanionEngine {
     }
     private func finish(_ id: UUID, success: Bool = true) {
         guard active == id else { return }
+        endTrace(success ? "finished" : "failed")
         sink?.yield(.textPreview(nil))
         if success { sink?.yield(.finished) }; sink?.finish(); sink = nil; active = nil; readingPass = false; task = nil; previews = []; trigger.finish()
     }
