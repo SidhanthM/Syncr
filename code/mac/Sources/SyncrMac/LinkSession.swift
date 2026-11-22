@@ -469,7 +469,8 @@ final class LinkSession: @unchecked Sendable {
                     guard size >= 1, size <= LinkLimits.maxFileBytes, let handle = try? FileHandle(forReadingFrom: url) else {
                         log("export-unusable id=\(id)"); try? FileManager.default.removeItem(at: url); pumpWanted(); return
                     }
-                    let offer = FileOffer(xfer: nextXfer, id: id, seq: seq, size: size, sha256: sha, chunks: chunks, delta: delta)
+                    let offer = FileOffer(xfer: nextXfer, id: id, seq: seq, size: size, sha256: sha, chunks: chunks, delta: delta,
+                                          heads: peerDelta && !heads.isEmpty ? heads : nil)
                     nextXfer &+= 1
                     outgoing = Outgoing(offer: offer, file: url, handle: handle, heads: heads, pushed: pushed.remove(id) != nil)
                     counters.files += 1
@@ -617,6 +618,8 @@ final class LinkSession: @unchecked Sendable {
                 if !offer.delta { fullOnly.remove(offer.id) }
                 switch outcome {
                 case .installed(let seq, let digest, let ops):
+                    // The phone holds at least what it said it held: the next push leaves that out instead of sending it back.
+                    if peerPush, let heads = offer.heads { peerHeads[offer.id] = heads }
                     send(peerVersion >= 1 ? .have(id: offer.id, seq: seq, digest: digest, ops: ops) : .have(id: offer.id, seq: seq))
                 case .current(let seq): send(.have(id: offer.id, seq: seq))
                 case .refused(let why):

@@ -96,10 +96,17 @@ sealed class Control {
     }
 
     /** [delta]: the file holds only operations (sync-delta.md), not a whole note. */
-    data class File(val xfer: Long, val id: String, val seq: Long, val size: Long, val sha256: String, val chunks: Long, val delta: Boolean = false) : Control() {
+    /**
+     * [heads] (optional, delta peers): the newest operation per author the sender held when it made the file. Once the file
+     * applies whole, the receiver knows the sender holds at least that, so its own next delta leaves those operations out
+     * instead of sending them back (remaining-v1 L.4). A peer that predates it ignores the key.
+     */
+    data class File(val xfer: Long, val id: String, val seq: Long, val size: Long, val sha256: String, val chunks: Long, val delta: Boolean = false,
+        val heads: Map<String, String>? = null) : Control() {
         override fun json(): Map<String, Any?> {
             val m = linkedMapOf<String, Any?>("t" to "file", "xfer" to xfer, "id" to id, "seq" to seq, "size" to size, "sha256" to sha256, "chunks" to chunks)
             if (delta) m["delta"] = true
+            if (!heads.isNullOrEmpty()) m["heads"] = heads
             return m
         }
     }
@@ -205,7 +212,7 @@ sealed class Control {
                     NoteMeta(e.id("id"), e.int("seq"), e.str("title", MAX_STRING), e.optDigest("digest"), e.optInt("ops"))
                 }, m.optList("trash")?.map { it as? String ?: throw LinkProtocolException("trash id is not a string") })
                 "want" -> Want(m.list("ids").map { it as? String ?: throw LinkProtocolException("want id is not a string") }, m.optBase())
-                "file" -> File(m.u32("xfer"), m.id("id"), m.int("seq"), m.int("size"), m.str("sha256", 64), m.int("chunks"), m.flag("delta"))
+                "file" -> File(m.u32("xfer"), m.id("id"), m.int("seq"), m.int("size"), m.str("sha256", 64), m.int("chunks"), m.flag("delta"), m.optHeads("heads"))
                 "file_end" -> FileEnd(m.u32("xfer"))
                 "have" -> Have(m.id("id"), m.int("seq"), m.optDigest("digest"), m.optInt("ops"))
                 "file_error" -> FileError(m.u32("xfer"), m.str("id", 64), m.str("reason", MAX_STRING))
@@ -260,15 +267,23 @@ sealed class Control {
             val raw = map["base"] as? Map<*, *> ?: return null
             val out = LinkedHashMap<String, Map<String, String>>()
             for ((note, heads) in raw) {
-                if (out.size >= MAX_LIST || note !is String || note.length > 64 || heads !is Map<*, *> || heads.size > MAX_AUTHORS) continue
-                val entry = LinkedHashMap<String, String>()
-                for ((author, newest) in heads) {
-                    if (author !is String || newest !is String || author.length > 64 || newest.length > 64) { entry.clear(); break }
-                    entry[author] = newest
-                }
-                if (entry.isNotEmpty()) out[note] = entry
+                if (out.size >= MAX_LIST || note !is String || note.length > 64) continue
+                headsOf(heads)?.let { out[note] = it }
             }
             return out.takeIf { it.isNotEmpty() }
+        }
+
+        /** One author-to-newest-operation map (a `file`'s `heads`); a malformed one is dropped, never fatal. */
+        fun optHeads(key: String): Map<String, String>? = headsOf(map[key])
+
+        private fun headsOf(heads: Any?): Map<String, String>? {
+            if (heads !is Map<*, *> || heads.size > MAX_AUTHORS) return null
+            val entry = LinkedHashMap<String, String>()
+            for ((author, newest) in heads) {
+                if (author !is String || newest !is String || author.length > 64 || newest.length > 64) return null
+                entry[author] = newest
+            }
+            return entry.takeIf { it.isNotEmpty() }
         }
 
         fun optStr(key: String, max: Int): String? = if (map[key] == null) null else str(key, max)

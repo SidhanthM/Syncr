@@ -29,7 +29,10 @@ class PushTest {
     private fun SessionHarness.teachHeads(equal: Boolean = true) {
         mac(Control.Want(listOf("a"), mapOf("a" to held))); loop.runPosted(); drain()
         mac(Control.Have("a", 5, if (equal) digest.digest else "f".repeat(64), 4)); loop.runPosted()
+        // Then the phone types: its newest operation moves on from what the Mac now holds.
+        source.headsOf["a"] = typed
     }
+    private val typed = mapOf("AUTHOR1" to "01M7PEC69Z6M1T1WDDDTS8FRT1")
 
     private class Sent { var file: Control.File? = null; val bytes = ByteArrayOutputStream(); val controls = ArrayList<Control>() }
     private fun SessionHarness.collect(): Sent {
@@ -103,6 +106,7 @@ class PushTest {
         h.sync.update(listOf(NoteMeta("a", 6, "A")), "a"); h.loop.runPosted()
         val first = h.collect()
         assertTrue(first.file!!.delta)
+        h.source.headsOf["a"] = mapOf("AUTHOR1" to "01M7PEC69Z6M1T1WDDDTS8FRT2")
         h.sync.update(listOf(NoteMeta("a", 7, "A")), "a"); h.loop.runPosted()
         assertNull("one transfer at a time", h.collect().file)
         h.mac(Control.Have("a", 6, digest.digest, 5)); h.loop.runPosted()
@@ -122,6 +126,42 @@ class PushTest {
         val next = h.collect()
         assertNull("no heads, so no push", next.file)
         assertTrue(next.controls.any { it is Control.Notes })
+        h.cleanup()
+    }
+
+    @Test fun aPushSaysWhatThePhoneHeldWhenItMadeTheFile() {
+        val h = connected()
+        h.teachHeads()
+        h.sync.update(listOf(NoteMeta("a", 6, "A")), "a"); h.loop.runPosted()
+        assertEquals(typed, h.collect().file!!.heads)
+        val c = Control.File(4, "a", 6, 756, "0".repeat(64), 1, true, exported)
+        assertEquals(c, Control.parse(c.encode()))
+        h.cleanup()
+    }
+
+    @Test fun whatTheMacSentIsNotPushedBackOnceItApplied() {
+        // remaining-v1 L.4: the phone merges the Mac's delta, its note changes, and it must not send the Mac its own operations.
+        val h = connected()
+        h.teachHeads()
+        val mac = mapOf("AUTHOR1" to "01M7PEC69Z6M1T1WDDDTS8FRT0", "MACAUTHOR" to "01M7PEC69Z6M1T1WDDDTS8FRT9")
+        val bytes = ByteArray(300) { 3 }
+        val sha = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
+        h.mac(Control.File(9, "a", 6, 300, sha, 1, delta = true, heads = mac))
+        h.session.onFileChunk(Wire.fileChunk(9, 0, bytes))
+        h.mac(Control.FileEnd(9)); h.loop.runPosted()
+        assertTrue(h.collect().controls.any { it is Control.Have && it.id == "a" })
+        // The merge leaves the phone holding exactly what the Mac said it held: nothing to push, nothing to announce.
+        h.source.headsOf["a"] = mac
+        h.sync.update(listOf(NoteMeta("a", 6, "A")), "a"); h.loop.runPosted()
+        val sent = h.collect()
+        assertNull("no echo", sent.file)
+        assertTrue(sent.controls.none { it is Control.Notes })
+        assertTrue(h.source.exportedDeltas.none { it.second == mac })
+        // A key typed afterwards goes as a delta from the Mac's heads.
+        h.source.headsOf["a"] = mac + ("AUTHOR1" to "01M7PEC69Z6M1T1WDDDTS8FRTA")
+        h.sync.update(listOf(NoteMeta("a", 7, "A")), "a"); h.loop.runPosted()
+        assertTrue(h.collect().file!!.delta)
+        assertEquals("a" to mac, h.source.exportedDeltas.last())
         h.cleanup()
     }
 

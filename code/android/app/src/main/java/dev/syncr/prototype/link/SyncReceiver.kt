@@ -29,6 +29,8 @@ class SyncReceiver(
     private val disk: BulkDisk = BulkDisk.REAL,
     /** Where chunks are written and hashed; null writes them on the link thread (tests). */
     private val files: java.util.concurrent.Executor? = null,
+    /** A Mac file applied whole and said what the Mac held when it made it (`heads`). */
+    private val onHeads: (id: String, heads: Map<String, String>) -> Unit = { _, _ -> },
 ) {
     private class Inbound(val offer: Control.File, val file: File, val out: FileOutputStream) {
         /** The files thread's. */
@@ -236,6 +238,7 @@ class SyncReceiver(
                 when (outcome) {
                     is CopyOutcome.Applied -> {
                         log("copy-${outcome.how} id=$id seq=${outcome.seq} rejected=${outcome.rejected}")
+                        if (outcome.rejected == 0) t.offer.heads?.let { onHeads(id, it) }
                         scheduler.sendControl(Control.Have(id, outcome.seq, outcome.digest.digest, outcome.digest.ops))
                     }
                     is CopyOutcome.Refused -> {

@@ -52,6 +52,9 @@ struct FileOffer: Equatable, Sendable {
     var chunks: UInt32
     /// The file holds only operations (tasks/contracts/sync-delta.md), not a whole note.
     var delta: Bool = false
+    /// Optional: the newest operation per author the sender held when it made the file. Once it applies whole, the receiver's
+    /// own next delta leaves those out instead of sending them back (remaining-v1 L.4). Older peers ignore it.
+    var heads: [String: String]? = nil
 }
 
 struct TargetInfo: Equatable, Sendable {
@@ -155,6 +158,7 @@ enum LinkControl: Equatable, Sendable {
         case .file(let f):
             var o: [String: Any] = ["t": "file", "xfer": f.xfer, "id": f.id, "seq": f.seq, "size": f.size, "sha256": f.sha256, "chunks": f.chunks]
             if f.delta { o["delta"] = true }
+            if let heads = f.heads, !heads.isEmpty { o["heads"] = heads }
             return o
         case .fileEnd(let xfer): return ["t": "file_end", "xfer": xfer]
         case .have(let id, let seq, let digest, let ops):
@@ -266,7 +270,8 @@ enum LinkControl: Equatable, Sendable {
             return .want(ids.compactMap { $0 as? String }, base: Self.base(obj["base"]))
         case "file":
             return .file(FileOffer(xfer: try u32("xfer"), id: try string("id"), seq: try uint("seq"), size: try uint("size"),
-                                   sha256: try string("sha256"), chunks: try u32("chunks"), delta: obj["delta"] as? Bool == true))
+                                   sha256: try string("sha256"), chunks: try u32("chunks"), delta: obj["delta"] as? Bool == true,
+                                   heads: Self.heads(obj["heads"])))
         case "file_end": return .fileEnd(xfer: try u32("xfer"))
         case "have": return .have(id: try string("id"), seq: try uint("seq"), digest: Self.digest(obj["digest"]), ops: integer(obj["ops"]))
         case "file_error": return .fileError(xfer: try u32("xfer"), id: try string("id"), reason: (obj["reason"] as? String) ?? "")
@@ -320,15 +325,21 @@ enum LinkControl: Equatable, Sendable {
         guard let raw = any as? [String: Any] else { return nil }
         var out: [String: [String: String]] = [:]
         for (note, heads) in raw.prefix(5_000) {
-            guard LinkIds.valid(note), let heads = heads as? [String: Any], heads.count <= 64 else { continue }
-            var entry: [String: String] = [:]
-            for (author, newest) in heads {
-                guard author.count <= 64, let newest = newest as? String, newest.count <= 64 else { entry = [:]; break }
-                entry[author] = newest
-            }
-            if !entry.isEmpty { out[note] = entry }
+            guard LinkIds.valid(note), let entry = Self.heads(heads) else { continue }
+            out[note] = entry
         }
         return out.isEmpty ? nil : out
+    }
+
+    /// One author-to-newest-operation map (a `file`'s `heads`); a malformed one is dropped, never fatal.
+    private static func heads(_ any: Any?) -> [String: String]? {
+        guard let heads = any as? [String: Any], heads.count <= 64 else { return nil }
+        var entry: [String: String] = [:]
+        for (author, newest) in heads {
+            guard author.count <= 64, let newest = newest as? String, newest.count <= 64 else { return nil }
+            entry[author] = newest
+        }
+        return entry.isEmpty ? nil : entry
     }
 
     private static func integer(_ any: Any?) -> UInt64? {

@@ -277,20 +277,23 @@ class JoinTest(private val o: Options, private val print: (String) -> Unit) {
     /** How the phone's editor commits typed text: the delay before the next save, from the clock, the first unsaved keystroke and the last save. */
     private fun interface TextCommit { fun delayMs(now: Long, dirtySince: Long, lastCommit: Long): Long }
 
-    /** The phone types [n] letters [gapMs] apart and commits them as its editor would; per letter, ms until the Mac's editor shows it. */
+    /**
+     * The phone types [n] letters [gapMs] apart and commits them as its editor would; per letter, ms until the Mac's editor shows
+     * it. The commit schedule is kept by a polling thread, not a scheduled executor: macOS stretches a background JVM's timers by
+     * up to ~100 ms, which the phone's editor (a coroutine `delay` on Android's main looper) does not suffer.
+     */
     private fun phoneToMac(note: String, n: Int, gapMs: Int, commit: TextCommit): List<Long> {
         val base = lib.documentTextOf(note).length
         val m = mark()
         val keys = LongArray(n)
-        val clock = java.util.concurrent.Executors.newSingleThreadScheduledExecutor()
         val lock = Any()
         var text = lib.documentTextOf(note)
-        var pending: java.util.concurrent.ScheduledFuture<*>? = null
-        var dirtySince = 0L; var lastCommit = 0L
+        var dirtySince = 0L; var lastCommit = 0L; var due = Long.MAX_VALUE
         val commits = java.util.concurrent.CopyOnWriteArrayList<Long>()
+        val late = java.util.concurrent.CopyOnWriteArrayList<Long>()
         val costs = java.util.concurrent.CopyOnWriteArrayList<String>()
         fun commitNow() {
-            val t = synchronized(lock) { dirtySince = 0; lastCommit = System.currentTimeMillis(); text }
+            val t = synchronized(lock) { late += System.currentTimeMillis() - due; dirtySince = 0; due = Long.MAX_VALUE; lastCommit = System.currentTimeMillis(); text }
             val t0 = System.nanoTime()
             lib.typeText(note, t); commits += System.currentTimeMillis()
             val t1 = System.nanoTime()
@@ -299,21 +302,27 @@ class JoinTest(private val o: Options, private val print: (String) -> Unit) {
             current.client.notesChanged(listed, note)
             costs += "${(t1 - t0) / 1_000_000}+${(t2 - t1) / 1_000_000}"
         }
+        val typing = java.util.concurrent.atomic.AtomicBoolean(true)
+        val committer = Thread {
+            while (typing.get()) {
+                val ready = synchronized(lock) { dirtySince != 0L && System.currentTimeMillis() >= due }
+                if (ready) try { commitNow() } catch (e: Exception) { print("JOIN info commit failed: $e") } else Thread.sleep(0, 200_000)
+            }
+        }.apply { isDaemon = true; start() }
         val start = System.nanoTime()
         for (i in 1..n) {
-            val due = start + (i - 1) * gapMs * 1_000_000L
-            while (System.nanoTime() < due) Thread.sleep(0, 200_000)
+            val at = start + (i - 1) * gapMs * 1_000_000L
+            while (System.nanoTime() < at) Thread.sleep(0, 200_000)
             val now = System.currentTimeMillis()
-            val (since, last) = synchronized(lock) { text += "p"; keys[i - 1] = now; if (dirtySince == 0L) dirtySince = now; dirtySince to lastCommit }
-            pending?.cancel(false)
-            pending = clock.schedule({ try { commitNow() } catch (e: Exception) { print("JOIN info commit failed: $e") } }, commit.delayMs(now, since, last), java.util.concurrent.TimeUnit.MILLISECONDS)
+            synchronized(lock) { text += "p"; keys[i - 1] = now; if (dirtySince == 0L) dirtySince = now; due = now + commit.delayMs(now, dirtySince, lastCommit) }
         }
         val settled = poll(15_000, 5) { macSince(m).any { l -> Regex("""link: editor-text len=(\d+)""").find(l)?.groupValues?.get(1)?.toInt()?.let { it >= base + n } == true } }
-        clock.shutdownNow()
+        typing.set(false); committer.join(1_000)
         check(settled) { "the last phone letter never showed in the Mac's editor (${macSince(m).filter { it.contains("editor-text") }.takeLast(2)}, wanted length ${base + n})" }
         if (System.getenv("SYNCR_JOIN_TEXT_TRACE") == "1") {
             print("JOIN trace phone commits (ms since first key): " + commits.joinToString(" ") { "${it - keys[0]}" })
             print("JOIN trace phone commit cost, save+list ms: " + costs.joinToString(" "))
+            print("JOIN trace phone commit lateness against the throttle's schedule, ms: " + late.joinToString(" "))
             for (l in macSince(m)) Regex("""epoch=(\d+)""").find(l)?.let { e -> if (l.contains("file-in") || l.contains("delta-merged") || l.contains("editor-text") || l.contains("have-in") || l.contains("out-file")) print("JOIN trace mac ${e.groupValues[1].toLong() - keys[0]} ${l.substringAfter("link: ").substringBefore(" epoch").take(60)}") }
         }
         val seen = macSince(m).mapNotNull { Regex("""link: editor-text len=(\d+) epoch=(\d+)""").find(it)?.destructured?.let { (l, e) -> l.toInt() to e.toLong() } }
@@ -884,12 +893,12 @@ class JoinTest(private val o: Options, private val print: (String) -> Unit) {
                 metric("text.mac-to-phone.every", macDuring); metric("text.mac-to-phone.last", macLast)
                 metric("text.phone-to-mac.every", phoneDuring); metric("text.phone-to-mac.last", phoneLast)
                 awaitEqual(typing)
-                // Latency-v1 T.6, Mac to phone: the whole path is the app's own code (editor throttle, announce, push, merge). Phone to
-                // Mac is reported only: its first hop is this test's stand-in for the phone's editor (host core calls that queue behind the
-                // link's own, one library lock), so its numbers say less about the app than the other direction's.
-                check(pct(macDuring, 0.95) <= 300) { "Mac to phone, during typing: p95 ${pct(macDuring, 0.95)} ms is over 300" }
-                check(pct(macLast, 0.95) <= 250) { "Mac to phone, after the last key: p95 ${pct(macLast, 0.95)} ms is over 250" }
-                if (System.getenv("SYNCR_JOIN_TEXT_ENFORCE") == "1") {
+                // Latency-v1 T.6, both ways (remaining-v1 L.4). Phone to Mac's first hop is this test's stand-in for the phone's editor:
+                // the real throttle and core calls, committed on the throttle's schedule (see phoneToMac); the app's own key-to-commit
+                // is measured on the emulator (TextTrace). SYNCR_JOIN_TEXT_ENFORCE=0 only reports.
+                if (System.getenv("SYNCR_JOIN_TEXT_ENFORCE") != "0") {
+                    check(pct(macDuring, 0.95) <= 300) { "Mac to phone, during typing: p95 ${pct(macDuring, 0.95)} ms is over 300" }
+                    check(pct(macLast, 0.95) <= 250) { "Mac to phone, after the last key: p95 ${pct(macLast, 0.95)} ms is over 250" }
                     check(pct(phoneDuring, 0.95) <= 300) { "phone to Mac, during typing: p95 ${pct(phoneDuring, 0.95)} ms is over 300" }
                     check(pct(phoneLast, 0.95) <= 250) { "phone to Mac, after the last key: p95 ${pct(phoneLast, 0.95)} ms is over 250" }
                 }

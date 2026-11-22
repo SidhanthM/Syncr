@@ -590,6 +590,7 @@ private func bytesOf(_ url: URL) -> Int { ((try? FileManager.default.attributesO
     try check(rig.exportBases.last! == exported, "the push is exported from what the phone held at the last equal digest (\(String(describing: rig.exportBases.last)))")
     guard case .file(let offer)? = rig.controls.first else { throw CheckFailure(description: "a push sends a file offer with no want: \(rig.controls)") }
     try check(offer.delta && offer.size == 756 && offer.id == "A1", "the pushed file is a delta of the note")
+    try check(offer.heads == exported, "the offer says what the Mac held when it exported (remaining-v1 L.4)")
 
     // Another change while that file is in flight waits for its `have`, and then goes from the new heads.
     try check(rig.session.push("A1"), "a second push while one is in flight is accepted")
@@ -607,6 +608,21 @@ private func bytesOf(_ url: URL) -> Int { ((try? FileManager.default.attributesO
     rig.feed(.fileError(xfer: rig.controlsOffer()?.xfer ?? 0, id: "A2", reason: "busy"))
     try check(rig.pushRefused == ["A2"], "a refused push is handed back to be announced")
     try check(!rig.session.push("A2"), "and the heads are forgotten, so the next change is announced")
+
+    // A phone file that says what the phone held: once it is installed, the next push leaves those operations out instead of
+    // sending the phone's own typing back to it (remaining-v1 L.4).
+    let echo = SessionRig(dir: dir.appendingPathComponent("d"))
+    try echo.welcome(v: 1, delta: true, push: true)
+    answerWithFile(echo)
+    let phoneHeld = ["AUTHOR1": "01M7PEC69Z6M1T1WDDDTS8FRT5", "PHONE": "01M7PEC69Z6M1T1WDDDTS8FRT6"]
+    let bytes = Data(repeating: 4, count: 300), sha = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+    echo.feed(.file(FileOffer(xfer: 2, id: "A1", seq: 4, size: 300, sha256: sha, chunks: 1, delta: true, heads: phoneHeld)))
+    echo.feed(.fileChunk(xfer: 2, index: 0, data: bytes))
+    echo.feed(.fileEnd(xfer: 2))
+    echo.clearSent()
+    try check(echo.session.push("A1") && echo.exportBases.last! == phoneHeld, "the phone's file teaches what it holds (\(String(describing: echo.exportBases.last)))")
+    try check(try frames(LinkControl.file(FileOffer(xfer: 2, id: "A1", seq: 4, size: 300, sha256: sha, chunks: 1, delta: true, heads: phoneHeld)).framed())
+              == [.control(.file(FileOffer(xfer: 2, id: "A1", seq: 4, size: 300, sha256: sha, chunks: 1, delta: true, heads: phoneHeld)))], "heads round trip")
 
     // Size decides whether the pen holds a transfer: a small delta goes while the pen is writing, a large copy waits.
     let pen = SessionRig(dir: dir.appendingPathComponent("c"))
