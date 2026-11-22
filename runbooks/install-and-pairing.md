@@ -138,7 +138,14 @@ If the phone is already connected, find its serial and update the app without cl
 ANDROID_SERIAL=PHONE_SERIAL ./syncr app_update
 ```
 
-If it is the *only* connected device, `./syncr app_update` also works without `ANDROID_SERIAL`. For wireless debugging, pair once with the **pairing** port and code, then connect using the separate **debugging** port:
+If it is the *only* connected device, `./syncr app_update` also works without `ANDROID_SERIAL`. For wireless debugging, pair once by QR code (needs `brew install qrencode`; the phone scans it from Wireless debugging > Pair device with QR code):
+
+```sh
+./syncr pair
+./syncr devices
+```
+
+Fallback: pair with the **pairing** port and code, then connect using the separate **debugging** port:
 
 ```sh
 ./syncr pair PHONE_IP:PAIRING_PORT

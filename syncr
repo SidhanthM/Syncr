@@ -14,6 +14,7 @@ usage() {
     '' \
     '  devices            List USB, wireless and emulator ADB devices' \
     '  emulator           Start the existing Medium_Phone_API_37.0 AVD (Ctrl+C to stop)' \
+    '  pair               Pair Wireless debugging by QR code (scan from the phone)' \
     '  pair HOST:PORT     Pair Wireless debugging using the phone pairing port/code' \
     '  connect HOST:PORT  Connect using the phone debugging port (NOT pairing port)' \
     '  build              Rebuild the core, then build the debug APK' \
@@ -38,6 +39,43 @@ build_core() {
     "$ROOT/code/core/scripts/build-android.sh" arm64-v8a
 }
 need_adb() { command -v adb >/dev/null 2>&1 || fail 'adb not found; install Android SDK Platform-Tools or add it to PATH.'; }
+
+# Prints HOST:PORT of the first mDNS service of type $1 (named $2 and on host $3, when given).
+mdns_find() {
+  adb mdns services | awk -v type="$1" -v name="$2" -v ip="$3" '
+    index($0, type) && (name == "" || $1 == name) {
+      a = $NF; h = a; sub(/:[0-9]+$/, "", h)
+      if (ip == "" || h == ip) { print a; exit }
+    }' || true
+}
+
+pair_qr() {
+  need_adb
+  command -v qrencode >/dev/null 2>&1 || fail 'qrencode not found; brew install qrencode.'
+  local name password addr ip i
+  name="ADB_WIFI_syncr-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
+  password="$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
+  qrencode -t ansiutf8 "WIFI:T:ADB;S:$name;P:$password;;"
+  printf 'On the phone: Developer options > Wireless debugging > Pair device with QR code, then scan.\n'
+  addr=
+  for ((i = 0; i < 90; i++)); do
+    addr="$(mdns_find _adb-tls-pairing._tcp "$name" '')"
+    [[ -n "$addr" ]] && break
+    sleep 1
+  done
+  [[ -n "$addr" ]] || fail 'no phone answered the QR code; Mac and phone must be on the same Wi-Fi.'
+  adb pair "$addr" "$password"
+  ip="${addr%:*}"
+  addr=
+  for ((i = 0; i < 10; i++)); do
+    addr="$(mdns_find _adb-tls-connect._tcp '' "$ip")"
+    [[ -n "$addr" ]] && break
+    sleep 1
+  done
+  if [[ -n "$addr" ]]; then adb connect "$addr"
+  else printf 'Paired. Run ./syncr connect PHONE_IP:DEBUGGING_PORT\n'; fi
+  adb devices -l
+}
 
 # Refuse to pick an arbitrary phone, especially when USB and Wi-Fi both show up.
 select_device() {
@@ -129,6 +167,7 @@ case "$command" in
     exec "$emulator_bin" -avd Medium_Phone_API_37.0
     ;;
   pair|connect)
+    if [[ "$command" == pair && $# -eq 0 ]]; then pair_qr; exit 0; fi
     [[ $# -eq 1 ]] || fail "Usage: ./syncr $command PHONE_IP:PORT"
     need_adb
     adb "$command" "$1"
