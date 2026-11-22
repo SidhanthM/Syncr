@@ -45,7 +45,7 @@ grep -q "link: listening port=$PORT" "$S/mac.log" || { cat "$S/mac.log"; echo "F
 pass "mac-start: listening on 127.0.0.1-reachable port $PORT, control file ready"
 
 echo "== phone scenarios"
-(cd "$ANDROID" && ./gradlew -q --console=plain :app:linkProbe \
+(cd "$ANDROID" && ./gradlew -q --console=plain :app:linkProbe -x :app:testDebugUnitTest \
   --args="127.0.0.1:$PORT --join --mac-log $S/mac.log --mac-control $S/control --mac-library $S/maclib") >"$S/probe.log" 2>&1
 probe_status=$?
 grep -E "^JOIN " "$S/probe.log"
@@ -61,6 +61,17 @@ else pass "mac log has no protocol errors"; fi
 [[ -z "$(ls -A "$S/maclib/.incoming-link" 2>/dev/null)" ]] && pass "staging folder empty" || fail "staging folder not empty: $(ls -A "$S/maclib/.incoming-link")"
 n=$(grep -c "^link: connected " "$S/mac.log"); echo "info: the Mac accepted $n connections"
 grep -E "^link: latency" "$S/mac.log" | tail -2
+
+# Link faults (part K): the real Mac and the phone's client through a fault-injecting proxy, on a Mac of their own (this one is done).
+# A pad stroke cut at each stage, then randomised cuts, then a 90 s soak of ink, typing and a large note under random faults.
+[[ -n "$MAC_PID" ]] && kill "$MAC_PID" 2>/dev/null && wait "$MAC_PID" 2>/dev/null; MAC_PID=""
+if [[ "${SYNCR_JOIN_FAULTS:-1}" == 0 ]]; then echo "== link faults skipped (SYNCR_JOIN_FAULTS=0)"; else
+echo "== link faults (stroke stages, live ink after a cut, ${SYNCR_JOIN_CUTS:-200} randomised cuts, ${SYNCR_JOIN_SOAK:-90} s soak)"
+faults="$(NO_MAC_BUILD=1 bash "$ROOT/code/shared/link-v0/fault-table.sh" --only stroke-stages,random-cuts,soak,calm-status,wet-ink --cuts "${SYNCR_JOIN_CUTS:-200}" --soak "${SYNCR_JOIN_SOAK:-90}" 2>&1)"
+fault_status=$?
+grep -E "^(FAULT|FAULT-TABLE)" <<<"$faults"
+if [[ "$fault_status" == 0 ]]; then pass "link faults: strokes through every cut stage, randomised cuts, soak"; else fail "link faults (exit $fault_status)"; grep -vE "^(FAULT|PROBE|WARNING|$)" <<<"$faults" | head -10; fi
+fi
 
 echo
 if (( fails == 0 )); then echo "JOIN-TEST GREEN"; else echo "JOIN-TEST RED ($fails failure(s)); KEEP=1 keeps the logs"; exit 1; fi
