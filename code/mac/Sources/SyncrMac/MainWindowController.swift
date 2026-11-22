@@ -114,13 +114,15 @@ import UniformTypeIdentifiers
         sidebar.delegate = self
         detail.onError = { [weak self] in self?.fail($0) }
         detail.onAddPageAtEnd = { [weak self] in
+            if self?.reading == true { return }
             if self?.live?.debug == true { FileHandle.standardError.write(Data("link: pull-add\n".utf8)) }
             self?.addPage(after: self?.model.drawing?.geometry.pages.last?.sheetId)
         }
-        detail.onPageAction = { [weak self] action, ids in self?.pageAction(action, ids) }
-        detail.onMovePages = { [weak self] ids, after in self?.movePages(ids, after: after) }
+        detail.onPageAction = { [weak self] action, ids in if self?.reading != true { self?.pageAction(action, ids) } }
+        detail.onMovePages = { [weak self] ids, after in if self?.reading != true { self?.movePages(ids, after: after) } }
         detail.tabBar.onSelect = { [weak self] in self?.workspace.activate($0) }
         detail.tabBar.onClose = { [weak self] in self?.workspace.closeTab($0) }
+        detail.tabBar.onToggleReading = { [weak self] in self?.run(.toggleReading) }
         workspace.onChange = { [weak self] in self?.refresh() }
         workspace.onActivate = { [weak self] id in
             guard let self else { return }
@@ -162,14 +164,14 @@ import UniformTypeIdentifiers
         detail.documentEditor.onLink = { [weak self] title, newTab in self?.attempt { try self?.notebook.openLink(title, newTab: newTab) } }
         detail.onCanvasWaypoints = { [weak self] in self?.saveCanvasWaypoints($0) }
         detail.onFreeText = { [weak self] x, y in
-            guard let self, let id = self.workspace.active else { return }
+            guard let self, !self.reading, let id = self.workspace.active else { return }
             // On a page, the box belongs to the page under the click and sits where it was clicked on that page.
             if let g = self.model.drawing?.geometry, g.drawsPaper, let page = g.page(at: CGPoint(x: x, y: y)) {
                 self.notebook.addFree(note: id, x: x - page.rect.minX, y: y - page.rect.minY, sheet: page.sheetId)
             } else { self.notebook.addFree(note: id, x: x, y: y) }
         }
         detail.onFreeMove = { [weak self] index, x, y in
-            guard let self, let id = self.workspace.active, let drawing = self.model.drawing else { return }
+            guard let self, !self.reading, let id = self.workspace.active, let drawing = self.model.drawing else { return }
             let blocks = Self.liveFree(drawing)
             if index < blocks.count {
                 let o = drawing.geometry.origin(ofSheet: blocks[index].sheetId)
@@ -195,7 +197,7 @@ import UniformTypeIdentifiers
         displayedDocument = id
         detail.showDocument(show ? notebook.document(note: id, block: block) : nil, title: workspace.title(of: id), width: CGFloat(block?.width ?? 1600), opening: opening)
         showSaveState(notebook.status(note: id))
-        if opening && model.isWritable(id) && show { window.makeFirstResponder(detail.documentEditor.textView) }
+        if opening && model.isWritable(id) && !reading && show { window.makeFirstResponder(detail.documentEditor.textView) }
         let free = Self.liveFree(drawing)
         let g = drawing.geometry
         let revision = id + free.map { $0.id + $0.head.operationId }.joined() + g.pages.map { "\($0.sheetId)\($0.rect.minX),\($0.rect.minY)" }.joined()
@@ -327,6 +329,8 @@ import UniformTypeIdentifiers
         sidebar.update(workspace.sidebar, active: workspace.active, live: link?.liveNote)
         detail.tabBar.update(workspace.tabs.map { TabInfo(id: $0, title: workspace.title(of: $0), readOnly: workspace.isReadOnly($0)) },
                              active: workspace.active)
+        detail.setReading(workspace.activeIsReading)
+        detail.tabBar.showMode(reading: workspace.active.map { workspace.isReading($0) })
         if let id = workspace.active {
             window.title = workspace.title(of: id)
             detail.show(title: workspace.title(of: id), readOnly: workspace.isReadOnly(id))
@@ -368,7 +372,10 @@ import UniformTypeIdentifiers
         return workspace.availableCommands().contains(command)
     }
 
+    private var reading: Bool { workspace.activeIsReading }
+
     func run(_ command: AppCommand) {
+        if reading && AppCommand.changesNote.contains(command) { return }
         switch command {
         case .settings: settingsWindow.show()
         case .hotkeys: settingsWindow.show(page: .hotkeys)
@@ -396,6 +403,10 @@ import UniformTypeIdentifiers
             palette.present(over: window, placeholder: "Go to heading", items: { [weak self] query in
                 NotebookIndex.outline(self?.detail.documentEditor.textView.string ?? "").filter { Matching.score(query, in: $0.title) != nil }.map { PaletteItem(id: String($0.offset), title: $0.title, detail: "H" + String($0.level)) }
             }, choose: { [weak self] item, _ in if let offset = Int(item.id) { self?.detail.revealText(offset) } })
+        case .toggleReading:
+            guard let id = workspace.active else { break }
+            detail.flushText()
+            if !workspace.setReading(id, !workspace.isReading(id)) { fail(NSError(domain: "Syncr", code: 1, userInfo: [NSLocalizedDescriptionKey: "The reading choice could not be saved."])) }
         case .bold: activeEditor.shortcut("bold")
         case .italic: activeEditor.shortcut("italic")
         case .insertLink: activeEditor.shortcut("link")

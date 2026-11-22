@@ -11,7 +11,9 @@ struct TabInfo: Equatable {
 final class TabBarView: ThemedView {
     var onSelect: ((String) -> Void)?
     var onClose: ((String) -> Void)?
+    var onToggleReading: (() -> Void)?
     private let stack = NSStackView()
+    private let mode = ModeButton()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -22,13 +24,27 @@ final class TabBarView: ThemedView {
         stack.alignment = .bottom
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
+        mode.isHidden = true
+        mode.onClick = { [weak self] in self?.onToggleReading?() }
+        mode.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(mode)
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
             stack.topAnchor.constraint(equalTo: topAnchor, constant: 5),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8)
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: mode.leadingAnchor, constant: -8),
+            mode.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            mode.centerYAnchor.constraint(equalTo: centerYAnchor, constant: 1)
         ])
     }
+
+    /// The small control at the right of the row: what the open note is showing now. nil hides it (no note open).
+    func showMode(reading: Bool?) {
+        mode.isHidden = reading == nil
+        if let reading { mode.set(reading: reading) }
+    }
+    var debugModeTitle: String? { mode.isHidden ? nil : mode.label.stringValue }
+    func debugClickMode() { mode.onClick?() }
     required init?(coder: NSCoder) { fatalError("not used") }
 
     func update(_ tabs: [TabInfo], active: String?) {
@@ -114,4 +130,58 @@ private final class TabItemView: NSView {
     override func mouseExited(with event: NSEvent) { close.isHidden = !active }
     override func mouseDown(with event: NSEvent) { onSelect?() }
     @objc private func closeTapped() { onClose?() }
+}
+
+/// "Reading" or "Editing", with a small eye or pencil: the state, and a click switches it.
+private final class ModeButton: NSView {
+    var onClick: (() -> Void)?
+    let label = NSTextField(labelWithString: "")
+    private let icon = NSImageView()
+    private var hover = false { didSet { needsDisplay = true; update() } }
+    private var reading = false
+    override var isFlipped: Bool { true }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        label.font = .systemFont(ofSize: 11)
+        icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 10, weight: .regular)
+        let row = NSStackView(views: [icon, label])
+        row.spacing = 4
+        row.edgeInsets = NSEdgeInsets(top: 3, left: 8, bottom: 3, right: 9)
+        row.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: leadingAnchor), row.trailingAnchor.constraint(equalTo: trailingAnchor),
+            row.topAnchor.constraint(equalTo: topAnchor), row.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+        setAccessibilityRole(.button)
+    }
+    required init?(coder: NSCoder) { fatalError("not used") }
+
+    func set(reading: Bool) {
+        self.reading = reading
+        label.stringValue = reading ? "Reading" : "Editing"
+        icon.image = NSImage(systemSymbolName: reading ? "eye" : "pencil", accessibilityDescription: nil)
+        toolTip = (reading ? "Reading view: nothing can be changed. Switch to editing" : "Editing: switch to Reading view") + " (\u{2318}E)"
+        setAccessibilityLabel(label.stringValue)
+        update()
+    }
+    private func update() {
+        let colour = hover || reading ? Theme.ink : Theme.muted
+        label.textColor = colour; icon.contentTintColor = colour
+    }
+    override func draw(_ dirtyRect: NSRect) {
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 6, yRadius: 6)
+        if hover { Theme.hairline.withAlphaComponent(0.35).setFill(); path.fill() }
+        Theme.hairline.setStroke(); path.lineWidth = 1; path.stroke()
+    }
+    override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); update(); needsDisplay = true }
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInKeyWindow], owner: self))
+    }
+    override func mouseEntered(with event: NSEvent) { hover = true }
+    override func mouseExited(with event: NSEvent) { hover = false }
+    override func mouseDown(with event: NSEvent) { onClick?() }
 }

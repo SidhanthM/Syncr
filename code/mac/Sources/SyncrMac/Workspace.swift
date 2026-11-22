@@ -51,6 +51,8 @@ struct SessionState: Codable, Equatable {
     /// At least one phone is paired (the link controller sets it): Forget Phone is listed.
     var hasPairedPhones = false
     static let sessionFile = "session.json"
+    /// Where the per-note Reading choice is kept (the app's presentation preferences).
+    var preferences = AppPreferences.shared
 
     init(model: LibraryModel) { self.model = model }
 
@@ -62,6 +64,15 @@ struct SessionState: Codable, Equatable {
     func isReadOnly(_ id: String) -> Bool { !model.isWritable(id) }
     var activeIndex: Int? { active.flatMap { tabs.firstIndex(of: $0) } }
     var activeIsWritable: Bool { active.map(model.isWritable) ?? false }
+    func isReading(_ id: String) -> Bool { preferences.values.readingNotes.contains(id) }
+    var activeIsReading: Bool { active.map(isReading) ?? false }
+    /// Reading view for a note on or off; kept across restarts. Returns false when the preference file could not be written.
+    @discardableResult func setReading(_ id: String, _ on: Bool) -> Bool {
+        guard isReading(id) != on else { return true }
+        do { try preferences.update { $0.readingNotes.removeAll { $0 == id }; if on { $0.readingNotes.append(id) } } } catch { return false }
+        changed(save: false)
+        return true
+    }
 
     // MARK: Sidebar
 
@@ -124,13 +135,14 @@ struct SessionState: Codable, Equatable {
         var set: Set<AppCommand> = [.companionSettings, .lastCompanionRequest, .newNote, .newCanvas, .newNotebook, .quickSwitcher, .toggleSidebar, .importExport, .chooseFolder, .phoneLink, .followPhone]
         set.formUnion([.settings, .hotkeys, .commandPalette, .showLeftSidebar, .hideLeftSidebar,
                        .searchNotes, .dailyNote, .importMarkdown, .browseTags])
-        if active != nil { set.formUnion([.findInNote, .exportMarkdown, .documentView, .outline]) }
-        if activeIsWritable { set.formUnion([.askSyncr, .drawSelection, .askAllReaders, .undoCompanion, .redoCompanion, .undo, .redo, .bold, .italic, .insertLink, .toggleTask, .slashMenu, .freeText]) }
+        if active != nil { set.formUnion([.findInNote, .exportMarkdown, .documentView, .outline, .toggleReading]) }
+        let editing = activeIsWritable && !activeIsReading
+        if editing { set.formUnion([.askSyncr, .drawSelection, .askAllReaders, .undoCompanion, .redoCompanion, .undo, .redo, .bold, .italic, .insertLink, .toggleTask, .slashMenu, .freeText]) }
         if hasPairedPhones { set.insert(.forgetPhone) }
         if active != nil { set.formUnion([.deleteNote, .closeTab, .zoomIn, .zoomOut, .fit, .toggleThumbnails, .fitPage, .fitPageWidth, .fitPageHeight,
                                            .layoutSingle, .layoutDouble, .layoutCover, .toggleFlip, .nextPage, .previousPage]) }
-        if activeIsWritable { set.insert(.addPage) }
-        if activeIsWritable { set.formUnion([.renameNote, .moveNote]) }
+        if editing { set.insert(.addPage) }
+        if editing { set.formUnion([.renameNote, .moveNote]) }
         if debugCommands && active != nil { set.formUnion([.replayTestStroke, .replayHighlighter, .replayCancelled, .replayViewRelative, .simulateDisconnect]) }
         if tabs.count > 1 { set.formUnion([.nextTab, .previousTab]) }
         if !model.deleted.isEmpty { set.insert(.restoreNote) }

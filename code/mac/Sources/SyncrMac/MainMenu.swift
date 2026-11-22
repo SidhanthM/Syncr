@@ -27,7 +27,7 @@ import AppKit
             command(.importMarkdown), command(.exportMarkdown), command(.importExport), command(.chooseFolder)
         ])
         add("Edit", [
-            command(.undo), command(.redo), .separator(),
+            command(.undo), command(.redo), .separator(), command(.toggleReading),
             plain("Cut", #selector(NSText.cut(_:)), "x"), plain("Copy", #selector(NSText.copy(_:)), "c"),
             plain("Paste", #selector(NSText.paste(_:)), "v"), plain("Select All", #selector(NSText.selectAll(_:)), "a"), .separator(),
             command(.bold), command(.italic), command(.insertLink), command(.toggleTask), command(.findInNote), command(.searchNotes)

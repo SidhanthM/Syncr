@@ -8,6 +8,7 @@ import SyncrCore
 ///
 ///   report                   what the Mac holds and shows right now (one line, see below)
 ///   open <note id>           open the note in the active tab (as clicking it in the sidebar does)
+///   reading <on|off>         Reading view for the open note (Cmd-E)
 ///   view <left> <top> <zoom> set the viewport exactly (no clamping), as scrolling and zooming would
 ///   newnote                  Cmd-N
 ///   forget-phones            Forget Phone, for every paired phone
@@ -284,6 +285,7 @@ import SyncrCore
         case "quit": NSApplication.shared.terminate(nil)
         case "report": report()
         case "open": if words.count == 2 { workspace.open(words[1]); say("ack open \(words[1])") }
+        case "reading": if words.count == 2, let id = workspace.active { say("ack reading \(workspace.setReading(id, words[1] == "on"))") }
         case "view":
             if words.count == 4, let l = Float(words[1]), let t = Float(words[2]), let z = Float(words[3]) {
                 detail.debugViewport = Viewport(left: l, top: t, zoom: z); say("ack view \(l),\(t),\(z)")

@@ -86,6 +86,7 @@ struct KeyBinding: Codable, Hashable, Sendable {
         case .askSyncr: KeyBinding("j")
         case .undo: KeyBinding("z")
         case .redo: KeyBinding("z", [.command, .shift])
+        case .toggleReading: KeyBinding("e")
         case .bold: KeyBinding("b")
         case .italic: KeyBinding("i")
         case .insertLink: KeyBinding("k")

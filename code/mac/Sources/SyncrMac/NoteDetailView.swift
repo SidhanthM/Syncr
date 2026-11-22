@@ -338,6 +338,13 @@ import SyncrCore
         companionStrip.updateHotkeys(store)
     }
 
+    /// Reading view for the open note: the text editors stop taking changes, the rest of the page is unchanged.
+    private(set) var reading = false
+    func setReading(_ on: Bool) {
+        reading = on
+        documentEditor.reading = on
+        freeEditors.forEach { $0.editor.reading = on }
+    }
     func showDocument(_ document: (any TextDocument)?, title: String, width: CGFloat = 1600, opening: Bool = false) {
         documentVisible = document != nil
         documentEditor.isHidden = document == nil
@@ -356,6 +363,7 @@ import SyncrCore
         freeEditors = blocks.enumerated().map { index, block in
             let editor = previous.first { $0.editor.represents(block.3) }?.editor ?? DocumentEditor()
             editor.isFree = true
+            editor.reading = reading
             editor.show(document: block.3, title: "⋮⋮", width: block.2)
             editor.title.isEditable = false
             editor.onScroll = canvas.onScroll

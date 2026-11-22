@@ -306,7 +306,7 @@ import SyncrCompanion
     }
 
     private func startPass(_ kind: PassKind, draw: Bool = false, reader explicit: Reader? = nil, passage: ByteSpan? = nil, confirmed: Bool = false, askThread: String? = nil, done: (() -> Void)? = nil) {
-        guard pass == nil, !inkBusy, let s = snapshot, let id = noteID, model.isWritable(id) else { done?(); return }
+        guard pass == nil, !inkBusy, let s = snapshot, let id = noteID, model.isWritable(id), !workspace.isReading(id) else { done?(); return }
         let settings = CompanionStore.settings(s)
         guard settings.mode != .off else { done?(); return }
         var reading = false; if case .pause = kind { reading = true }
@@ -566,6 +566,8 @@ import SyncrCompanion
         }
     }
     private func edit(_ id:String,work:@escaping @Sendable (Note) throws -> Void,done:(() -> Void)? = nil) {
+        // Reading view: the companion changes nothing in the note, not even a pin or a reply.
+        guard !workspace.isReading(id) else { setStatus("Switch to Editing to change this note"); return }
         model.editNote(id:id,work:work) { [weak self] result in
             guard let self else { return }
             switch result {

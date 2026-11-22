@@ -10,7 +10,7 @@ enum AppCommand: String, CaseIterable, Sendable {
     case importExport, chooseFolder
     case askSyncr, drawSelection, askAllReaders, companionSettings, lastCompanionRequest, undoCompanion, redoCompanion
     case undo, redo, browseTags, outline
-    case bold, italic, insertLink, toggleTask, findInNote, searchNotes, dailyNote, documentView
+    case toggleReading, bold, italic, insertLink, toggleTask, findInNote, searchNotes, dailyNote, documentView
     case importMarkdown, exportMarkdown, slashMenu, freeText
     /// Pages of a Note: the thumbnail sidebar, adding a page, the fit commands, layout and flip, and moving between pages.
     case toggleThumbnails, addPage, fitPage, fitPageWidth, fitPageHeight
@@ -38,6 +38,7 @@ enum AppCommand: String, CaseIterable, Sendable {
         case .outline: "Go to Heading…"
         case .undo: "Undo Text or Ink"
         case .redo: "Redo Text or Ink"
+        case .toggleReading: "Switch Reading and Editing"
         case .bold: "Bold"
         case .italic: "Italic"
         case .insertLink: "Insert Link"
@@ -92,6 +93,10 @@ enum AppCommand: String, CaseIterable, Sendable {
     /// Default hint for model-only consumers. Live UI uses HotkeyStore's effective binding.
     var shortcut: String { KeyBinding.defaultBinding(for: self)?.compact ?? "" }
 
+    /// Commands that would change the open note: refused in Reading view, wherever they come from.
+    static let changesNote: Set<AppCommand> = [.undo, .redo, .bold, .italic, .insertLink, .toggleTask, .slashMenu, .freeText, .addPage, .renameNote, .moveNote,
+                                               .askSyncr, .drawSelection, .askAllReaders, .undoCompanion, .redoCompanion]
+
     var isDebug: Bool {
         switch self {
         case .replayTestStroke, .replayHighlighter, .replayCancelled, .replayViewRelative, .simulateDisconnect: true
@@ -107,7 +112,7 @@ enum AppCommand: String, CaseIterable, Sendable {
              .toggleThumbnails, .fitPage, .fitPageWidth, .fitPageHeight, .layoutSingle, .layoutDouble, .layoutCover, .toggleFlip, .nextPage, .previousPage: "Workspace"
         case .askSyncr, .drawSelection, .askAllReaders, .companionSettings, .lastCompanionRequest, .undoCompanion, .redoCompanion: "Companion"
         case .phoneLink, .followPhone, .forgetPhone: "Phone"
-        case .undo, .redo, .bold, .italic, .insertLink, .toggleTask, .slashMenu, .freeText, .addPage: "Editor"
+        case .undo, .redo, .bold, .italic, .insertLink, .toggleTask, .slashMenu, .freeText, .addPage, .toggleReading: "Editor"
         default: "Notes"
         }
     }

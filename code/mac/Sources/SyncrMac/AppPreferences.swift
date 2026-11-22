@@ -22,9 +22,11 @@ struct AppPreferenceValues: Codable, Equatable {
     /// Text column edges in canvas units, set by dragging the borders; nil is the default layout.
     var columnLeft: Double?
     var columnRight: Double?
+    /// Notes shown in Reading view, by id. Presentation only, like the rest: nothing about it is in a note.
+    var readingNotes: [String] = []
 
     init() {}
-    private enum CodingKeys: CodingKey { case appearance, textSize, lineSpacing, reduceMotion, spellCheck, restoreSession, naturalScroll, columnLeft, columnRight }
+    private enum CodingKeys: CodingKey { case appearance, textSize, lineSpacing, reduceMotion, spellCheck, restoreSession, naturalScroll, columnLeft, columnRight, readingNotes }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         appearance = (try? c.decode(Appearance.self, forKey: .appearance)) ?? .system
@@ -36,6 +38,7 @@ struct AppPreferenceValues: Codable, Equatable {
         naturalScroll = (try? c.decode(Bool.self, forKey: .naturalScroll)) ?? true
         columnLeft = try? c.decodeIfPresent(Double.self, forKey: .columnLeft)
         columnRight = try? c.decodeIfPresent(Double.self, forKey: .columnRight)
+        readingNotes = (try? c.decodeIfPresent([String].self, forKey: .readingNotes)) ?? []
     }
 }
 

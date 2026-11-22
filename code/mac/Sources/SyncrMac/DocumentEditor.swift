@@ -21,6 +21,20 @@ import AppKit
     let textView = MarkdownTextView()
     let title = DragTextField()
     var isFree = false
+    /// Reading view: everything rendered, no caret, nothing the owner does changes the text. Task boxes still flip.
+    var reading = false {
+        didSet {
+            guard reading != oldValue else { return }
+            if reading { flush() }
+            guard document != nil else { return }
+            closeMenu()
+            title.isEditable = canEdit && !isFree
+            textView.isEditable = canEdit
+            if reading, window?.firstResponder === textView { window?.makeFirstResponder(nil) }
+            style()
+        }
+    }
+    private var canEdit: Bool { document?.writable == true && !reading }
     var onActivity: (() -> Void)?
     var drawingHeights: [String: CGFloat] = [:] {
         didSet { if drawingHeights != oldValue { refreshPreview() } }
@@ -84,7 +98,7 @@ import AppKit
         title.isBordered = false; title.drawsBackground = false
         title.font = DocumentLayout.titleFont; title.textColor = Theme.ink; title.delegate = self
         title.focusRingType = .none
-        title.onDrag = { [weak self] dx, dy in self?.onMove?(dx, dy) }
+        title.onDrag = { [weak self] dx, dy in if self?.canEdit == true { self?.onMove?(dx, dy) } }
         textView.isRichText = false; textView.importsGraphics = false
         textView.drawsBackground = false; textView.textContainerInset = .zero
         textView.textContainer?.lineFragmentPadding = 0
@@ -101,11 +115,11 @@ import AppKit
         textView.onScroll = { [weak self] x, y in self?.onScroll?(x, y) }
         textView.onReveal = { [weak self] in self?.onReveal?($0) }
         textView.onLinkClick = { [weak self] link, newTab in self?.followLink(link, newTab: newTab) ?? false }
-        textView.onHistory = { [weak self] redo in self?.flush(); self?.document?.history(redo: redo) }
+        textView.onHistory = { [weak self] redo in guard self?.canEdit == true else { return }; self?.flush(); self?.document?.history(redo: redo) }
         textView.onShortcut = { [weak self] name in self?.shortcut(name) }
         textView.onTask = { [weak self] offset in self?.flipBox(at: offset) }
         textView.onPasteLink = { [weak self] pasted in
-            guard let self, self.document?.writable == true, let edit = MarkdownEditing.pasteLink(self.textView.string, selection: self.textView.selectedRange(), pasted: pasted) else { return false }
+            guard let self, self.canEdit, let edit = MarkdownEditing.pasteLink(self.textView.string, selection: self.textView.selectedRange(), pasted: pasted) else { return false }
             self.apply(edit); return true
         }
         panel.isHidden = true
@@ -138,9 +152,9 @@ import AppKit
         if changedDocument { flush() }
         self.document = document; if !resizing { blockWidth = width; loadColumn() }
         if title.currentEditor() == nil { title.stringValue = name }
-        let permissionChanged = textView.isEditable != document.writable
-        title.isEditable = document.writable
-        textView.isEditable = document.writable
+        let permissionChanged = textView.isEditable != canEdit
+        title.isEditable = canEdit && !isFree
+        textView.isEditable = canEdit
         textView.isSelectable = true
         if !textView.string.utf8.elementsEqual(document.text.utf8) {
             let old = textView.string, was = textView.selectedRange()
@@ -188,7 +202,7 @@ import AppKit
     func flush() { pending?.cancel(); pending = nil; if dirtySince != 0 { dirtySince = 0; lastCommit = Self.uptime() }; document?.replace(with: textView.string); document?.flush() }
     private static func uptime() -> Double { Double(DispatchTime.now().uptimeNanoseconds) / 1e9 }
     func debugSetText(_ text: String) {
-        guard document?.writable == true else { return }
+        guard canEdit else { return }
         textView.string = text; textView.setSelectedRange(NSRange(location: text.utf16.count, length: 0)); changed()
     }
     func reveal(_ offset: Int) {
@@ -210,7 +224,7 @@ import AppKit
         guard !styling, !textView.hasMarkedText() else { return }
         styling = true
         let selection = textView.selectedRange()
-        textView.textStorage?.setAttributedString(DocumentLayout.attributed(textView.string, selection: document?.writable == true ? selection : nil, resolving: resolve, drawingHeights: drawingHeights, imageGaps: imageGaps, onCodeReady: { [weak self] in self?.style() }))
+        textView.textStorage?.setAttributedString(DocumentLayout.attributed(textView.string, selection: canEdit ? selection : nil, resolving: resolve, drawingHeights: drawingHeights, imageGaps: imageGaps, onCodeReady: { [weak self] in self?.style() }))
         textView.setSelectedRange(selection)
         textView.typingAttributes = [.font: NSFont.systemFont(ofSize: DocumentLayout.bodySize), .foregroundColor: Theme.ink]
         styling = false
@@ -220,7 +234,7 @@ import AppKit
     func textDidChange(_ notification: Notification) {
         guard !quiet else { return }
         // A numbered list counts on from its first number after any edit in it.
-        if document?.writable == true, !textView.hasMarkedText() {
+        if canEdit, !textView.hasMarkedText() {
             let before = EditorEdit(text: textView.string, selection: textView.selectedRange())
             let fixed = MarkdownEditing.renumberAround(before)
             if fixed.text != before.text { quiet = true; textView.string = fixed.text; textView.setSelectedRange(fixed.selection); quiet = false }
@@ -241,7 +255,7 @@ import AppKit
         style(); updateMenu(typing: true)
     }
     func textViewDidChangeSelection(_ notification: Notification) { if !styling && !quiet { style(); updateMenu(typing: false) } }
-    func controlTextDidEndEditing(_ obj: Notification) { if document?.writable == true { onRename?(title.stringValue) } }
+    func controlTextDidEndEditing(_ obj: Notification) { if canEdit { onRename?(title.stringValue) } }
     func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
         followLink(link, newTab: NSEvent.modifierFlags.contains(.command))
     }
@@ -253,7 +267,7 @@ import AppKit
         return false
     }
     private func apply(_ edit: EditorEdit) {
-        guard document?.writable == true else { return }
+        guard canEdit else { return }
         if edit.text == textView.string { textView.setSelectedRange(edit.selection); return }
         quiet = true; textView.string = edit.text; textView.setSelectedRange(edit.selection); quiet = false; changed()
     }
@@ -280,7 +294,7 @@ import AppKit
         }
     }
     func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-        guard document?.writable == true else { return false }
+        guard canEdit else { return false }
         let s = textView.selectedRange(), t = textView.string
         switch commandSelector {
         case #selector(NSResponder.insertNewline(_:)) where menuOpen: panel.runSelected()
@@ -321,7 +335,7 @@ import AppKit
     }
     /// Typing opens the menu; moving the caret only keeps it open or closes it.
     private func updateMenu(typing: Bool) {
-        guard document?.writable == true, !textView.hasMarkedText(), !resizing else { closeMenu(); return }
+        guard canEdit, !textView.hasMarkedText(), !resizing else { closeMenu(); return }
         let t = textView.string, s = textView.selectedRange()
         if let d = dismissedSlash, (t as NSString).length <= d || (t as NSString).substring(with: NSRange(location: d, length: 1)) != "/" { dismissedSlash = nil }
         if let token = SlashEngine.token(t, selection: s) {
@@ -387,7 +401,7 @@ import AppKit
     }
     /// Removes the token and runs the command: one edit, saved on its own so undo gives the token back.
     func run(_ command: EditorCommand, token: SlashToken) {
-        guard document?.writable == true else { return }
+        guard canEdit else { return }
         flush()
         let outcome = SlashEngine.run(command, text: textView.string, token: token)
         closeMenu(); dismissedSlash = nil
