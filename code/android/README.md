@@ -114,6 +114,11 @@ adb pull /data/misc/perfetto-traces/front.pftrace   # ui.perfetto.dev; search "s
 | `notes/DryInkLayer.kt` / `WetInkBridge.kt` | Dry-ink cache and renderer / front-buffer wet ink. |
 | `notes/StylusHoverIcon.kt` | Brush-sized system hover pointer for the stylus. |
 | `notes/PageLayout.kt`, `SheetGeometry.kt`, `Selection.kt` | Pure canvas geometry, measured samples, affine math. |
+| `notes/NoteGeometry.kt` | `NoteGeometry`: where the paper is. `PagedGeometry` (a legacy column, or the note's pages), `CanvasGeometry` (no edges). The viewport, wet-ink clips, paper drawing and cards ask it; nothing else reads 4800 or the lowest ink. |
+| `notes/PageSpots.kt`, `PageNav.kt`, `PagePaper.kt` | Live pages placed by the core's `layout_pages` (Single, Double, Cover, or a paginated strip); current page, fits and sheet places; paper, template and hairline per page. |
+| `notes/PageCommands.kt` | Page commands from a snapshot (add, size, rotate, duplicate, delete, move, new-note layout); `NotesRepository` stages them. |
+| `notes/FlipPolicy.kt`, `NoteViewStore.kt` | Paginated-flip and pull-to-add numbers; per-note reading settings kept on this device. |
+| `ui/NewNoteScreen.kt`, `ui/PageSidebar.kt` | The New note screen; the page thumbnails sidebar. |
 | `notes/InkBrushes.kt`, `InkPreferences.kt` | Brush styles and Ink families; local rendering prefs. |
 | `notes/Thumbnails.kt`, `RecoveryExport.kt`, `Notebooks.kt`, `FingerTaps.kt` | Cards, recovery JSON, notebook names/filters, tap classifier. |
 | `PointerActivity.kt`, `tablet/` | Portrait/landscape Pen and finger Trackpad modes; see [POINTER.md](POINTER.md). |

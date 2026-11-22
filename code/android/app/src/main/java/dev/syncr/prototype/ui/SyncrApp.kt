@@ -43,6 +43,8 @@ fun SyncrApp(vm: NotesViewModel = viewModel(), dark: Boolean, appearance: Appear
     var filter by remember { mutableStateOf<LibraryFilter>(LibraryFilter.All) }
     var tools by remember { mutableStateOf(ToolState()) }
     var overlay by remember { mutableStateOf(Overlay.NONE) }
+    var sidebar by remember { mutableStateOf(false) }
+    var currentSheet by remember { mutableStateOf<String?>(null) }
     val libraryReady = rememberLibraryReady(state)
     val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) vm.export(uri)
@@ -71,6 +73,7 @@ fun SyncrApp(vm: NotesViewModel = viewModel(), dark: Boolean, appearance: Appear
     LaunchedEffect(snapshot == null) {
         if (snapshot == null) {
             if (overlay != Overlay.SETTINGS) overlay = Overlay.NONE
+            sidebar = false; currentSheet = null
             paper = null; vm.canvasViewport = null
             tools = tools.folded()
         }
@@ -99,7 +102,23 @@ fun SyncrApp(vm: NotesViewModel = viewModel(), dark: Boolean, appearance: Appear
             onUndo = { paper?.cancelGesture(); paper?.deselect(); vm.run { repo.history(false) } },
             onRedo = { paper?.cancelGesture(); paper?.deselect(); vm.run { repo.history(true) } },
             onFit = { paper?.fit() },
-            onMore = { tools = tools.folded(); overlay = Overlay.MORE }), banner = banner)
+            onMore = { tools = tools.folded(); overlay = Overlay.MORE }, onPage = { currentSheet = it }), banner = banner)
+        if (sidebar && snapshot.kind == NoteKind.NOTE) {
+            BackHandler { sidebar = false }
+            PageSidebar(state, currentSheet ?: snapshot.pages.firstOrNull { !it.tombstone }?.sheetId, dark, PageSidebarActions(
+                onClose = { sidebar = false },
+                onGoTo = { paper?.goToPage(it) },
+                onAdd = { after ->
+                    val page = snapshot.pages.firstOrNull { it.sheetId == after }
+                    val (w, h) = page?.takeIf { !it.autoHeight }?.let { it.width to it.height } ?: NoteCanvasView.A4
+                    vm.run { repo.addPage(after, w, h)?.let { paper?.goToWhenAdded(it) } }
+                },
+                onDuplicate = { ids -> vm.run { repo.duplicatePages(ids) } },
+                onRotate = { ids, turn -> vm.run { repo.rotatePages(ids, turn) } },
+                onSize = { id, w, h -> vm.run { repo.resizePage(id, w, h) } },
+                onDelete = { ids -> vm.run { repo.deletePages(ids) } },
+                onMove = { ids, after -> vm.run { repo.movePages(ids, after) } }))
+        }
     }
 
     when {
@@ -122,7 +141,8 @@ fun SyncrApp(vm: NotesViewModel = viewModel(), dark: Boolean, appearance: Appear
             onAddPage = { overlay = Overlay.NONE; paper?.addPage() },
             onFitPage = { fit -> overlay = Overlay.NONE; paper?.fitPage(fit) },
             onZoom = { up -> paper?.zoomStep(up) },
-            zoomPercent = { paper?.zoomPercent() ?: 100 }))
+            zoomPercent = { paper?.zoomPercent() ?: 100 },
+            onPageList = { overlay = Overlay.NONE; sidebar = true }))
         overlay == Overlay.RENAME -> RenameDialog(snapshot.title, onDismiss = { overlay = Overlay.NONE },
             onSave = { title -> overlay = Overlay.NONE; vm.run { repo.rename(title) } })
         overlay == Overlay.MOVE -> MoveNoteDialog(snapshot.title, snapshot.notebook, state.notebooks.map { it.name },

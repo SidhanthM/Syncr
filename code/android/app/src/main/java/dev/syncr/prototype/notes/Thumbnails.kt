@@ -18,10 +18,13 @@ class ThumbStroke(val points: FloatArray, val brush: Brush, val pressure: FloatA
 class Thumbnail(val localSequence: ULong, val width: Float, val viewHeight: Float, val strokes: List<ThumbStroke>)
 
 /** Pure: keeps at most about [maxPoints] points overall by taking every k-th sample (and each last one). */
-fun buildThumbnail(snapshot: NoteSnapshot, samples: (String) -> SampleChannels?, maxPoints: Int = 4000, geometry: NoteGeometry = PagedGeometry()): Thumbnail {
+/** [onlySheet] limits it to one page's ink (the sidebar's page thumbnails); the width is then that page's. */
+fun buildThumbnail(snapshot: NoteSnapshot, samples: (String) -> SampleChannels?, maxPoints: Int = 4000, geometry: NoteGeometry = PagedGeometry(),
+    onlySheet: String? = null): Thumbnail {
     val sheets = snapshot.sheets.associateBy { it.id }
     // A note of pages shows its first page, at the page's own width; a legacy column shows the top of the column.
-    val firstPage = if (PageSpots.isLegacy(snapshot) || snapshot.kind == dev.syncr.core.NoteKind.CANVAS) null else snapshot.pages.firstOrNull { !it.tombstone }
+    val firstPage = if (onlySheet != null) snapshot.pages.firstOrNull { it.sheetId == onlySheet }
+        else if (PageSpots.isLegacy(snapshot) || snapshot.kind == dev.syncr.core.NoteKind.CANVAS) null else snapshot.pages.firstOrNull { !it.tombstone }
     val strokes = snapshot.strokes.filter { !it.tombstone && it.sheetId in sheets && (firstPage == null || it.sheetId == firstPage.sheetId) }
         .mapNotNull { s -> samples(s.id)?.let { s to it } }
     val total = strokes.sumOf { it.second.x.size }

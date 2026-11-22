@@ -95,6 +95,8 @@ class NoteActions(
     val onRedo: () -> Unit,
     val onFit: () -> Unit,
     val onMore: () -> Unit,
+    /** The page in view changed (its sheet ID), for the sidebar's current page. */
+    val onPage: (String?) -> Unit = {},
 )
 
 /**
@@ -230,6 +232,7 @@ private fun NoteCanvas(vm: NotesViewModel, state: NotesState, dark: Boolean, too
             canvas.doubleTapFit = gestures.doubleTapFit; canvas.palmMs = gestures.palmDelay.millis
             canvas.onError = repo::message
             canvas.viewSettings = viewSettings
+            canvas.onPages = { _, _, sheet -> actions.onPage(sheet) }
             canvas.onAddPage = { after, width, height -> vm.run { repo.addPage(after, width, height)?.let(canvas::goToWhenAdded) } }
             canvas.mirror = mirror
             canvas.onStroke = { sheetId, channels, usedBrush ->
