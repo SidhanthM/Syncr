@@ -50,6 +50,30 @@ class SyncReceiverFilesTest {
         assertTrue(sent().any { it is Control.Have && it.id == "n1" })
     }
 
+    @Test fun aDeltaRefusedWhileTheEditorStoresIsTriedAgainNotFetchedWhole() {
+        // remaining-v1 L.4, found on the emulator: a refusal mid-typing used to ask for the whole note, which was refused too.
+        var attempts = 0
+        var busy = 0
+        val source = object : NoteSource by notes {
+            // The editor stages a store just as the first merge runs, and has stored it a moment later.
+            override fun editing(id: String) = attempts == 1 && busy++ < 2
+            override fun applyDelta(id: String, file: File): CopyOutcome =
+                if (++attempts == 1) CopyOutcome.Refused("the note has unsaved changes") else CopyOutcome.Applied(3, NoteDigest("a".repeat(64), 3), "delta")
+        }
+        val r = SyncReceiver(source, scheduler, loop, clock, temp)
+        r.onWelcome(v1 = true, delta = true)
+        val data = ByteArray(300) { 1 }
+        val sha = MessageDigest.getInstance("SHA-256").digest(data).joinToString("") { "%02x".format(it) }
+        r.onFile(Control.File(8, "n1", 2, 300, sha, 1, delta = true))
+        r.onChunk(Wire.fileChunk(8, 0, data))
+        r.onFileEnd(8)
+        loop.runPosted()
+        val out = sent()
+        assertEquals(2, attempts)
+        assertTrue("applied on the second try: $out", out.any { it is Control.Have && it.id == "n1" })
+        assertTrue("nothing asked for the whole note: $out", out.none { it is Control.Want || it is Control.FileError })
+    }
+
     @Test fun aWriteThatFailsRefusesTheFileAtItsEnd() {
         receiver.onWelcome(v1 = true)
         disk = object : BulkDisk { override fun write(out: OutputStream, data: ByteArray) = throw java.io.IOException("full") }

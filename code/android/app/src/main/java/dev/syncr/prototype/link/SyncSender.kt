@@ -28,7 +28,21 @@ class SyncSender(
     private val disk: BulkDisk = BulkDisk.REAL,
     /** Where transfer files are read and written, off the link thread; null does it on the caller's thread (tests). */
     private val files: java.util.concurrent.Executor? = null,
+    /** Where Mac files are merged into the library (see [SyncReceiver]); null uses [LinkLoop.background]. */
+    applier: java.util.concurrent.Executor? = null,
 ) {
+    /** Per note, the phone's sequence in the file the Mac last confirmed with `have`. */
+    private val confirmed = HashMap<String, Long>()
+
+    /**
+     * True while the phone holds more of [id] than the file the Mac last confirmed (it typed on, or a push is waiting or in
+     * flight): a different digest in the Mac's `have` then means nothing the phone lacks (remaining-v1 L.4).
+     */
+    private fun movedOn(id: String): Boolean {
+        val seq = confirmed[id] ?: return false
+        return (known[id]?.seq ?: 0) > seq || id in pushLater || active?.id == id || id in pushing
+    }
+
     private class Transfer(val xfer: Long, val id: String, val seq: Long, val file: File, val stream: FileStream, val delta: Boolean = false,
         /** What the phone held when it started to export this (never newer than the file), and whether the Mac did not ask for it. */
         val heads: Map<String, String> = emptyMap(), val pushed: Boolean = false) {
@@ -38,7 +52,8 @@ class SyncSender(
     /** Mac to phone sync; the session routes the Mac's `notes`, `file`, chunks and `file_end` to it. */
     val receiver = SyncReceiver(source, scheduler, loop, clock, tempDir, log, disk = disk, files = files,
         // A Mac file applied whole: the Mac holds at least what it says it held, so the next push leaves that out.
-        onHeads = { id, heads -> if (push) peerHeads[id] = heads })
+        onHeads = { id, heads -> if (push) peerHeads[id] = heads },
+        movedOn = ::movedOn, applier = applier)
 
     private val known = LinkedHashMap<String, NoteMeta>()
     private val announced = HashMap<String, Long>()
@@ -105,7 +120,7 @@ class SyncSender(
         preparing = false
         wanted.clear()
         bases.clear()
-        peerHeads.clear(); pushing.clear(); pushLater.clear()
+        peerHeads.clear(); pushing.clear(); pushLater.clear(); confirmed.clear()
         announced.clear()
         retried.clear()
     }
@@ -128,6 +143,7 @@ class SyncSender(
         active?.let { t ->
             if (t.sentAt == 0L && t.stream.finished) {
                 t.sentAt = now
+                TextTrace.sent(t.id)
                 discard(t, keepRecord = true)
             } else if (t.sentAt != 0L && now - t.sentAt > ACK_TIMEOUT_MS) {
                 log("no answer for transfer ${t.xfer} of ${t.id}; moving on")
@@ -210,6 +226,7 @@ class SyncSender(
         active?.takeIf { it.id == id }?.let { t ->
             // The Mac applied the whole file, so it holds everything the phone held when the export began.
             if (t.heads.isNotEmpty()) peerHeads[id] = t.heads
+            confirmed[id] = t.seq
             discard(t)
             active = null
         }
@@ -242,6 +259,7 @@ class SyncSender(
         val id = wanted.removeFirstOrNull() ?: return
         if (id !in known) return startNext()
         preparing = true
+        TextTrace.sending(id)
         val xfer = nextXfer++
         val mine = generation
         val base = bases.remove(id)

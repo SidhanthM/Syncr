@@ -31,6 +31,13 @@ class SyncReceiver(
     private val files: java.util.concurrent.Executor? = null,
     /** A Mac file applied whole and said what the Mac held when it made it (`heads`). */
     private val onHeads: (id: String, heads: Map<String, String>) -> Unit = { _, _ -> },
+    /**
+     * True when the Mac's `have` for this note confirmed a file the phone has since moved on from (it typed more): the digests
+     * differ only because the phone holds more, so there is nothing to fetch (remaining-v1 L.4).
+     */
+    private val movedOn: (id: String) -> Boolean = { false },
+    /** Where Mac files are merged; null uses [LinkLoop.background]. Its own thread, so a merge waiting for the editor never holds up the phone's pushes. */
+    private val applier: java.util.concurrent.Executor? = null,
 ) {
     private class Inbound(val offer: Control.File, val file: File, val out: FileOutputStream) {
         /** The files thread's. */
@@ -100,11 +107,12 @@ class SyncReceiver(
 
     /** The Mac installed one of the phone's notes and reports its operation set. */
     fun onPeerHave(id: String, digest: String?) {
-        if (!active || digest == null) return
+        if (!active || digest == null || movedOn(id)) return
         val mine = generation
         loop.background {
             val own = try { source.digests(listOf(id))[id]?.digest } catch (e: Exception) { null }
-            loop.post { if (mine == generation && own != null && own != digest) request(NoteMeta(id, 0, "", digest), force = true) }
+            // Asked again once the digest is read: the phone may have typed on meanwhile, and then differs only by holding more.
+            loop.post { if (mine == generation && own != null && own != digest && !movedOn(id)) request(NoteMeta(id, 0, "", digest), force = true) }
         }
     }
 
@@ -159,6 +167,7 @@ class SyncReceiver(
             val file = File(tempDir, "in-${offer.xfer}.syncr")
             file.delete()
             inbound = Inbound(offer, file, FileOutputStream(file))
+            TextTrace.received(offer.id)
         } catch (e: java.io.IOException) {
             refuse(offer, "staging")
         }
@@ -211,23 +220,46 @@ class SyncReceiver(
         applying = true
         val mine = generation
         val id = t.offer.id
-        loop.background {
-            val outcome = try {
-                if (t.offer.delta) source.applyDelta(id, t.file) else source.applyCopy(id, t.file)
-            } catch (e: Exception) {
-                CopyOutcome.Refused("${e.javaClass.simpleName}")
+        val merge = Runnable {
+            // The editor stores typed text several times a second; between a store's staging and its commit a merge is refused.
+            // Wait for a quiet moment and try again, rather than refusing the file and fetching the whole note (which is then
+            // refused too, while the phone's own pushes wait).
+            var result: CopyOutcome = CopyOutcome.Refused("not run")
+            var attempt = 0
+            try {
+                do {
+                    var waited = 0L
+                    while (source.editing(id) && waited < EDIT_WAIT_MS && mine == generation) { Thread.sleep(10); waited += 10 }
+                    TextTrace.merging(id)
+                    result = try {
+                        if (t.offer.delta) source.applyDelta(id, t.file) else source.applyCopy(id, t.file)
+                    } catch (e: Exception) {
+                        CopyOutcome.Refused("${e.javaClass.simpleName}")
+                    }
+                } while (result is CopyOutcome.Refused && source.editing(id) && ++attempt < EDIT_RETRIES && mine == generation)
             } finally {
                 t.file.delete()
             }
+            val outcome = result
             loop.post {
                 if (mine != generation) return@post
                 applying = false
                 requested.remove(id)
                 if (!t.offer.delta) fullOnly.remove(id)
+                // Refused because the editor never went quiet: not a delta that fell short. Say busy and fetch nothing more now; a
+                // later digest comparison, once typing stops, asks again if the Mac holds something the phone lacks.
+                if (outcome is CopyOutcome.Refused && source.editing(id)) {
+                    log("file-busy id=$id reason=editing")
+                    requested.remove(id)
+                    scheduler.sendControl(Control.FileError(t.offer.xfer, id, "busy"))
+                    applied += id to outcome
+                    onApplied(id, outcome)
+                    return@post
+                }
                 // A delta that fell short (or could not be applied) is never trusted: ask for the whole note.
                 val short = t.offer.delta && (outcome is CopyOutcome.Refused || (outcome as CopyOutcome.Applied).how != "delta")
                 if (short) {
-                    log("delta-short id=$id outcome=${if (outcome is CopyOutcome.Applied) "${outcome.how} rejected=${outcome.rejected}" else "refused"}; asking for the whole note")
+                    log("delta-short id=$id outcome=${if (outcome is CopyOutcome.Applied) "${outcome.how} rejected=${outcome.rejected}" else "refused reason=${(outcome as CopyOutcome.Refused).reason.take(80)}"}; asking for the whole note")
                     fullOnly += id
                     // Free the sender's transfer slot, or its queue waits behind this one for the whole-note request.
                     scheduler.sendControl(Control.FileError(t.offer.xfer, id, SyncSender.DELTA_SHORT))
@@ -237,6 +269,7 @@ class SyncReceiver(
                 }
                 when (outcome) {
                     is CopyOutcome.Applied -> {
+                        TextTrace.applied(id)
                         log("copy-${outcome.how} id=$id seq=${outcome.seq} rejected=${outcome.rejected}")
                         if (outcome.rejected == 0) t.offer.heads?.let { onHeads(id, it) }
                         scheduler.sendControl(Control.Have(id, outcome.seq, outcome.digest.digest, outcome.digest.ops))
@@ -250,6 +283,7 @@ class SyncReceiver(
                 onApplied(id, outcome)
             }
         }
+        applier?.let { try { it.execute(merge) } catch (_: java.util.concurrent.RejectedExecutionException) { } } ?: loop.background(merge)
     }
 
     private fun fail(t: Inbound, reason: String) {
@@ -277,6 +311,9 @@ class SyncReceiver(
 
     companion object {
         const val LIMIT = 3
+        /** How long a Mac file waits for the editor to store what it has staged, and how often it tries again if refused. */
+        const val EDIT_WAIT_MS = 3_000L
+        const val EDIT_RETRIES = 5
         /** Chunks the disk may be behind before the reader stops reading (and TCP tells the Mac to slow down). */
         const val MAX_BACKLOG = 4L * 1024 * 1024
         const val WINDOW_MS = 60_000L

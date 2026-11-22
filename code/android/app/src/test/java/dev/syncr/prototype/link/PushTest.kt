@@ -165,6 +165,27 @@ class PushTest {
         h.cleanup()
     }
 
+    @Test fun aHaveForAFileThePhoneTypedOnFromAsksForNothing() {
+        // remaining-v1 L.4, found on the emulator: the Mac's digest differs only because the phone holds more by now. Asking for
+        // the note then made the Mac send it, the phone refuse it mid-typing and ask for the whole note, again and again.
+        val h = connected()
+        h.teachHeads()
+        h.source.notes[0] = NoteMeta("a", 6, "A")
+        h.sync.update(listOf(NoteMeta("a", 6, "A")), "a"); h.loop.runPosted()
+        assertTrue(h.collect().file!!.delta)
+        h.source.headsOf["a"] = mapOf("AUTHOR1" to "01M7PEC69Z6M1T1WDDDTS8FRT3")
+        h.source.notes[0] = NoteMeta("a", 7, "A")
+        h.sync.update(listOf(NoteMeta("a", 7, "A")), "a"); h.loop.runPosted()
+        h.mac(Control.Have("a", 6, "d".repeat(64), 5)); h.loop.runPosted()
+        val sent = h.collect()
+        assertTrue("no want for a note the phone moved on from: ${sent.controls}", sent.controls.none { it is Control.Want })
+        assertTrue("the newer text is pushed instead", sent.file!!.delta)
+        // Once the phone stands still, a different digest still means the Mac holds something the phone lacks.
+        h.mac(Control.Have("a", 7, "e".repeat(64), 6)); h.loop.runPosted()
+        assertTrue(h.collect().controls.any { it is Control.Want })
+        h.cleanup()
+    }
+
     @Test fun aSmallPushGoesWhileThePenWritesButAWholeCopyWaits() {
         val h = connected()
         h.teachHeads()

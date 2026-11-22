@@ -280,6 +280,7 @@ class LinkController private constructor(private val app: Application) {
                 return runBlocking { repo.syncDigests(ids) }.mapValues { NoteDigest(it.value.digest, it.value.operationCount.toLong()) }
             }
             override fun heads(id: String): Map<String, String>? = repo?.let { runBlocking { it.syncHeads(id) } }
+            override fun editing(id: String): Boolean = repo?.state?.value?.let { it.unsaved && it.snapshot?.noteId == id } == true
             override fun exportDelta(id: String, base: Map<String, String>, dest: File): Long? {
                 val repo = repo ?: return null
                 dest.delete()

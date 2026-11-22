@@ -126,6 +126,8 @@ class LinkClient(
     private val helpers = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "syncr-link-io").apply { isDaemon = true } }
     /** Note transfers' disk reads, writes and hashing: never on the link thread, where they would hold up pen frames. */
     private val files = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "syncr-link-files").apply { isDaemon = true } }
+    /** Mac files merged into the library: a merge can wait seconds for the editor, and must not hold up exports for pushes. */
+    private val applier = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "syncr-link-apply").apply { isDaemon = true } }
     private val chosen = AtomicReference<Endpoint?>()
     private val backoff = Backoff()
 
@@ -189,6 +191,7 @@ class LinkClient(
         wake.run()
         helpers.shutdown()
         files.shutdown()
+        applier.shutdown()
         if (wait) thread?.join(2_000)
     }
 
@@ -350,7 +353,7 @@ class LinkClient(
         val scheduler = SendScheduler(cfg.out, pump)
         scheduler.wake = wake
         pump.reset()
-        val sync = SyncSender(cfg.source, scheduler, this, cfg.clock, cfg.tempDir, cfg.log, listener::onDelivered, listener::onWanted, disk = cfg.disk, files = files)
+        val sync = SyncSender(cfg.source, scheduler, this, cfg.clock, cfg.tempDir, cfg.log, listener::onDelivered, listener::onWanted, disk = cfg.disk, files = files, applier = applier)
         val events = object : SessionEvents {
             override fun status(status: SessionStatus) {
                 if (status.phase == Phase.CONNECTED && !welcomed) {
