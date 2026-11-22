@@ -145,8 +145,15 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
         let s = session
         main { $0.closed(s) }
     }
-    func sessionLog(_ line: String) { controller?.log(line) }
+    func sessionLog(_ line: String) {
+        // One line per lost connection is kept even without the debug flag (K.7): a real drop can then be read afterwards.
+        if line.hasPrefix("link: disconnect ") { controller?.recordDisconnect(line) }
+        controller?.log(line)
+    }
 }
+
+/// Where a lost connection's one line also goes (the unified log: `log show --predicate 'subsystem == "dev.syncr.mac"'`).
+private let disconnectLogger = Logger(subsystem: "dev.syncr.mac", category: "link")
 
 @MainActor final class LinkController {
     struct Options {
@@ -211,6 +218,10 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
     private var pairingSession: LinkSession?
     private var pendingFollow: String?
     private var latestClock = ClockSync()
+    /// The phone that was connected last: its recorded views survive a drop, another phone's start empty.
+    private var lastPhoneId: String?
+    /// The pen the last phone wrote with: it shows again at once when that phone comes back after a drop.
+    private var lastPenBrush: Brush?
     private var latencyLog: DispatchWorkItem?
     /// Link v1: sessions the Mac already sent its full notes list to, and the digest it last announced per note.
     private var announced: [ObjectIdentifier: [String: String]] = [:]
@@ -237,6 +248,7 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
         store = PairedPhoneStore(folder: model.folder.appendingPathComponent(".mac", isDirectory: true))
         if model.readState(LinkSettings.fileName) == nil { saveSettings() }  // this Mac's ID is generated once and kept
         bridge.controller = self
+        pointDisconnectLog()
         publisher.current = { [unowned self] in desiredTarget() }
         publisher.send = { [unowned self] in sendTarget($0) }
         publisher.recordView = { [engine = live.engine] rev, view in engine.recordView(view, rev: rev) }
@@ -244,6 +256,7 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
         model.onCommit = { [weak self] id in self?.noteCommitted(id) }
         model.onPeerMerge = { [weak self] id in if id == self?.workspace.active { self?.pictureChanged() } }
         if let data = model.readState(Self.seenFile), let loaded = try? JSONDecoder().decode([String: [String: UInt64]].self, from: data) { seen = loaded }
+        live.onStrokeResolved = { [weak self] stroke, ok in self?.ackStroke(stroke, ok: ok) }
         live.onStrokeSaved = { [weak self] note, stroke in
             self?.log("link: stroke-saved note=\(note) stroke=\(stroke)")
             self?.padSaved &+= 1
@@ -255,7 +268,7 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
         live.engine.onPenSeen = { [weak self] brush in
             DispatchQueue.main.async { MainActor.assumeIsolated {
                 guard let self, !self.registry.isEmpty, self.penBrush != brush else { return }
-                self.penBrush = brush; self.onStatus?()
+                self.penBrush = brush; self.lastPenBrush = brush; self.onStatus?()
             } }
         }
     }
@@ -289,6 +302,7 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
         settings = LinkSettings.load(model.readState)
         if model.readState(LinkSettings.fileName) == nil { saveSettings() }
         store = PairedPhoneStore(folder: model.folder.appendingPathComponent(".mac", isDirectory: true))
+        pointDisconnectLog()
         if was && settings.enabled { startServer() }
         onStatus?()
     }
@@ -317,7 +331,8 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
                 run: { block in connection.queue.async(execute: block) },
                 sendBulk: { connection.sendBulk($0, done: $1) },
                 // Only a large copy waits for the pen (a small delta goes at once); it waits until the pen has rested a while.
-                penActive: { engine.penActive(within: 2_500_000_000) })
+                penActive: { engine.penActive(within: 2_500_000_000) },
+                expectResend: { engine.expectResend(strokeId: $0, rev: $1) })
             let session = LinkSession(config: .init(macName: name, macId: macId, epoch: epoch, stagingDir: staging,
                                                     udpPort: server?.udpPort, udpKey: UInt64.random(in: 1...UInt64.max)), store: store, io: io)
             session.host = bridge
@@ -349,6 +364,7 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
 
     private func stopServer(bye: String) {
         remotePointer.stopAll()
+        lastPhoneId = nil; live.engine.clearRecordedViews()
         server?.stop(); server = nil; port = nil
         for s in bridge.sessions { let s = s; s.onExecutor { s.close(bye: bye) } }
         pairingSession = nil; setPairing(nil)
@@ -388,6 +404,7 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
 
     func forget(phoneId: String) {
         if let session = registry.byPhone[phoneId] { remotePointer.stop(session) }
+        remotePointer.forget(phone: phoneId)
         store.forget(id: phoneId)
         if let s = registry.byPhone[phoneId] { let s = s; s.onExecutor { s.close(bye: "unpaired") } }
         for s in bridge.sessions where s.phoneId == phoneId { let s = s; s.onExecutor { s.close(bye: "unpaired") } }
@@ -411,12 +428,15 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
     fileprivate func welcomed(_ session: LinkSession) {
         guard let id = session.phoneId else { return }
         if let old = registry.register(phoneId: id, session) {
-            remotePointer.stop(old)
+            remotePointer.stop(old, resumable: true)
             let old = old
-            old.onExecutor { old.close(bye: nil) }
+            log("link: replaced phone=\"\(session.phoneName)\" the new connection took over from an old one")
+            old.onExecutor { old.close(bye: "replaced") }
         }
-        live.engine.clearRecordedViews()
-        penBrush = nil
+        // The revisions the phone was told about stay good for the same phone: a stroke it sends again after a drop names one.
+        if lastPhoneId != id { live.engine.clearRecordedViews(); lastPenBrush = nil }
+        lastPhoneId = id
+        penBrush = lastPenBrush
         live.mirrorEnabled = true
         clearPad()
         log("link: connected phone=\"\(session.phoneName)\" id=\(id) epoch=\(session.config.epoch)")
@@ -426,8 +446,13 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
         onStatus?()
     }
 
+    /// Tells the phone (when it asked to be told) that this pad stroke is in the note, or never will be.
+    fileprivate func ackStroke(_ id: String, ok: Bool) {
+        for s in registry.sessions { let s = s; s.onExecutor { s.sendStrokeAck(id: id, ok: ok) } }
+    }
+
     fileprivate func closed(_ session: LinkSession) {
-        remotePointer.stop(session)
+        remotePointer.stop(session, resumable: true)
         let wasRegistered = registry.phoneId(of: session) != nil
         registry.remove(session)
         announced[ObjectIdentifier(session)] = nil
@@ -436,16 +461,17 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
         log("link: disconnected phone=\"\(session.phoneName)\"")
         log("link: second-path frames=\(session.datagramFrames)")
         logLatency("session end")
-        if registry.isEmpty { endMirror() }
+        if registry.isEmpty { endMirror(closing: session.config.epoch) }
         onStatus?()
     }
 
-    /// No phone is connected: previews, offsets and revisions of the old connection are gone.
-    private func endMirror() {
+    /// No phone is connected: previews, offsets and revisions of the old connection are gone. `closing`: the epoch of the session
+    /// that ended; the live-ink reset then happens only if the engine is still in it (a phone that reconnected at once has already
+    /// had the engine moved to its own epoch, and clearing that would drop its ink).
+    private func endMirror(closing epoch: UInt32? = nil) {
         live.mirrorEnabled = false
-        live.engine.reset()
+        live.engine.reset(onlyIfEpoch: epoch)
         live.engine.setClockOffset(nil)
-        live.engine.clearRecordedViews()
         latestClock = ClockSync()
         padOn = false; viewing = nil; pendingFollow = nil; penBrush = nil
         clearPad()
@@ -790,6 +816,37 @@ final class LinkBridge: LinkSessionHost, @unchecked Sendable {
         let best = latestClock.best.map { String(format: "%.1f", $0.rttMs) } ?? "n/a"
         log(String(format: "link: latency [%@] phone-send-to-mac-presented p50=%.1f p95=%.1f max=%.1f ms n=%d rtt-last=%@ ms rtt-best=%@ ms (%@)",
                    when, s.p50, s.p95, s.max, s.count, rtt, best, LiveInk.phoneScope))
+    }
+
+    // MARK: Disconnect record (K.7)
+
+    /// The file a lost connection leaves its one line in: `<library>/.mac/link-disconnects.log`, newest last, never more than about 64 KB.
+    /// The same line goes to the unified log (subsystem `dev.syncr.mac`, category `link`), so `log show` finds it too.
+    private let disconnectFile = OSAllocatedUnfairLock<URL?>(initialState: nil)
+    private let disconnectQueue = DispatchQueue(label: "dev.syncr.mac.link.disconnect-log", qos: .utility)
+
+    private func pointDisconnectLog() {
+        let url = model.folder.appendingPathComponent(".mac", isDirectory: true).appendingPathComponent("link-disconnects.log")
+        disconnectFile.withLock { $0 = url }
+    }
+
+    /// Called on a connection's queue. The line holds a cause, times and byte counts: no note content, no token, no address.
+    nonisolated func recordDisconnect(_ line: String) {
+        let text = ISO8601DateFormatter().string(from: Date()) + " " + String(line.dropFirst("link: ".count).prefix(400))
+        disconnectLogger.info("\(text, privacy: .public)")
+        guard let url = disconnectFile.withLock({ $0 }) else { return }
+        disconnectQueue.async {
+            let fm = FileManager.default
+            try? fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            var old = (try? Data(contentsOf: url)) ?? Data()
+            if old.count > 64 * 1024 {
+                // Keep the newest half, starting at a line.
+                old = old.suffix(old.count / 2)
+                if let nl = old.firstIndex(of: 0x0A) { old = old.suffix(from: old.index(after: nl)) }
+            }
+            old.append(Data((text + "\n").utf8))
+            try? old.write(to: url, options: .atomic)
+        }
     }
 
     // MARK: Logging

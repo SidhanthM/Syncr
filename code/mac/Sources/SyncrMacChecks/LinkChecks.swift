@@ -197,8 +197,67 @@ private func clockChecks() throws {
     let pings = rig.controls.filter { if case .ping = $0 { true } else { false } }.count
     rig.tick(after: 2.1); rig.feed(.ping(id: 1, at: 1))
     try check(rig.controls.filter { if case .ping = $0 { true } else { false } }.count == pings + 1, "Mac pings every 2 s")
-    rig.tick(after: 25)
-    try check(rig.closed, "a silent phone is dropped")
+    // Idle (no pad, pointer or transfer): quiet for 12 s is gone, as the watchdog's own timer sees it (a tick every half second).
+    for _ in 0..<22 { rig.tick(after: 0.5) }
+    try check(!rig.closed, "an idle phone silent for 11 s is not dropped")
+    for _ in 0..<4 { rig.tick(after: 0.5) }
+    try check(rig.closed, "an idle phone silent for 13 s is dropped")
+    try check(rig.logs.contains { $0.contains("disconnect cause=watchdog since-inbound=") }, "the drop leaves one line with its cause")
+}
+
+/// Link K.1: a quiet link is caught in 5 s when something would be lost, a stalled Mac is never mistaken for a quiet phone.
+private func watchdogChecks() throws {
+    // A pad is open: 5 s of silence closes it, 4 s does not.
+    let pad = SessionRig(); try pad.welcome(v: 1)
+    pad.feed(.pad(on: true))
+    for _ in 0..<8 { pad.tick(after: 0.5) }
+    try check(!pad.closed, "a pad session silent for 4 s stays open")
+    for _ in 0..<3 { pad.tick(after: 0.5) }
+    try check(pad.closed, "a pad session silent for 5.5 s is closed (watchdog)")
+    try check(pad.logs.contains { $0.contains("disconnect cause=watchdog") && $0.contains("active=true") }, "the line says the session was active")
+
+    // Any inbound byte is life, even half a message: a slow note copy never looks dead.
+    let slow = SessionRig(); try slow.welcome(v: 1); slow.feed(.pad(on: true))
+    for i in 0..<40 { slow.tick(after: 0.5); if i % 6 == 5 { slow.session.noteInbound(at: slow.now) } }
+    try check(!slow.closed, "bytes every 3 s keep a pad session alive for 20 s")
+
+    // The Mac itself stalled for 4 s (a long main-thread hop, a debugger): one late tick says nothing about the phone.
+    let stalled = SessionRig(); try stalled.welcome(v: 1); stalled.feed(.pad(on: true))
+    stalled.tick(after: 0.5); stalled.tick(after: 4.0)
+    try check(!stalled.closed, "a tick that came 4 s late does not close the session")
+    for _ in 0..<11 { stalled.tick(after: 0.5) }
+    try check(stalled.closed, "a phone that stays silent after the stall is still closed")
+
+    // The Mac pings once a second while a pad is open, every two seconds otherwise.
+    let busy = SessionRig(); try busy.welcome(v: 1); busy.feed(.pad(on: true))
+    let before = busy.controls.filter { if case .ping = $0 { true } else { false } }.count
+    for _ in 0..<8 { busy.tick(after: 0.5); busy.session.noteInbound(at: busy.now) }
+    try check(busy.controls.filter { if case .ping = $0 { true } else { false } }.count >= before + 2, "pings every second with a pad open")
+}
+
+/// Link K.4: the phone's stroke keeping is negotiated, confirmed by ID and placed by the revision it began at.
+private func strokeKeepChecks() throws {
+    let keep = SessionRig(); keep.feed(.hello(v: 1, device: "Phone", phoneId: keep.phoneId, token: nil, delta: true, push: true, keep: true))
+    keep.feed(.code(keep.codes.last?.code ?? ""))
+    guard case .welcome(_, _, _, _, _, _, let kept)? = keep.controls.first(where: { if case .welcome = $0 { true } else { false } }) else { throw CheckFailure(description: "no welcome") }
+    try check(kept, "a v1 phone that asks to keep strokes is told it may")
+    keep.session.sendStrokeAck(id: "S1", ok: true); keep.session.sendStrokeAck(id: "S2", ok: false)
+    try check(keep.controls.suffix(2) == [.strokeAck(id: "S1", ok: true), .strokeAck(id: "S2", ok: false)], "the Mac confirms strokes by ID, saved or refused")
+    keep.feed(.strokeRev(id: "S1", rev: 42))
+    try check(keep.resends.count == 1 && keep.resends[0].0 == "S1" && keep.resends[0].1 == 42, "stroke_rev reaches the engine")
+
+    let plain = SessionRig(); try plain.welcome(v: 1)
+    guard case .welcome(_, _, _, _, _, _, let keptPlain)? = plain.controls.first(where: { if case .welcome = $0 { true } else { false } }) else { throw CheckFailure(description: "no welcome") }
+    try check(!keptPlain, "a phone that did not ask is not offered it")
+    let before = plain.controls.count
+    plain.session.sendStrokeAck(id: "S1", ok: true); plain.feed(.strokeRev(id: "S1", rev: 1))
+    try check(plain.controls.count == before && plain.resends.isEmpty, "an old phone gets no stroke_ack and its stroke_rev is ignored")
+
+    // The wire forms.
+    try check(try LinkControl.parse(json: Data("{\"t\":\"stroke_ack\",\"id\":\"ABC\",\"ok\":true}".utf8)) == .strokeAck(id: "ABC", ok: true), "stroke_ack parses")
+    try check(try LinkControl.parse(json: Data("{\"t\":\"stroke_rev\",\"id\":\"ABC\",\"rev\":7}".utf8)) == .strokeRev(id: "ABC", rev: 7), "stroke_rev parses")
+    try check((try? LinkControl.parse(json: Data("{\"t\":\"stroke_rev\",\"id\":\"ABC\",\"rev\":-1}".utf8))) == nil, "a negative revision is refused")
+    try check((try? LinkControl.parse(json: Data("{\"t\":\"stroke_ack\",\"id\":\"a b\",\"ok\":true}".utf8))) == nil, "a bad stroke ID is refused")
 }
 
 // MARK: - Session rig (no socket)
@@ -238,6 +297,7 @@ private final class SessionRig: LinkSessionHost, @unchecked Sendable {
 
     var controls: [LinkControl] { controlsList(sent) }
 
+    var resends: [(String, UInt32)] = []
     var padModes: [(local: Bool, pics: Bool, aspect: Double)] = []
     var frames: [CGRect] = []
     var pointerModes: [(Int, Bool)] = []
@@ -258,7 +318,8 @@ private final class SessionRig: LinkSessionHost, @unchecked Sendable {
             close: { [unowned self] in closed = true },
             liveReceive: { [unowned self] data, _ in live.append(data) },
             liveReset: { [unowned self] epoch in resetEpochs.append(epoch); events.append("reset") },
-            run: { $0() }, sendBulk: nil, penActive: { [unowned self] in penOn }))
+            run: { $0() }, sendBulk: nil, penActive: { [unowned self] in penOn },
+            expectResend: { [unowned self] id, rev in resends.append((id, rev)) }))
         session.host = self
         session.start(atNs: now)
     }
@@ -269,8 +330,8 @@ private final class SessionRig: LinkSessionHost, @unchecked Sendable {
     func feed(_ c: LinkControl) { session.receive(.control(c), at: now) }
     func feed(_ f: LinkFrame) { session.receive(f, at: now) }
     func tick(after seconds: Double) { now += UInt64(seconds * 1e9); session.tick(atNs: now) }
-    func hello(token: String? = nil, v: Int = 0, device: String? = "Galaxy S23 Ultra", delta: Bool = false, push: Bool = false) {
-        feed(.hello(v: v, device: device, phoneId: phoneId, token: token, delta: delta, push: push))
+    func hello(token: String? = nil, v: Int = 0, device: String? = "Galaxy S23 Ultra", delta: Bool = false, push: Bool = false, keep: Bool = false) {
+        feed(.hello(v: v, device: device, phoneId: phoneId, token: token, delta: delta, push: push, keep: keep))
     }
     func clearSent() { sent = Data() }
     func controlsOffer() -> FileOffer? { for c in controls { if case .file(let o) = c { return o } }; return nil }
@@ -1122,7 +1183,7 @@ private func isTarget(_ c: LinkControl, note: String, writable: Bool) -> Bool {
     var token = "", epoch: UInt32 = 0
     try pump("paired and welcome") {
         if case .paired(let t)? = phone.take({ if case .paired = $0 { true } else { false } }) { token = t }
-        if case .welcome(_, _, let e, _, _, _)? = phone.take({ if case .welcome = $0 { true } else { false } }) { epoch = e }
+        if case .welcome(_, _, let e, _, _, _, _)? = phone.take({ if case .welcome = $0 { true } else { false } }) { epoch = e }
         return !token.isEmpty && epoch != 0
     }
     try check(shownCode == nil, "the code is hidden once paired")
@@ -1403,6 +1464,8 @@ private func padChecks() throws {
     try framingChecks()
     try vectorChecks()
     try clockChecks()
+    try watchdogChecks()
+    try strokeKeepChecks()
     try pairingChecks()
     try syncChecks()
     try deltaChecks()

@@ -96,6 +96,8 @@ final class LinkSession: @unchecked Sendable {
         var sendBulk: ((Data, @escaping @Sendable () -> Void) -> Void)? = nil
         /// True while the phone's pen is writing or hovering. File chunks wait meanwhile; `tick` resumes them.
         var penActive: (() -> Bool)? = nil
+        /// A stroke the phone is sending again was begun at this target revision (`stroke_rev`); the stroke's commit follows.
+        var expectResend: ((String, UInt32) -> Void)? = nil
     }
 
     /// The same note and operation set is not transferred more than this many times a minute in one direction.
@@ -151,6 +153,14 @@ final class LinkSession: @unchecked Sendable {
     private(set) var peerDelta = false
     /// The phone also takes a delta nobody asked for (latency-v1 T.3).
     private(set) var peerPush = false
+    /// The phone keeps pad strokes until confirmed (link K.4): the Mac confirms each one by ID.
+    private(set) var peerKeep = false
+    /// Why the session ended, for the one line it leaves in the log.
+    private var cause = "io"
+    private var lastTickNs: UInt64 = 0
+    /// A pad or pointer session is open: a quiet link is then caught in seconds, not tens of seconds.
+    private var padOpen = false
+    private var pointerOpen = false
     /// What the phone is known to hold, per note: the newest operation per author. Learned from a `want`'s base and, once the phone
     /// confirms a transfer with `have`, from what the Mac held when it exported. Dropped at any refusal; a wrong one only makes a
     /// push fall short.
@@ -191,7 +201,7 @@ final class LinkSession: @unchecked Sendable {
     // MARK: Input
 
     /// A framing or parsing error: the connection cannot be trusted any further.
-    func protocolError(_ error: Error) { log("protocol error: \(error)"); shutdown(bye: nil) }
+    func protocolError(_ error: Error) { log("protocol error: \(error)"); cause = "protocol"; shutdown(bye: nil) }
 
     func receive(_ frame: LinkFrame, at ns: UInt64) {
         guard phase != .closed else { return }
@@ -213,9 +223,9 @@ final class LinkSession: @unchecked Sendable {
 
     private func handle(_ control: LinkControl, at ns: UInt64) {
         switch control {
-        case .hello(let v, let device, let id, let token, let delta, let push): receiveHello(v: v, device: device, phoneId: id, token: token, delta: delta, push: push, at: ns)
+        case .hello(let v, let device, let id, let token, let delta, let push, let keep): receiveHello(v: v, device: device, phoneId: id, token: token, delta: delta, push: push, keep: keep, at: ns)
         case .code(let code): receiveCode(code, at: ns)
-        case .bye: shutdown(bye: nil)
+        case .bye: cause = "bye"; shutdown(bye: nil)
         default:
             // Before welcome the Mac accepts only hello and code.
             guard phase == .ready else { return }
@@ -231,9 +241,10 @@ final class LinkSession: @unchecked Sendable {
             case .viewing(let id):
                 if let id, !LinkIds.valid(id) { return }
                 host?.sessionViewing(self, id: id)
-            case .pointerMode(let v, let on): if peerVersion >= 1 { host?.sessionPointerMode(self, version: v, on: on) }
+            case .pointerMode(let v, let on): if peerVersion >= 1 { pointerOpen = on; host?.sessionPointerMode(self, version: v, on: on) }
             case .pointer(let packet): if peerVersion >= 1 { host?.sessionPointer(self, packet: packet) }
-            case .pad(let on): host?.sessionPad(self, on: on)
+            case .pad(let on): padOpen = on; host?.sessionPad(self, on: on)
+            case .strokeRev(let id, let rev): if peerKeep { io.expectResend?(id, rev) }
             case .padMode(let local, let pics, let aspect): host?.sessionPadMode(self, local: local, pics: pics, aspect: aspect)
             case .frame(let rect): host?.sessionFrame(self, rect: rect)
             default: break  // unknown, or sent in the wrong direction: ignored
@@ -243,12 +254,13 @@ final class LinkSession: @unchecked Sendable {
 
     // MARK: Hello and pairing (3.1)
 
-    private func receiveHello(v: Int, device: String?, phoneId id: String?, token: String?, delta: Bool, push: Bool, at ns: UInt64) {
+    private func receiveHello(v: Int, device: String?, phoneId id: String?, token: String?, delta: Bool, push: Bool, keep: Bool, at ns: UInt64) {
         guard phase == .awaitingHello else { return }
-        guard (LinkLimits.oldestVersion...LinkLimits.version).contains(v) else { shutdown(bye: "version"); return }
+        guard (LinkLimits.oldestVersion...LinkLimits.version).contains(v) else { cause = "version"; shutdown(bye: "version"); return }
         peerVersion = v
         peerDelta = delta && v >= 1
         peerPush = peerDelta && push
+        peerKeep = keep && v >= 1
         guard let id, LinkIds.validHex(id, count: 32) else { log("hello without a valid phone_id"); shutdown(bye: nil); return }
         phoneId = id.lowercased()
         phoneName = Self.cleanName(device)
@@ -292,7 +304,7 @@ final class LinkSession: @unchecked Sendable {
         phase = .ready
         io.liveReset(config.epoch)
         race = PreviewRace()
-        send(.welcome(mac: config.macName, macId: config.macId, epoch: config.epoch, v: min(peerVersion, LinkLimits.version), delta: peerVersion >= 1, push: peerVersion >= 1))
+        send(.welcome(mac: config.macName, macId: config.macId, epoch: config.epoch, v: min(peerVersion, LinkLimits.version), delta: peerVersion >= 1, push: peerVersion >= 1, keep: peerKeep))
         if peerVersion >= 1, let port = config.udpPort, config.udpKey != 0 { send(.udp(port: port, key: String(format: "%016llx", config.udpKey))) }
         nextPingNs = ns
         host?.sessionWelcomed(self)
@@ -319,7 +331,11 @@ final class LinkSession: @unchecked Sendable {
             if let p = pairing, ns >= p.expiresNs { endPairing(); shutdown(bye: "expired") }
         case .ready:
             nowNs = ns
-            if ns &- lastInboundNs > LinkLimits.idleTimeoutNs { log("idle"); shutdown(bye: nil); return }
+            // A timer that did not run for a while says the Mac was stalled, not that the phone went quiet: forgive that stretch.
+            if lastTickNs != 0, ns &- lastTickNs > LinkLimits.stallGraceNs, lastInboundNs < ns { lastInboundNs = ns }
+            lastTickNs = ns
+            let limit = isActive ? LinkLimits.activeTimeoutNs : LinkLimits.idleTimeoutNs
+            if ns &- lastInboundNs > limit { log("idle"); cause = "watchdog"; shutdown(bye: nil); return }
             if ns >= nextPingNs { sendPing(at: ns) }
             retryDeferred(at: ns)
             pumpChunks()
@@ -330,11 +346,20 @@ final class LinkSession: @unchecked Sendable {
         }
     }
 
+    /// Something would be lost or stuck if the link died unnoticed: a pad or pointer is open, or a note is in transit.
+    private var isActive: Bool { padOpen || pointerOpen || transfer != nil || outgoing != nil }
+
+    /// Any bytes at all from the phone, even half a message, are life (a long note copy on a slow link is not a dead one).
+    func noteInbound(at ns: UInt64) { if phase != .closed { lastInboundNs = ns } }
+
+    /// The Mac says the stroke is in its note, or never will be.
+    func sendStrokeAck(id: String, ok: Bool) { if peerKeep { send(.strokeAck(id: id, ok: ok)) } }
+
     private func sendPing(at ns: UInt64) {
         let id = nextPingId; nextPingId += 1
         pendingPings[id] = ns
         if pendingPings.count > 16, let oldest = pendingPings.min(by: { $0.value < $1.value })?.key { pendingPings[oldest] = nil }
-        nextPingNs = ns + LinkLimits.pingIntervalNs
+        nextPingNs = ns + (isActive ? LinkLimits.activePingIntervalNs : LinkLimits.pingIntervalNs)
         send(.ping(id: id, at: ns / 1_000_000))
     }
 
@@ -642,7 +667,7 @@ final class LinkSession: @unchecked Sendable {
     func send(_ control: LinkControl) { guard phase != .closed else { return }; io.send(control.framed()) }
 
     /// Closes, telling the phone why when `bye` is given ("link off", "unpaired"). Call on the executor.
-    func close(bye: String?) { shutdown(bye: bye) }
+    func close(bye: String?) { cause = bye.map { "closed:\($0)" } ?? "closed"; shutdown(bye: bye) }
 
     /// Runs a block on this session's executor; the way other threads reach it.
     func onExecutor(_ block: @escaping @Sendable () -> Void) { io.run(block) }
@@ -658,6 +683,11 @@ final class LinkSession: @unchecked Sendable {
     func connectionClosed() { guard phase != .closed else { return }; finish() }
 
     private func finish() {
+        if phase == .ready || phase == .pairing {
+            let sinceMs = nowNs >= lastInboundNs ? (nowNs - lastInboundNs) / 1_000_000 : 0
+            let file = outgoing.map { max(0, Int64($0.offer.size) - Int64($0.nextIndex) * Int64(LinkLimits.maxFileChunk)) } ?? 0
+            log("disconnect cause=\(cause) since-inbound=\(sinceMs)ms active=\(isActive) queued=control/0 picture/\(pictureWaiting?.count ?? 0) file/\(file)B")
+        }
         endPairing()
         if let t = transfer {
             try? t.handle.close(); try? FileManager.default.removeItem(at: t.file); transfer = nil

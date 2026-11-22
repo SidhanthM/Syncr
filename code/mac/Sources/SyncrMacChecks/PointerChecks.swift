@@ -58,3 +58,19 @@ import Foundation
     guard case .pointer(let old) = try LinkControl.parse(json: Data(#"{"t":"pointer","v":1,"seq":2,"dx":0,"dy":0,"sx":3,"sy":4,"buttons":0,"click":0}"#.utf8)) else { throw CheckFailure(description: "legacy pointer packet did not parse") }
     try check(!old.scrollEnd && old.sy == 4, "a packet from a phone without se is still a plain scroll")
 }
+
+/// Link K.3: after a drop an approved Trackpad session may be taken up again, once, by the same phone, for a short while.
+func pointerResumeChecks() throws {
+    var resume = PointerResume()
+    try check(!resume.take(phone: "A", at: 0), "a phone that never dropped under an approved session asks for consent")
+    resume.dropped(phone: "A", at: 100)
+    try check(!resume.take(phone: "B", at: 101), "another phone is not covered")
+    try check(resume.take(phone: "A", at: 110), "the same phone, ten seconds later, takes it up again")
+    try check(!resume.take(phone: "A", at: 111), "and only once")
+    resume.dropped(phone: "A", at: 200)
+    try check(!resume.take(phone: "A", at: 200 + PointerResume.window + 1), "after the window it asks again")
+    resume.dropped(phone: "A", at: 300); resume.forget(phone: "A")
+    try check(!resume.take(phone: "A", at: 301), "a phone that turned Trackpad off or was forgotten is not resumed")
+    resume.dropped(phone: "A", at: 400); resume.forgetAll()
+    try check(!resume.take(phone: "A", at: 401), "turning the link off forgets every resume")
+}

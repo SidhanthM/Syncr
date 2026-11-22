@@ -24,6 +24,11 @@ import SyncrCore
     var onViewport: ((Viewport) -> Void)?
     /// A live stroke was written into a Mac note (main thread).
     var onStrokeSaved: ((_ noteId: String, _ strokeId: String) -> Void)?
+    /// The Mac is done with a pad stroke for good: written (or already in the note), or refused. The phone lets go of it (link K.4).
+    var onStrokeResolved: ((_ strokeId: String, _ ok: Bool) -> Void)?
+    /// Pad strokes known to be in a note, newest last, so a stroke sent again is confirmed without a read.
+    private var saved: [String] = []
+    private var savedSet: Set<String> = []
     /// The pad (rework-v1 §V): what the note view shows in canvas units, scrolling it by canvas units, the pen frame's
     /// outline (nil hides it), a picture of a canvas region at a pixel width, and the page's lowest content.
     var visibleRect: () -> CGRect = { .zero }
@@ -53,6 +58,12 @@ import SyncrCore
         engine.onStatus = { [weak self] in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.statusChanged() } }
         }
+        engine.onCommitDropped = { [weak self] id in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.onStrokeResolved?(id, false) } }
+        }
+        engine.onCommitDuplicate = { [weak self] id in
+            DispatchQueue.main.async { MainActor.assumeIsolated { if let self, self.savedSet.contains(id) { self.onStrokeResolved?(id, true) } } }
+        }
         workspace.debugCommands = debug
         syncTarget()
     }
@@ -68,7 +79,9 @@ import SyncrCore
 
     private func commit(_ commit: StrokeCommit, _ frozen: Viewport?) {
         guard workspace.active == commit.noteId, workspace.activeIsWritable else {
-            engine.finishCommit(strokeId: commit.strokeId, .refused); onWake?(); return
+            engine.finishCommit(strokeId: commit.strokeId, .refused); onWake?()
+            onStrokeResolved?(commit.strokeId, false)
+            return
         }
         let generation = model.generation
         model.appendLiveStroke(commit, view: frozen ?? viewport()) { [weak self] result in
@@ -79,12 +92,25 @@ import SyncrCore
                 // no draw can show both or neither. A reload since the write already contains it.
                 if self.model.generation == generation { self.model.insert(stroke) }
                 self.engine.finishCommit(strokeId: commit.strokeId, .saved)
+                self.remember(commit.strokeId)
                 self.onStrokeSaved?(commit.noteId, commit.strokeId)
+                self.onStrokeResolved?(commit.strokeId, true)
+            case .failure(let error as ViewerError) where error == .alreadySaved:
+                // Sent again after a drop that cost the phone the confirmation: it is in the note, once.
+                self.engine.finishCommit(strokeId: commit.strokeId, .saved)
+                self.remember(commit.strokeId)
+                self.onStrokeResolved?(commit.strokeId, true)
             case .failure(let error):
                 self.engine.finishCommit(strokeId: commit.strokeId, .failed(error.localizedDescription))
             }
             self.onWake?()
         }
+    }
+
+    private func remember(_ strokeId: String) {
+        guard savedSet.insert(strokeId).inserted else { return }
+        saved.append(strokeId)
+        while saved.count > 1024 { savedSet.remove(saved.removeFirst()) }
     }
 
     // MARK: Status

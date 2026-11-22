@@ -15,8 +15,14 @@ enum LinkLimits {
     static let codeLifetimeNs: UInt64 = 120_000_000_000
     static let codeTries = 5
     static let helloTimeoutNs: UInt64 = 10_000_000_000
-    static let idleTimeoutNs: UInt64 = 20_000_000_000
+    /// A session with nothing to lose (no pad, pointer or transfer) may be quiet this long before the Mac calls the phone gone.
+    static let idleTimeoutNs: UInt64 = 12_000_000_000
+    /// With a pad, the pointer or a transfer running, a quiet link is caught sooner: any inbound byte counts as life.
+    static let activeTimeoutNs: UInt64 = 5_000_000_000
     static let pingIntervalNs: UInt64 = 2_000_000_000
+    static let activePingIntervalNs: UInt64 = 1_000_000_000
+    /// A watchdog that was itself not running for this long learns nothing about the phone (the Mac was stalled, not the link).
+    static let stallGraceNs: UInt64 = 1_500_000_000
 }
 
 enum LinkProtocolError: Error, Equatable, CustomStringConvertible {
@@ -83,9 +89,11 @@ struct PointerPacket: Equatable, Sendable {
 enum LinkControl: Equatable, Sendable {
     /// `delta`: this side can send and merge deltas. Written only when true. `push`: this side also takes a delta nobody
     /// asked for and sends its own as soon as a note changes (latency-v1 T.3); only meaningful with `delta`.
-    case hello(v: Int, device: String?, phoneId: String?, token: String?, delta: Bool = false, push: Bool = false)
+    /// `keep` (link K.4): the phone keeps each pad stroke until `stroke_ack` and may send it again after a reconnect.
+    case hello(v: Int, device: String?, phoneId: String?, token: String?, delta: Bool = false, push: Bool = false, keep: Bool = false)
     /// `v` is the version this connection runs at: the phone's, when it is older than the Mac's (a v0 phone refuses any other).
-    case welcome(mac: String, macId: String, epoch: UInt32, v: Int = LinkLimits.version, delta: Bool = false, push: Bool = false)
+    /// `keep`: the Mac saw `keep` in hello and will confirm every pad stroke by ID (`stroke_ack`).
+    case welcome(mac: String, macId: String, epoch: UInt32, v: Int = LinkLimits.version, delta: Bool = false, push: Bool = false, keep: Bool = false)
     case pair
     case code(String)
     case paired(token: String)
@@ -116,21 +124,27 @@ enum LinkControl: Equatable, Sendable {
     case pointerMode(version: Int, on: Bool)
     case pointerState(version: Int, ready: Bool, message: String)
     case pointer(PointerPacket)
+    /// Mac: the stroke with this ID is in the note (`ok`), or was refused and will never be (not `ok`): the phone lets go of it.
+    case strokeAck(id: String, ok: Bool)
+    /// Phone: the stroke it is about to send again was begun at target revision `rev`: the Mac places it with that view.
+    case strokeRev(id: String, rev: UInt32)
     case unknown(String)
 
     // MARK: Encoding
 
     var object: [String: Any] {
         switch self {
-        case .hello(let v, let device, let phoneId, let token, let delta, let push):
+        case .hello(let v, let device, let phoneId, let token, let delta, let push, let keep):
             var o: [String: Any] = ["t": "hello", "v": v, "device": device ?? "", "phone_id": phoneId ?? "", "token": token.map { $0 as Any } ?? NSNull()]
             if delta { o["delta"] = true }
             if push { o["push"] = true }
+            if keep { o["keep"] = true }
             return o
-        case .welcome(let mac, let macId, let epoch, let v, let delta, let push):
+        case .welcome(let mac, let macId, let epoch, let v, let delta, let push, let keep):
             var o: [String: Any] = ["t": "welcome", "v": v, "mac": mac, "mac_id": macId, "epoch": epoch]
             if delta { o["delta"] = true }
             if push { o["push"] = true }
+            if keep { o["keep"] = true }
             return o
         case .pair: return ["t": "pair"]
         case .code(let code): return ["t": "code", "code": code]
@@ -181,6 +195,8 @@ enum LinkControl: Equatable, Sendable {
             var json: [String: Any] = ["t": "pointer", "v": 1, "seq": p.seq, "dx": p.dx, "dy": p.dy, "sx": p.sx, "sy": p.sy, "buttons": p.buttons, "click": p.click]
             if p.scrollEnd { json["se"] = true }
             return json
+        case .strokeAck(let id, let ok): return ["t": "stroke_ack", "id": id, "ok": ok]
+        case .strokeRev(let id, let rev): return ["t": "stroke_rev", "id": id, "rev": rev]
         case .unknown(let t): return ["t": t]
         }
     }
@@ -241,9 +257,9 @@ enum LinkControl: Equatable, Sendable {
         case "hello":
             guard let v = obj["v"].flatMap(integer), let version = Int(exactly: v) else { throw bad("v is not an integer") }
             return .hello(v: version, device: obj["device"] as? String, phoneId: obj["phone_id"] as? String, token: try optionalString("token"),
-                          delta: obj["delta"] as? Bool == true, push: obj["push"] as? Bool == true)
+                          delta: obj["delta"] as? Bool == true, push: obj["push"] as? Bool == true, keep: obj["keep"] as? Bool == true)
         case "welcome": return .welcome(mac: try string("mac"), macId: try string("mac_id"), epoch: try u32("epoch"), v: obj["v"].flatMap(integer).flatMap { Int(exactly: $0) } ?? 0,
-                                        delta: obj["delta"] as? Bool == true, push: obj["push"] as? Bool == true)
+                                        delta: obj["delta"] as? Bool == true, push: obj["push"] as? Bool == true, keep: obj["keep"] as? Bool == true)
         case "pair": return .pair
         case "code": return .code(try string("code"))
         case "paired": return .paired(token: try string("token"))
@@ -287,6 +303,12 @@ enum LinkControl: Equatable, Sendable {
         case "frame":
             guard let r = Self.rect(obj) else { throw bad("x, y, w or h") }
             return .frame(r)
+        case "stroke_ack":
+            guard let id = obj["id"] as? String, LinkIds.valid(id), let ok = obj["ok"] as? Bool else { throw bad("id or ok") }
+            return .strokeAck(id: id, ok: ok)
+        case "stroke_rev":
+            guard let id = obj["id"] as? String, LinkIds.valid(id) else { throw bad("id") }
+            return .strokeRev(id: id, rev: try u32("rev"))
         case "udp":
             guard let port = UInt16(exactly: try uint("port")), LinkIds.validHex(try string("key"), count: 16) else { throw bad("port or key") }
             return .udp(port: port, key: try string("key"))

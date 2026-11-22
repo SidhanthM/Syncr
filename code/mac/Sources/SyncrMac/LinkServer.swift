@@ -46,6 +46,8 @@ final class LinkConnection: @unchecked Sendable {
         nw.receive(minimumIncompleteLength: 1, maximumLength: LinkLimits.maxMessage + 4) { [weak self] data, _, complete, error in
             guard let self, !self.closing else { return }
             if let data, !data.isEmpty {
+                // Any byte is life, even a piece of a message still arriving.
+                self.session.noteInbound(at: monotonicNs())
                 self.decoder.append(data)
                 do {
                     while let frame = try self.decoder.next() {

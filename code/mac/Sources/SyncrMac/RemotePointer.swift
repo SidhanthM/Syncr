@@ -48,8 +48,26 @@ final class ScrollEmitter {
     func tick(now: Double) { if (active || pending) && now - lastInput > Self.idle { end() } }
 }
 
+/// Which phones may take Trackpad control up again without the consent sheet: only one whose approved session ended because the
+/// link dropped (not because the phone or the owner turned it off), only for `window` seconds after that, and once. Pure, so it is
+/// checked without a screen. The Mac still requires Accessibility, and every button is released when the session ends.
+struct PointerResume {
+    static let window: Double = 30
+    private var until: [String: Double] = [:]
+
+    mutating func dropped(phone: String, at now: Double) { until[phone] = now + Self.window }
+    mutating func forget(phone: String) { until[phone] = nil }
+    mutating func forgetAll() { until = [:] }
+    /// True once for a phone that dropped less than `window` seconds ago.
+    mutating func take(phone: String, at now: Double) -> Bool {
+        guard let limit = until.removeValue(forKey: phone) else { return false }
+        return now <= limit
+    }
+}
+
 /// Only the explicitly approved paired connection may inject pointer events. No keyboard input.
 @MainActor final class RemotePointer {
+    private var resume = PointerResume()
     private weak var owner: LinkSession?
     private weak var pending: LinkSession?
     private var consent: NSAlert?
@@ -65,9 +83,16 @@ final class ScrollEmitter {
 
     func request(_ session: LinkSession, version: Int, on: Bool) {
         guard version == 1 else { report(session, false, "Update both apps: unsupported pointer version."); return }
-        if !on { stop(session); report(session, false, "Trackpad is off."); return }
+        if !on {
+            if let id = session.phoneId { resume.forget(phone: id) }
+            stop(session); report(session, false, "Trackpad is off."); return
+        }
         if owner === session { report(session, true, "Trackpad connected"); return }
         if pending === session { return }
+        // The link dropped under an approved session a moment ago and the same phone is back: no sheet, buttons all released.
+        if owner == nil, pending == nil, let id = session.phoneId, resume.take(phone: id, at: CACurrentMediaTime()), AXIsProcessTrusted() {
+            grant(session); return
+        }
         guard owner == nil && pending == nil else { report(session, false, "Another phone controls the Mac."); return }
         pending = session
         let requestID = UUID(); consentID = requestID
@@ -88,15 +113,19 @@ final class ScrollEmitter {
                 self.report(session, false, "Enable Syncr in Mac System Settings → Privacy & Security → Accessibility, then retry Trackpad.")
                 return
             }
-            self.owner = session; self.sequence = 0; self.lastInput = CACurrentMediaTime()
-            self.report(session, true, "Trackpad connected")
-            let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
-                MainActor.assumeIsolated { self?.checkLease() }
-            }
-            self.timer = timer; RunLoop.main.add(timer, forMode: .common)
+            self.grant(session)
         }
         if let window = NSApp.keyWindow ?? NSApp.mainWindow { alert.beginSheetModal(for: window, completionHandler: finish) }
         else { finish(alert.runModal()) }
+    }
+
+    private func grant(_ session: LinkSession) {
+        owner = session; sequence = 0; lastInput = CACurrentMediaTime()
+        report(session, true, "Trackpad connected")
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkLease() }
+        }
+        self.timer = timer; RunLoop.main.add(timer, forMode: .common)
     }
 
     func receive(_ packet: PointerPacket, from session: LinkSession) {
@@ -131,7 +160,10 @@ final class ScrollEmitter {
         if packet.scrollEnd { scroll.end() }
     }
 
-    func stop(_ session: LinkSession) {
+    /// Ends the session and releases every button and scroll. `resumable`: the link dropped under it, so the same phone may take it
+    /// up again for a short while without asking.
+    func stop(_ session: LinkSession, resumable: Bool = false) {
+        if resumable, owner === session, let id = session.phoneId { resume.dropped(phone: id, at: CACurrentMediaTime()) }
         if pending === session {
             pending = nil; consentID = UUID()
             if let window = consent?.window {
@@ -144,7 +176,10 @@ final class ScrollEmitter {
         scroll.end(); releaseButton(); owner = nil; timer?.invalidate(); timer = nil
     }
 
+    func forget(phone: String) { resume.forget(phone: phone) }
+
     func stopAll() {
+        resume.forgetAll()
         if let pending { stop(pending) }
         if let owner { stop(owner) }
         releaseButton()

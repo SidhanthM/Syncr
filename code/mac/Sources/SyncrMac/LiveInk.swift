@@ -238,6 +238,11 @@ final class LiveInk: @unchecked Sendable {
     var onCommit: (@Sendable (StrokeCommit, Viewport?) -> Void)?
     /// Counters or refusal reasons changed. Called on the ingest queue.
     var onStatus: (@Sendable () -> Void)?
+    /// A commit the engine will never write: the note is not the active writable one, or it was sent again with no view to place
+    /// it by. The phone is told so it lets go of it. Called on the ingest queue.
+    var onCommitDropped: (@Sendable (String) -> Void)?
+    /// A commit whose stroke ID was already taken (the phone sent it again). The coordinator says whether it was saved. Ingest queue.
+    var onCommitDuplicate: (@Sendable (String) -> Void)?
 
     private struct Item { let bytes: Data; let ns: UInt64; let view: Viewport }
     private let ingest = DispatchQueue(label: "dev.syncr.mac.liveink", qos: .userInteractive)
@@ -256,6 +261,9 @@ final class LiveInk: @unchecked Sendable {
     private var view = Viewport()
     private var viewsByRev: [UInt32: Viewport] = [:]
     private var viewRevOrder: [UInt32] = []
+    /// Strokes the phone said it is sending again (`stroke_rev`): the view of the revision each began at, nil when that is no longer known.
+    private var resends: [String: Viewport?] = [:]
+    private var resendOrder: [String] = []
     private var clockOffsetMs: Double?
     private var hoverCanvas = false
     private var openStrokes = 0
@@ -324,7 +332,23 @@ final class LiveInk: @unchecked Sendable {
         lock.unlock()
     }
 
-    func clearRecordedViews() { lock.lock(); viewsByRev = [:]; viewRevOrder = []; lock.unlock() }
+    func clearRecordedViews() { lock.lock(); viewsByRev = [:]; viewRevOrder = []; resends = [:]; resendOrder = []; lock.unlock() }
+
+    /// `stroke_rev`: the stroke `strokeId` is sent again and was begun at target revision `rev`. Callable from the connection's queue; the
+    /// commit that follows is placed with that revision's view, or dropped when a view-relative stroke has no view to be placed by.
+    func expectResend(strokeId: String, rev: UInt32) {
+        lock.lock()
+        if resends.updateValue(viewsByRev[rev], forKey: strokeId) == nil { resendOrder.append(strokeId) }
+        while resendOrder.count > 64 { resends[resendOrder.removeFirst()] = nil }
+        lock.unlock()
+    }
+
+    private func takeResend(_ strokeId: String) -> (known: Bool, view: Viewport?) {
+        lock.lock(); defer { lock.unlock() }
+        guard let entry = resends.removeValue(forKey: strokeId) else { return (false, nil) }
+        resendOrder.removeAll { $0 == strokeId }
+        return (true, entry)
+    }
 
     /// Offset of the phone's monotonic clock from ours (phone minus Mac, ms), nil when unknown.
     func setClockOffset(_ ms: Double?) { lock.lock(); clockOffsetMs = ms; lock.unlock() }
@@ -349,9 +373,14 @@ final class LiveInk: @unchecked Sendable {
     /// Simulated disconnect: previews, hover, reassembly and wet ink are cleared; the next epoch is adopted.
     /// `epoch`: adopt this one (a new link connection) instead of the next number; `wait`: return only once
     /// it has taken effect (never from the ingest queue), so frames sent right after are read in the new epoch.
-    func reset(epoch: UInt32? = nil, wait: Bool = false) {
+    /// `onlyIfEpoch`: do nothing unless the engine is still in this epoch, decided on the ingest queue. A connection that ended must
+    /// not clear what a newer connection (already welcomed, in a newer epoch) is drawing: the close and the new welcome race when
+    /// the phone reconnects at once.
+    func reset(epoch: UInt32? = nil, wait: Bool = false, onlyIfEpoch: UInt32? = nil) {
         let work: @Sendable () -> Void = { [self] in
-            lock.lock(); epochValue = epoch ?? epochValue &+ 1; let next = epochValue; removed.removeAll(); statsValue.resets += 1; lock.unlock()
+            lock.lock()
+            if let only = onlyIfEpoch, epochValue != only { lock.unlock(); return }
+            epochValue = epoch ?? epochValue &+ 1; let next = epochValue; removed.removeAll(); statsValue.resets += 1; lock.unlock()
             _ = receiver.reset(epoch: next)
             reassembler.reset()
             builders.removeAll(); order.removeAll(); hover = nil
@@ -584,11 +613,16 @@ final class LiveInk: @unchecked Sendable {
 
     private func handle(_ commit: StrokeCommit, _ item: Item) {
         bump { $0.commitsReassembled += 1 }
-        if commitSeen.contains(commit.strokeId) { bump { $0.duplicateCommits += 1 }; notifyStatus(); return }
-        if let why = refusal(for: commit.noteId) { refuse(why, commit: true); return }
+        let resend = takeResend(commit.strokeId)
+        if commitSeen.contains(commit.strokeId) { bump { $0.duplicateCommits += 1 }; notifyStatus(); onCommitDuplicate?(commit.strokeId); return }
+        if let why = refusal(for: commit.noteId) { refuse(why, commit: true); onCommitDropped?(commit.strokeId); return }
+        // A stroke in the phone's own view units cannot be placed by a view the Mac no longer remembers (it restarted, or it is too old).
+        if resend.known, commit.space == .viewRelative, resend.view == nil, begunViews[commit.strokeId] == nil {
+            bump { $0.commitsRefused += 1 }; notifyStatus(); onCommitDropped?(commit.strokeId); return
+        }
         commitSeen.insert(commit.strokeId); commitOrder.append(commit.strokeId)
         while commitOrder.count > 1024 { commitSeen.remove(commitOrder.removeFirst()) }
-        onCommit?(commit, begunViews[commit.strokeId] ?? item.view)
+        onCommit?(commit, begunViews[commit.strokeId] ?? resend.view ?? item.view)
     }
 
     private func runTick(_ ns: UInt64) {

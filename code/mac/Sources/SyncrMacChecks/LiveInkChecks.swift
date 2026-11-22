@@ -198,6 +198,12 @@ private func commitStep(_ plan: ReplayPlan) -> ReplayStep { plan.steps.last! }
     let next = try rig.plan(.pen)
     try rig.feed(previewSteps(next).prefix(10))
     try check(rig.engine.currentFrame.strokes.count == 1, "the new epoch draws")
+    // A connection that ended must not reset what a newer one is drawing (the phone reconnects at once: the old close arrives late).
+    let live = rig.engine.epoch
+    rig.engine.reset(onlyIfEpoch: live &- 1); rig.engine.waitIdle()
+    try check(rig.engine.epoch == live && rig.engine.currentFrame.strokes.count == 1, "a reset for an older epoch changes nothing")
+    rig.engine.reset(onlyIfEpoch: live); rig.engine.waitIdle()
+    try check(rig.engine.epoch == live &+ 1 && rig.engine.currentFrame.strokes.isEmpty, "a reset for the current epoch clears and moves on")
 }
 
 @MainActor private func liveInkRefusals() throws {

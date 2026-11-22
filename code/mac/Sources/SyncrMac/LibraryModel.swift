@@ -706,6 +706,9 @@ private final class LoadToken: @unchecked Sendable {
         let note = try library.openNote(noteId: commit.noteId)
         defer { try? note.closeNote() }
         let snapshot = try note.snapshot()
+        // The same stroke ID again (the phone sends a stroke again when a drop cost it the confirmation, even across a Mac restart):
+        // it is in the note once, or it was deleted there on purpose and stays deleted.
+        if snapshot.strokes.contains(where: { $0.id == commit.strokeId }) { throw ViewerError.alreadySaved }
         // Stored samples are local to the sheet: canvas coordinates minus its origin.
         var channels = try decodeSamples(blob: commit.samples)
         var canvas = channels
@@ -752,7 +755,7 @@ private final class LoadToken: @unchecked Sendable {
 }
 
 enum ViewerError: Error, LocalizedError {
-    case unavailable, unknownSheet, invalidSource, notNewer, unmanagedDestination, readOnly, readOnlyMembers, badName, macNote
+    case unavailable, unknownSheet, invalidSource, notNewer, unmanagedDestination, readOnly, readOnlyMembers, badName, macNote, alreadySaved
     var errorDescription: String? {
         switch self {
         case .unavailable: "Library is unavailable"
@@ -764,6 +767,7 @@ enum ViewerError: Error, LocalizedError {
         case .readOnlyMembers: "This notebook contains read-only imported copies"
         case .badName: "Name cannot be empty"
         case .macNote: "A note with this ID was created on this Mac; refusing to replace it with a copy"
+        case .alreadySaved: "This stroke is already in the note"
         }
     }
 }
