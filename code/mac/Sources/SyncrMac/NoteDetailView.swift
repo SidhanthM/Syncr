@@ -980,6 +980,64 @@ import SyncrCore
         return "pan-sync [\(mode.rawValue)]: \(trace.count) frames, \(split) with text and ink at different viewports, \(moving.count) moved, \(unsynced) moved without the transaction, \(trace.filter { $0.transaction }.count) transaction, \(trace.filter { !$0.transaction }.count) arrival"
     }
 
+    // MARK: Debug pan bench (debug flag only; `code/shared/latency/run.sh pan`)
+
+    /// Frame times while the view pans: when each frame was presented, and its CPU encode and GPU time.
+    private final class PanBench: @unchecked Sendable {
+        let lock = NSLock()
+        var presented: [UInt64] = [], encode: [Double] = [], gpu: [Double] = [], fallback = 0, frames = 0
+        func add(_ body: (PanBench) -> Void) { lock.lock(); body(self); lock.unlock() }
+    }
+    private var panBench: PanBench?
+
+    /// Pans the shown note or canvas programmatically for `seconds` (a sweep, moved 120 times a second, as a trackpad does)
+    /// and reports one line: presented-to-presented frame intervals, encode and GPU time per frame (ms).
+    func debugPanBench(seconds: Double, report: @escaping @MainActor (String) -> Void) {
+        let bench = PanBench()
+        panBench = bench
+        renderer?.frameTimes = { encode, gpu, _ in bench.add { $0.encode.append(encode); $0.gpu.append(gpu) } }
+        let start = CACurrentMediaTime(), baseView = viewport, baseCamera = debugCamera
+        let timer = Timer(timeInterval: 1.0 / 120, repeats: true) { [weak self] timer in
+            let finished = MainActor.assumeIsolated { () -> Bool in
+                guard let self else { return true }
+                let t = CACurrentMediaTime() - start
+                if t >= seconds { return true }
+                let dx = 1500 * sin(t * 2.1), dy = 900 * (1 - cos(t * 1.3)) / 2
+                if let c = baseCamera {
+                    self.canvasSession.set(CanvasCamera(left: c.left + dx, top: c.top + dy, zoom: c.zoom))
+                } else {
+                    var next = baseView
+                    next.left = baseView.left + Float(dx / 4); next.top = baseView.top + Float(dy)
+                    self.centred = false
+                    self.viewport = next
+                }
+                self.requestRedraw()
+                return false
+            }
+            if finished {
+                timer.invalidate()
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.panBench = nil; self.renderer?.frameTimes = nil
+                    // Late presented handlers and GPU completions land within a frame or two.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { report(Self.panReport(bench, strokes: self.model.drawing?.strokes.count ?? 0)) }
+                }
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private static func panReport(_ b: PanBench, strokes: Int) -> String {
+        b.lock.lock(); defer { b.lock.unlock() }
+        let p = b.presented.sorted()
+        let gaps = zip(p.dropFirst(), p).map { Double($0 &- $1) / 1e6 }.sorted()
+        func q(_ v: [Double], _ x: Double) -> Double { v.isEmpty ? -1 : v[min(v.count - 1, Int(Double(v.count) * x))] }
+        let e = b.encode.sorted(), g = b.gpu.sorted()
+        return String(format: "pan-bench strokes=%d frames=%d interval p50 %.2f p95 %.2f max %.2f ms; encode p50 %.2f p95 %.2f ms; gpu p50 %.2f p95 %.2f max %.2f ms; over-16.7ms=%d presented-fallback=%d",
+                      strokes, b.frames, q(gaps, 0.5), q(gaps, 0.95), gaps.last ?? -1, q(e, 0.5), q(e, 0.95), q(g, 0.5), q(g, 0.95), g.last ?? -1,
+                      gaps.filter { $0 > 16.7 }.count, b.fallback)
+    }
+
     // MARK: Debug control (DebugControl.swift, debug flag only)
 
     var debugViewport: Viewport {
@@ -1157,6 +1215,14 @@ import SyncrCore
         }
         var stage: (@Sendable (String, UInt64) -> Void)?
         if !times.isEmpty, let engine { stage = engine.stageSink(times, cold: cold, sent: sent) }
+        if let bench = panBench {
+            let inner = stage
+            bench.add { $0.frames += 1 }
+            stage = { name, ns in
+                inner?(name, ns)
+                if name.hasPrefix("presented") { bench.add { $0.presented.append(ns); if name != "presented" { $0.fallback += 1 } } }
+            }
+        }
         do {
             try renderer.render(model.drawing, wet: wet, viewport: frameViewport, dark: dark, target: drawable.texture,
                                 presenting: drawable, completion: failed, stage: stage,

@@ -324,7 +324,19 @@ class JoinTest(private val o: Options, private val print: (String) -> Unit) {
 
     // ------------------------------------------------------------------ the script
 
+    /**
+     * SYNCR_JOIN_ONLY: run only the steps named (their first word), comma or space separated; `latency` is the latency
+     * harness's set (`code/shared/latency/run.sh`): pairing, the first sync, a Mac note, a v1 phone, then `t` and `L`.
+     */
+    private val only: Set<String>? = System.getenv("SYNCR_JOIN_ONLY")?.split(',', ' ')?.filter { it.isNotBlank() }?.flatMap {
+        if (it == "latency") listOf("a1", "a2", "c1", "f1", "j0", "t", "L") else listOf(it)
+    }?.toSet()
+
+    /** One line per measured series, for the latency harness: `JOIN metric <name> p50=… p95=… max=… n=…` (ms). */
+    private fun metric(name: String, v: List<Long>) = print("JOIN metric $name ${summary(v)}")
+
     private fun step(name: String, body: () -> Unit) {
+        if (only != null && name.substringBefore(' ') !in only) return
         try { body(); print("JOIN PASS $name") }
         catch (f: Fail) { failed++; print("JOIN FAIL $name: ${f.message}") }
         catch (e: Exception) { failed++; print("JOIN FAIL $name: ${e.javaClass.simpleName}: ${e.message}") }
@@ -869,6 +881,8 @@ class JoinTest(private val o: Options, private val print: (String) -> Unit) {
                 print("JOIN info t mode=$mode phone to Mac, every keystroke: ${summary(phoneDuring)}")
                 print("JOIN info t mode=$mode phone to Mac, first key of a burst: ${summary(phoneFirst)}")
                 print("JOIN info t mode=$mode phone to Mac, last key of a burst: ${summary(phoneLast)}")
+                metric("text.mac-to-phone.every", macDuring); metric("text.mac-to-phone.last", macLast)
+                metric("text.phone-to-mac.every", phoneDuring); metric("text.phone-to-mac.last", phoneLast)
                 awaitEqual(typing)
                 // Latency-v1 T.6, Mac to phone: the whole path is the app's own code (editor throttle, announce, push, merge). Phone to
                 // Mac is reported only: its first hop is this test's stand-in for the phone's editor (host core calls that queue behind the
@@ -881,6 +895,51 @@ class JoinTest(private val o: Options, private val print: (String) -> Unit) {
                 }
             }
 
+
+            step("L pad ink in Stream mode: pen event to socket write on the phone, phone frame to Mac presented, idle and while a large note syncs") {
+                // Mac drawable presented times need the window on screen and in front.
+                macNote(macNoteId)
+                run { val m = mark(); control("front"); awaitLog(m, "ack front", 10_000) }
+                cur.client.setPad(true)
+                check(poll { cur.target.usable && cur.target.noteId == macNoteId }) { "no writable pad target on $macNoteId (${cur.target})" }
+                fun num(s: String, k: String) = Regex("$k=([\\d.]+)").find(s)?.groupValues?.get(1)
+                fun strokes(label: String) {
+                    run { val m = mark(); control("latency-reset"); awaitLog(m, "ack latency-reset", 10_000) }
+                    cur.client.latencyLog.penToWrite.clear()
+                    repeat(5) { n ->
+                        val pen = StreamPen(cur.feed, cur.ids, { cur.target }, { brush(BrushFamily.PEN, InkColour.INK) })
+                        var started = false
+                        play(240) { k, t, last ->
+                            val u = k / 239f
+                            val x = 600f + 3600f * u; val y = 600f + 300f * n + 200f * sin(u * 3 * PI).toFloat()
+                            if (!started) started = pen.down(x, y, 0.5f, 0f, 0f, t, false, false) else pen.move(x, y, 0.5f, 0f, 0f, t)
+                            if (last && started) pen.flush()
+                        }
+                        check(started) { "the pad could not start a stroke: ${pen.problem()}" }
+                        pen.up()
+                        Thread.sleep(400)
+                    }
+                    Thread.sleep(600) // presented handlers trail the last frame
+                    val phone = cur.client.latencyLog.penToWrite.summary()
+                    val mac = run { val m = mark(); control("latency-report"); awaitLog(m, "^link: latency-report ", 10_000) }
+                    print("JOIN info L $label phone pen-event-to-socket-write $phone | mac ${mac.substringAfter("latency-report ")}")
+                    print("JOIN metric pad.$label.pen-to-write p50=${num(phone, "p50")} p95=${num(phone, "p95")} max=${num(phone, "max")} ms n=${num(phone, "n")}")
+                    print("JOIN metric pad.$label.send-to-presented p50=${num(mac, "p50")} p95=${num(mac, "p95")} max=${num(mac, "max")} ms n=${num(mac, "n")}")
+                    print("JOIN fallback pad.$label ${num(mac, "handler-time-frames") ?: 0}")
+                    check((num(mac, "n")?.toDoubleOrNull() ?: 0.0) > 0) { "the Mac presented no phone frame with a known clock offset: $mac" }
+                }
+                strokes("idle")
+                // A large note goes from the Mac to the phone while the pad writes: 200 long strokes (several MB) on note1 (j7 leaves note2 in the phone's Recently deleted).
+                val m = mark()
+                control("sync-bulk $note1 200")
+                awaitLog(m, "link: ack sync-bulk $note1", 120_000)
+                awaitLog(m, "link: out-file id=$note1 ", 30_000)
+                val big = num(macSince(m).last { it.contains("out-file id=$note1 ") }, "size")
+                strokes("bulk")
+                print("JOIN info L bulk: the Mac's copy of $note1 is $big bytes; it had ${if (macHas(m, "have-in id=$note1")) "already" else "not yet"} been confirmed when the strokes ended")
+                cur.client.setPad(false)
+                awaitEqual(note1, 120_000)
+            }
 
             // ---------------------------------------------------------------- the pad's Local mode (rework-v1 §V)
             step("p1 Local mode: the Mac answers padmode with a pen frame of the pad's shape inside its view") {

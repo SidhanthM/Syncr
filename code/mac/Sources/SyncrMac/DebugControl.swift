@@ -262,6 +262,14 @@ import SyncrCore
         } }
         case "document": detail.documentView(); say("ack document")
         case "replay": live.replay(.pen); say("ack replay")
+        case "pan-bench": detail.debugPanBench(seconds: words.count > 1 ? Double(words[1]) ?? 4 : 4) { [weak self] in self?.say($0) }
+        case "latency-reset": live.engine.resetLatency(); say("ack latency-reset")
+        case "latency-report":
+            // Phone frame built to Mac drawable presented, since the last latency-reset (needs the clock offset from pings).
+            let s = live.engine.phoneLatency.summary()
+            // Frames whose drawable never reported a presented time (display asleep, screen locked, window hidden): timed at the handler.
+            let fallback = live.engine.stages["presented (handler time)"]?.summary().count ?? 0
+            say(String(format: "latency-report phone-send-to-mac-presented p50=%.1f p95=%.1f max=%.1f ms n=%d handler-time-frames=%d", s.p50, s.p95, s.max, s.count, fallback))
         case "quit": NSApplication.shared.terminate(nil)
         case "report": report()
         case "open": if words.count == 2 { workspace.open(words[1]); say("ack open \(words[1])") }

@@ -12,19 +12,21 @@ import SyncrCore
 ///   sync-margin <note>              a margin note on the note's first text block (adds the anchor)
 ///   sync-bulk <note> <count>        count long strokes (8,000 samples each): a big note, for cutting a transfer
 ///   sync-count <note>               operations in the note: `link: sync-count note=<id> ops=<n>`
+///   sync-fixture <note> <count>     count short strokes (60 samples) spread over 8,000 by 6,000 units, 500 to a command:
+///                                   the latency harness's canvas fixture (`code/shared/latency/run.sh pan`)
 @MainActor final class DebugSync {
     private let model: LibraryModel
     private let say: (String) -> Void
     private let closeTabs: () -> Void
     init(model: LibraryModel, closeTabs: @escaping () -> Void, say: @escaping (String) -> Void) { self.model = model; self.closeTabs = closeTabs; self.say = say }
 
-    static let commands: Set<String> = ["sync-close-tabs", "sync-stroke", "sync-move", "sync-text", "sync-margin", "sync-bulk", "sync-count"]
+    static let commands: Set<String> = ["sync-close-tabs", "sync-stroke", "sync-move", "sync-text", "sync-margin", "sync-bulk", "sync-count", "sync-fixture"]
 
-    nonisolated private static func channels(x: Float, count: Int = 60, row: Float = 0) throws -> Data {
+    nonisolated private static func channels(x: Float, count: Int = 60, row: Float = 0, length: Float = 600) throws -> Data {
         var c = SampleChannels(x: [], y: [], pressure: [], elapsedMs: [], tilt: nil, orientation: nil)
         for i in 0..<count {
             let u = Float(i) / Float(count - 1)
-            c.x.append(x + 600 * u); c.y.append(1200 + row + 100 * sin(u * 6)); c.pressure.append(0.5); c.elapsedMs.append(UInt32(i * 4))
+            c.x.append(x + length * u); c.y.append(1200 + row + 100 * sin(u * 6)); c.pressure.append(0.5); c.elapsedMs.append(UInt32(i * 4))
         }
         return try encodeSamples(channels: c)
     }
@@ -50,6 +52,18 @@ import SyncrCore
                 for k in 0..<n {
                     _ = try h.submit(command: Command(operationId: newId(), dependencies: [sheet.creationOperationId], body: .marks(mutations: [
                         .addStroke(markId: newId(), sheetId: sheet.id, samples: try Self.channels(x: 100, count: 8000, row: Float(k) * 30), brush: Brush(family: .pen, size: .medium, colour: .ink))])))
+                }
+            }
+        case "sync-fixture":
+            let n = Int(words.count > 2 ? words[2] : "5000") ?? 5000
+            run = { h in
+                let sheet = try h.snapshot().sheets[0]
+                for start in stride(from: 0, to: n, by: 500) {
+                    let marks = try (start..<min(n, start + 500)).map { k -> MarkMutation in
+                        .addStroke(markId: newId(), sheetId: sheet.id, samples: try Self.channels(x: Float((k * 977) % 8000), row: Float((k * 613) % 6000) - 1200, length: 160),
+                                   brush: Brush(family: k % 11 == 10 ? .highlighter : .pen, size: .medium, colour: [.ink, .blue, .red, .green][k % 4]))
+                    }
+                    _ = try h.submit(command: Command(operationId: newId(), dependencies: [sheet.creationOperationId], body: .marks(mutations: marks)))
                 }
             }
         case "sync-move":
