@@ -177,6 +177,8 @@ final class LinkSession: @unchecked Sendable {
     private(set) var peerPush = false
     /// The phone keeps pad strokes until confirmed (link K.4): the Mac confirms each one by ID.
     private(set) var peerKeep = false
+    /// The phone stamps pointer packets with its clock (`ptime`), so the Mac can tell how late one is (remaining-v1 P.2).
+    private(set) var peerPointerTime = false
     /// Why the session ended, for the one line it leaves in the log.
     private var cause = "io"
     private var lastTickNs: UInt64 = 0
@@ -247,7 +249,7 @@ final class LinkSession: @unchecked Sendable {
 
     private func handle(_ control: LinkControl, at ns: UInt64) {
         switch control {
-        case .hello(let v, let device, let id, let token, let delta, let push, let keep): receiveHello(v: v, device: device, phoneId: id, token: token, delta: delta, push: push, keep: keep, at: ns)
+        case .hello(let v, let device, let id, let token, let delta, let push, let keep, let ptime): receiveHello(v: v, device: device, phoneId: id, token: token, delta: delta, push: push, keep: keep, ptime: ptime, at: ns)
         case .code(let code): receiveCode(code, at: ns)
         case .bye: cause = "bye"; shutdown(bye: nil)
         default:
@@ -266,7 +268,7 @@ final class LinkSession: @unchecked Sendable {
                 if let id, !LinkIds.valid(id) { return }
                 host?.sessionViewing(self, id: id)
             case .pointerMode(let v, let on): if peerVersion >= 1 { pointerOpen = on; host?.sessionPointerMode(self, version: v, on: on) }
-            case .pointer(let packet): if peerVersion >= 1 { host?.sessionPointer(self, packet: packet) }
+            case .pointer(let packet): if peerVersion >= 1 { host?.sessionPointer(self, packet: markingLate(packet, at: ns)) }
             case .pad(let on): padOpen = on; host?.sessionPad(self, on: on)
             case .strokeRev(let id, let rev): if peerKeep { io.expectResend?(id, rev) }
             case .padMode(let local, let pics, let aspect, let read): host?.sessionPadMode(self, local: local, pics: pics, aspect: aspect, read: read)
@@ -279,13 +281,14 @@ final class LinkSession: @unchecked Sendable {
 
     // MARK: Hello and pairing (3.1)
 
-    private func receiveHello(v: Int, device: String?, phoneId id: String?, token: String?, delta: Bool, push: Bool, keep: Bool, at ns: UInt64) {
+    private func receiveHello(v: Int, device: String?, phoneId id: String?, token: String?, delta: Bool, push: Bool, keep: Bool, ptime: Bool, at ns: UInt64) {
         guard phase == .awaitingHello else { return }
         guard (LinkLimits.oldestVersion...LinkLimits.version).contains(v) else { cause = "version"; shutdown(bye: "version"); return }
         peerVersion = v
         peerDelta = delta && v >= 1
         peerPush = peerDelta && push
         peerKeep = keep && v >= 1
+        peerPointerTime = ptime && v >= 1
         guard let id, LinkIds.validHex(id, count: 32) else { log("hello without a valid phone_id"); shutdown(bye: nil); return }
         phoneId = id.lowercased()
         phoneName = Self.cleanName(device)
@@ -329,7 +332,7 @@ final class LinkSession: @unchecked Sendable {
         phase = .ready
         io.liveReset(config.epoch)
         race = PreviewRace()
-        send(.welcome(mac: config.macName, macId: config.macId, epoch: config.epoch, v: min(peerVersion, LinkLimits.version), delta: peerVersion >= 1, push: peerVersion >= 1, keep: peerKeep))
+        send(.welcome(mac: config.macName, macId: config.macId, epoch: config.epoch, v: min(peerVersion, LinkLimits.version), delta: peerVersion >= 1, push: peerVersion >= 1, keep: peerKeep, ptime: peerPointerTime))
         if peerVersion >= 1, let port = config.udpPort, config.udpKey != 0 { send(.udp(port: port, key: String(format: "%016llx", config.udpKey))) }
         nextPingNs = ns
         host?.sessionWelcomed(self)
@@ -347,6 +350,15 @@ final class LinkSession: @unchecked Sendable {
     }
 
     // MARK: Clock (3.2)
+
+    /// A pointer packet's age by the phone's clock, using the offset the pings give. Without `ptime`, a stamp, or an offset
+    /// there is nothing to judge by and the packet is as today's: only the Mac's own receive time counts.
+    func markingLate(_ packet: PointerPacket, at ns: UInt64) -> PointerPacket {
+        guard peerPointerTime, let sent = packet.sentMs, let sentOnMac = clock.macMs(fromPhoneMs: Double(sent)) else { return packet }
+        var p = packet
+        p.stale = Double(ns) / 1e6 - sentOnMac > LinkLimits.pointerMaxAgeMs
+        return p
+    }
 
     func tick(atNs ns: UInt64) {
         switch phase {

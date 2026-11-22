@@ -236,11 +236,71 @@ private func watchdogChecks() throws {
     try check(busy.controls.filter { if case .ping = $0 { true } else { false } }.count >= before + 2, "pings every second with a pad open")
 }
 
+/// Remaining-v1 P.2: a pointer packet that sat in the socket through a Mac stall is judged by the phone's clock, not by when the Mac read it.
+private func latePointerChecks() throws {
+    // Negotiated both ways: a phone that asks is told, one that does not ask is not.
+    let rig = SessionRig(); try rig.welcome(v: 1, ptime: true)
+    guard case .welcome(_, _, _, _, _, _, _, let told)? = rig.controls.first(where: { if case .welcome = $0 { true } else { false } }) else { throw CheckFailure(description: "no welcome") }
+    try check(told, "a v1 phone that stamps its pointer packets is told the Mac reads the stamps")
+    let plain = SessionRig(); try plain.welcome(v: 1)
+    guard case .welcome(_, _, _, _, _, _, _, let toldPlain)? = plain.controls.first(where: { if case .welcome = $0 { true } else { false } }) else { throw CheckFailure(description: "no welcome") }
+    try check(!toldPlain, "a phone that did not ask is not offered it")
+    let v0 = SessionRig(); try v0.welcome(v: 0, ptime: true)
+    try check(!v0.session.peerPointerTime, "a v0 phone never takes part")
+    try check(LinkControl.hello(v: 1, device: "x", phoneId: "p", token: nil).object["ptime"] == nil && LinkControl.welcome(mac: "m", macId: "i", epoch: 1, v: 1).object["ptime"] == nil, "no ptime key unless set")
+    let stamped = PointerPacket(seq: 3, dx: 1, dy: 2, sx: 0, sy: 0, buttons: 1, click: 0, sentMs: 123_456)
+    try check(try LinkControl.parse(json: JSONSerialization.data(withJSONObject: LinkControl.pointer(stamped).object)) == .pointer(stamped), "ts round-trips")
+    try check(LinkControl.pointer(PointerPacket(seq: 1, dx: 1, dy: 0, sx: 0, sy: 0, buttons: 0, click: 0)).object["ts"] == nil, "an unstamped packet writes no ts")
+
+    // The offset comes from the ping exchange: phone clock = Mac clock + 7000 ms.
+    guard case .ping(let id, let at) = rig.controls.last(where: { if case .ping = $0 { true } else { false } }) ?? .pair else { throw CheckFailure(description: "no ping") }
+    rig.now += 10_000_000
+    rig.feed(.pong(id: id, at: at, now: UInt64(Double(rig.now) / 1e6 - 5 + 7000)))
+    func phoneNow() -> UInt64 { UInt64(Double(rig.now) / 1e6 + 7000) }
+    func packet(_ seq: UInt64, dx: Double = 0, sy: Double = 0, buttons: Int = 0, click: Int = 0, ageMs: UInt64, end: Bool = false) -> PointerPacket {
+        PointerPacket(seq: seq, dx: dx, dy: 0, sx: 0, sy: sy, buttons: buttons, click: click, scrollEnd: end, sentMs: phoneNow() - ageMs)
+    }
+    // The Mac stalls for one second and then reads what was already in the socket.
+    let sent = packet(1, dx: 4, ageMs: 0)
+    rig.now += 1_000_000_000
+    rig.feed(.pointer(sent)); rig.feed(.pointer(packet(2, dx: 4, ageMs: 5)))
+    try check(rig.pointerPackets.count == 2 && rig.pointerPackets[0].stale, "a packet sent before a one second stall is late when the Mac reads it")
+    // Fresh packets are not touched.
+    rig.pointerPackets = []
+    rig.feed(.pointer(packet(3, dx: 4, ageMs: 50)))
+    try check(rig.pointerPackets.first?.stale == false, "a packet 50 ms old is fresh")
+    rig.feed(.pointer(packet(4, dx: 4, ageMs: 199)))
+    try check(rig.pointerPackets.last?.stale == false, "just inside the limit is fresh")
+    rig.feed(.pointer(packet(5, dx: 4, ageMs: 260)))
+    try check(rig.pointerPackets.last?.stale == true, "past the limit is late")
+    // Without a stamp, or without the negotiation, nothing changes: today's behaviour.
+    rig.feed(.pointer(PointerPacket(seq: 6, dx: 4, dy: 0, sx: 0, sy: 0, buttons: 0, click: 0)))
+    try check(rig.pointerPackets.last?.stale == false, "an unstamped packet is never judged")
+    let noOffset = SessionRig(); try noOffset.welcome(v: 1, ptime: true)
+    noOffset.feed(.pointer(PointerPacket(seq: 1, dx: 4, dy: 0, sx: 0, sy: 0, buttons: 0, click: 0, sentMs: 1)))
+    try check(noOffset.pointerPackets.last?.stale == false, "before the first pong there is no offset and nothing is judged")
+    let old = SessionRig(); try old.welcome(v: 1)
+    old.feed(.pointerMode(version: 1, on: true))
+    old.feed(.pointer(PointerPacket(seq: 1, dx: 4, dy: 0, sx: 0, sy: 0, buttons: 0, click: 0, sentMs: 1)))
+    try check(old.pointerPackets.last?.stale == false, "a stamp from a phone that did not negotiate is ignored")
+
+    // What a late packet may still do.
+    let late = { (p: PointerPacket) in PointerPacket(seq: p.seq, dx: p.dx, dy: p.dy, sx: p.sx, sy: p.sy, buttons: p.buttons, click: p.click, scrollEnd: p.scrollEnd, sentMs: p.sentMs, stale: true) }
+    let moved = late(PointerPacket(seq: 1, dx: 9, dy: -9, sx: 3, sy: 4, buttons: 0, click: 2)).droppingLateMotion(buttonDown: false)
+    try check(moved.dx == 0 && moved.dy == 0 && moved.sx == 0 && moved.sy == 0 && moved.click == 0 && moved.buttons == 0, "late motion, scroll and clicks are dropped")
+    try check(late(PointerPacket(seq: 1, dx: 9, dy: 0, sx: 0, sy: 0, buttons: 1, click: 0)).droppingLateMotion(buttonDown: false).buttons == 0, "a late press does not press")
+    try check(late(PointerPacket(seq: 1, dx: 9, dy: 0, sx: 0, sy: 0, buttons: 1, click: 0)).droppingLateMotion(buttonDown: true).buttons == 1, "a late packet in a drag leaves the button as it is")
+    try check(late(PointerPacket(seq: 1, dx: 9, dy: 0, sx: 0, sy: 0, buttons: 0, click: 0)).droppingLateMotion(buttonDown: true).buttons == 0, "a late release always releases")
+    try check(late(PointerPacket(seq: 1, dx: 0, dy: 0, sx: 0, sy: 0, buttons: 0, click: 0, scrollEnd: true)).droppingLateMotion(buttonDown: false).scrollEnd, "a late end of scroll always ends it")
+    let fresh = PointerPacket(seq: 1, dx: 9, dy: 0, sx: 0, sy: 0, buttons: 1, click: 0)
+    try check(fresh.droppingLateMotion(buttonDown: false) == fresh, "a fresh packet is returned as it came")
+}
+
 /// Link K.4: the phone's stroke keeping is negotiated, confirmed by ID and placed by the revision it began at.
 private func strokeKeepChecks() throws {
     let keep = SessionRig(); keep.feed(.hello(v: 1, device: "Phone", phoneId: keep.phoneId, token: nil, delta: true, push: true, keep: true))
     keep.feed(.code(keep.codes.last?.code ?? ""))
-    guard case .welcome(_, _, _, _, _, _, let kept)? = keep.controls.first(where: { if case .welcome = $0 { true } else { false } }) else { throw CheckFailure(description: "no welcome") }
+    guard case .welcome(_, _, _, _, _, _, let kept, _)? = keep.controls.first(where: { if case .welcome = $0 { true } else { false } }) else { throw CheckFailure(description: "no welcome") }
     try check(kept, "a v1 phone that asks to keep strokes is told it may")
     keep.session.sendStrokeAck(id: "S1", ok: true); keep.session.sendStrokeAck(id: "S2", ok: false)
     try check(keep.controls.suffix(2) == [.strokeAck(id: "S1", ok: true), .strokeAck(id: "S2", ok: false)], "the Mac confirms strokes by ID, saved or refused")
@@ -248,7 +308,7 @@ private func strokeKeepChecks() throws {
     try check(keep.resends.count == 1 && keep.resends[0].0 == "S1" && keep.resends[0].1 == 42, "stroke_rev reaches the engine")
 
     let plain = SessionRig(); try plain.welcome(v: 1)
-    guard case .welcome(_, _, _, _, _, _, let keptPlain)? = plain.controls.first(where: { if case .welcome = $0 { true } else { false } }) else { throw CheckFailure(description: "no welcome") }
+    guard case .welcome(_, _, _, _, _, _, let keptPlain, _)? = plain.controls.first(where: { if case .welcome = $0 { true } else { false } }) else { throw CheckFailure(description: "no welcome") }
     try check(!keptPlain, "a phone that did not ask is not offered it")
     let before = plain.controls.count
     plain.session.sendStrokeAck(id: "S1", ok: true); plain.feed(.strokeRev(id: "S1", rev: 1))
@@ -339,15 +399,15 @@ private final class SessionRig: LinkSessionHost, @unchecked Sendable {
     func feed(_ c: LinkControl) { session.receive(.control(c), at: now) }
     func feed(_ f: LinkFrame) { session.receive(f, at: now) }
     func tick(after seconds: Double) { now += UInt64(seconds * 1e9); session.tick(atNs: now) }
-    func hello(token: String? = nil, v: Int = 0, device: String? = "Galaxy S23 Ultra", delta: Bool = false, push: Bool = false, keep: Bool = false) {
-        feed(.hello(v: v, device: device, phoneId: phoneId, token: token, delta: delta, push: push, keep: keep))
+    func hello(token: String? = nil, v: Int = 0, device: String? = "Galaxy S23 Ultra", delta: Bool = false, push: Bool = false, keep: Bool = false, ptime: Bool = false) {
+        feed(.hello(v: v, device: device, phoneId: phoneId, token: token, delta: delta, push: push, keep: keep, ptime: ptime))
     }
     func clearSent() { sent = Data() }
     func controlsOffer() -> FileOffer? { for c in controls { if case .file(let o) = c { return o } }; return nil }
 
     /// Pairs and welcomes through the normal path. Returns the token.
-    @discardableResult func welcome(v: Int = 0, delta: Bool = false, push: Bool = false) throws -> String {
-        hello(v: v, delta: delta, push: push)
+    @discardableResult func welcome(v: Int = 0, delta: Bool = false, push: Bool = false, ptime: Bool = false) throws -> String {
+        hello(v: v, delta: delta, push: push, ptime: ptime)
         let code = codes.last?.code ?? ""
         feed(.code(code))
         guard case .paired(let token)? = controls.first(where: { if case .paired = $0 { true } else { false } }) else {
@@ -1208,7 +1268,7 @@ private func isTarget(_ c: LinkControl, note: String, writable: Bool) -> Bool {
     var token = "", epoch: UInt32 = 0
     try pump("paired and welcome") {
         if case .paired(let t)? = phone.take({ if case .paired = $0 { true } else { false } }) { token = t }
-        if case .welcome(_, _, let e, _, _, _, _)? = phone.take({ if case .welcome = $0 { true } else { false } }) { epoch = e }
+        if case .welcome(_, _, let e, _, _, _, _, _)? = phone.take({ if case .welcome = $0 { true } else { false } }) { epoch = e }
         return !token.isEmpty && epoch != 0
     }
     try check(shownCode == nil, "the code is hidden once paired")
@@ -1633,6 +1693,7 @@ private func padChecks() throws {
     try slowDiskWatchdogChecks()
     try replacedWhileWritingChecks()
     try strokeKeepChecks()
+    try latePointerChecks()
     try pairingChecks()
     try syncChecks()
     try deltaChecks()

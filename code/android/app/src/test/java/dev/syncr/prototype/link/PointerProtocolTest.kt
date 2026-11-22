@@ -41,6 +41,41 @@ class PointerProtocolTest {
         } finally { h.cleanup() }
     }
 
+    @Test fun packetsCarryThePhoneClockOnlyWhenTheMacSaidItReadsIt() {
+        val stamped = Control.Pointer(3, PointerInput(dx = 2.0), ts = 123_456L)
+        assertEquals(stamped, Control.parse(stamped.encode()))
+        assertFalse(String(Control.Pointer(1, PointerInput(dx = 1.0)).encode()).contains("\"ts\""))
+        assertEquals(true, (Control.Hello("x", "p".repeat(32), null, 1, ptime = true).json())["ptime"])
+        assertFalse(Control.Hello("x", "p".repeat(32), null, 0).json().containsKey("ptime"))
+        assertFalse(Control.Welcome(1, "Mac", MAC_ID, 1).json().containsKey("ptime"))
+        assertTrue((Control.parse(Control.Welcome(1, "Mac", MAC_ID, 1, ptime = true).encode()) as Control.Welcome).ptime)
+
+        fun run(welcome: Control.Welcome): Control.Pointer {
+            val h = SessionHarness()
+            try {
+                h.session.setPointer(true)
+                h.session.start(); h.drain(); h.mac(welcome); h.drain()
+                h.mac(Control.PointerState(1, true, "Ready"))
+                h.drain()
+                h.clock.now = 5_000
+                h.session.pointerInput(PointerInput(dx = 5.0))
+                return h.controls().single() as Control.Pointer
+            } finally { h.cleanup() }
+        }
+        val told = run(Control.Welcome(1, "Test Mac", MAC_ID, 7, ptime = true))
+        assertEquals(5_000L, told.ts) // the phone's own clock at the moment the packet was made
+        assertNull(run(Control.Welcome(1, "Test Mac", MAC_ID, 7)).ts)           // an old Mac: today's packet
+    }
+
+    @Test fun helloAsksForPointerStampsOnlyAtLinkV1() {
+        val h = SessionHarness()
+        try {
+            h.session.start()
+            val hello = h.controls().filterIsInstance<Control.Hello>().single()
+            assertEquals(hello.v >= 1, hello.ptime)
+        } finally { h.cleanup() }
+    }
+
     @Test fun rejectsUnboundedOrAmbiguousInput() {
         val base = """{"t":"pointer","v":1,"seq":1,"dx":0,"dy":0,"sx":0,"sy":0,"buttons":0,"click":0}"""
         for (bad in listOf(base.replace("\"v\":1", "\"v\":2"), base.replace("\"seq\":1", "\"seq\":0"),

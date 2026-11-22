@@ -49,6 +49,8 @@ class LinkSession(
     private var pointerWanted = false
     private var pointerStatus = PointerStatus()
     private var pointerSeq = 0L
+    /** The Mac reads the phone-clock stamp on pointer packets (it said `ptime` in welcome). */
+    private var pointerStamped = false
     private var padWish: PadWish? = null
     /** The pen frame the Mac last reported while the pad was open: asked for again after a reconnect, so the pad resumes where it was. */
     private var padFrame: CanvasRect? = null
@@ -62,7 +64,7 @@ class LinkSession(
         // A stored token goes only to the Mac it was issued by; a Mac that is not known yet gets a chance to say so.
         val stored = store.pairing()?.takeIf { target.macId == null || it.macId == target.macId }
         sentToken = stored?.token
-        scheduler.sendControl(Control.Hello(device, store.phoneId(), stored?.token, version, delta = true, push = true, keep = version >= 1))
+        scheduler.sendControl(Control.Hello(device, store.phoneId(), stored?.token, version, delta = true, push = true, keep = version >= 1, ptime = version >= 1))
         events.status(SessionStatus(Phase.CONNECTING, stored?.macName ?: target.name))
     }
 
@@ -124,6 +126,7 @@ class LinkSession(
             return
         }
         peerVersion = c.v
+        pointerStamped = c.ptime && c.v >= 1 && version >= 1
         val token = pendingToken
         val existing = store.pairing()
         if (token != null) store.save(Pairing(c.macId, c.mac, token))
@@ -224,7 +227,7 @@ class LinkSession(
 
     fun pointerInput(input: PointerInput) {
         if (phase == Phase.CONNECTED && pointerWanted && pointerStatus.ready && input.valid()) {
-            scheduler.sendControl(Control.Pointer(++pointerSeq, input))
+            scheduler.sendControl(Control.Pointer(++pointerSeq, input, if (pointerStamped) clock.nowMs() else null))
         }
     }
 

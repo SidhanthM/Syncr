@@ -22,17 +22,19 @@ sealed class Control {
     /**
      * [delta]: this side can send and merge deltas (sync-delta.md). [push]: it also takes a delta nobody asked for and sends its
      * own as soon as a note changes (latency-v1 T.3). [keep] (link K.4): the phone keeps each pad stroke until the Mac confirms it by
-     * ID and may send it again after a reconnect. All are written only when true, so an older peer sees the old message.
+     * ID and may send it again after a reconnect. [ptime] (remaining-v1 P.2): the phone stamps pointer packets with its clock (`ts`) so the Mac
+     * can drop motion that arrives late; the Mac's `welcome` says it reads the stamps. All are written only when true, so an older peer sees the old message.
      */
     data class Hello(
         val device: String, val phoneId: String, val token: String?, val v: Int = VERSION, val delta: Boolean = false, val push: Boolean = false,
-        val keep: Boolean = false,
+        val keep: Boolean = false, val ptime: Boolean = false,
     ) : Control() {
         override fun json(): Map<String, Any?> {
             val m = linkedMapOf<String, Any?>("t" to "hello", "v" to v, "device" to device, "phone_id" to phoneId, "token" to token)
             if (delta) m["delta"] = true
             if (push) m["push"] = true
             if (keep) m["keep"] = true
+            if (ptime) m["ptime"] = true
             return m
         }
     }
@@ -40,12 +42,14 @@ sealed class Control {
     /** [keep]: the Mac saw `keep` in hello and confirms every pad stroke by ID with [StrokeAck]. */
     data class Welcome(
         val v: Int, val mac: String, val macId: String, val epoch: Long, val delta: Boolean = false, val push: Boolean = false, val keep: Boolean = false,
+        val ptime: Boolean = false,
     ) : Control() {
         override fun json(): Map<String, Any?> {
             val m = linkedMapOf<String, Any?>("t" to "welcome", "v" to v, "mac" to mac, "mac_id" to macId, "epoch" to epoch)
             if (delta) m["delta"] = true
             if (push) m["push"] = true
             if (keep) m["keep"] = true
+            if (ptime) m["ptime"] = true
             return m
         }
     }
@@ -197,11 +201,13 @@ sealed class Control {
     data class PointerState(val v: Int, val ready: Boolean, val message: String) : Control() {
         override fun json() = mapOf("t" to "pointerstate", "v" to v.toLong(), "ready" to ready, "message" to message)
     }
-    data class Pointer(val seq: Long, val input: PointerInput) : Control() {
+    /** [ts]: the phone's clock (`Clock.nowMs`) when the packet was made; written only once the Mac said `ptime`. */
+    data class Pointer(val seq: Long, val input: PointerInput, val ts: Long? = null) : Control() {
         override fun json(): Map<String, Any?> {
             val m = linkedMapOf<String, Any?>("t" to "pointer", "v" to 1L, "seq" to seq, "dx" to input.dx, "dy" to input.dy,
                 "sx" to input.sx, "sy" to input.sy, "buttons" to input.buttons.toLong(), "click" to input.click.toLong())
             if (input.scrollEnd) m["se"] = true // optional, so a Mac that predates it just sees a zero packet
+            if (ts != null) m["ts"] = ts
             return m
         }
     }
@@ -222,8 +228,8 @@ sealed class Control {
             val root = Json.parse(message, 1) as? Map<*, *> ?: throw LinkProtocolException("control message is not an object")
             val m = Fields(root)
             return when (m.str("t")) {
-                "hello" -> Hello(m.str("device", 256), m.id("phone_id"), m.optStr("token", 128), m.int("v").toInt(), m.flag("delta"), m.flag("push"), m.flag("keep"))
-                "welcome" -> Welcome(m.int("v").toInt(), m.str("mac", 256), m.id("mac_id"), m.u32("epoch"), m.flag("delta"), m.flag("push"), m.flag("keep"))
+                "hello" -> Hello(m.str("device", 256), m.id("phone_id"), m.optStr("token", 128), m.int("v").toInt(), m.flag("delta"), m.flag("push"), m.flag("keep"), m.flag("ptime"))
+                "welcome" -> Welcome(m.int("v").toInt(), m.str("mac", 256), m.id("mac_id"), m.u32("epoch"), m.flag("delta"), m.flag("push"), m.flag("keep"), m.flag("ptime"))
                 "stroke_ack" -> StrokeAck(m.id("id"), m.bool("ok"))
                 "stroke_rev" -> StrokeRev(m.id("id"), m.u32("rev"))
                 "pair" -> PairRequest
@@ -254,7 +260,7 @@ sealed class Control {
                         scrollEnd = m.optBool("se"))
                     val seq = m.int("seq")
                     if (!input.valid() || seq < 1) throw LinkProtocolException("pointer bounds")
-                    Pointer(seq, input)
+                    Pointer(seq, input, m.optInt("ts"))
                 }
                 "target" -> {
                     val note = m.optStr("note", 64)

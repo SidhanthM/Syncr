@@ -14,6 +14,8 @@ enum LinkLimits {
     static let maxFileBytes: UInt64 = 256 << 20
     static let codeLifetimeNs: UInt64 = 120_000_000_000
     static let codeTries = 5
+    /// Pointer motion and scroll older than this (by the phone's clock) is dropped; the same limit the Mac applies to its own queue.
+    static let pointerMaxAgeMs = 200.0
     static let helloTimeoutNs: UInt64 = 10_000_000_000
     /// A session with nothing to lose (no pad, pointer or transfer) may be quiet this long before the Mac calls the phone gone.
     static let idleTimeoutNs: UInt64 = 12_000_000_000
@@ -89,6 +91,19 @@ struct PointerPacket: Equatable, Sendable {
     let click: Int
     /// Closes a two-finger scroll (the "ended" phase). Optional `se` on the wire; older phones never send it.
     var scrollEnd = false
+    /// The phone's clock when it sent the packet (`ts` on the wire, only with a negotiated `ptime`); nil from an older phone.
+    var sentMs: UInt64? = nil
+    /// Set by the session, not the wire: the packet reached the Mac later than `LinkLimits.pointerMaxAgeMs` after it was sent.
+    var stale = false
+
+    /// What a late packet may still do: nothing that moves, scrolls, presses or clicks, since those would land after the finger
+    /// moved on. A release and the end of a scroll always go through (fail-closed: a button is never left down). A late packet
+    /// that still holds the button keeps it as it is.
+    func droppingLateMotion(buttonDown: Bool) -> PointerPacket {
+        guard stale else { return self }
+        return PointerPacket(seq: seq, dx: 0, dy: 0, sx: 0, sy: 0, buttons: buttons == 0 ? 0 : (buttonDown ? 1 : 0), click: 0,
+                             scrollEnd: scrollEnd, sentMs: sentMs, stale: true)
+    }
 }
 
 /// One control message (`t` field). `unknown` keeps the name so it can be logged and ignored.
@@ -96,10 +111,10 @@ enum LinkControl: Equatable, Sendable {
     /// `delta`: this side can send and merge deltas. Written only when true. `push`: this side also takes a delta nobody
     /// asked for and sends its own as soon as a note changes (latency-v1 T.3); only meaningful with `delta`.
     /// `keep` (link K.4): the phone keeps each pad stroke until `stroke_ack` and may send it again after a reconnect.
-    case hello(v: Int, device: String?, phoneId: String?, token: String?, delta: Bool = false, push: Bool = false, keep: Bool = false)
+    case hello(v: Int, device: String?, phoneId: String?, token: String?, delta: Bool = false, push: Bool = false, keep: Bool = false, ptime: Bool = false)
     /// `v` is the version this connection runs at: the phone's, when it is older than the Mac's (a v0 phone refuses any other).
     /// `keep`: the Mac saw `keep` in hello and will confirm every pad stroke by ID (`stroke_ack`).
-    case welcome(mac: String, macId: String, epoch: UInt32, v: Int = LinkLimits.version, delta: Bool = false, push: Bool = false, keep: Bool = false)
+    case welcome(mac: String, macId: String, epoch: UInt32, v: Int = LinkLimits.version, delta: Bool = false, push: Bool = false, keep: Bool = false, ptime: Bool = false)
     case pair
     case code(String)
     case paired(token: String)
@@ -142,17 +157,19 @@ enum LinkControl: Equatable, Sendable {
 
     var object: [String: Any] {
         switch self {
-        case .hello(let v, let device, let phoneId, let token, let delta, let push, let keep):
+        case .hello(let v, let device, let phoneId, let token, let delta, let push, let keep, let ptime):
             var o: [String: Any] = ["t": "hello", "v": v, "device": device ?? "", "phone_id": phoneId ?? "", "token": token.map { $0 as Any } ?? NSNull()]
             if delta { o["delta"] = true }
             if push { o["push"] = true }
             if keep { o["keep"] = true }
+            if ptime { o["ptime"] = true }
             return o
-        case .welcome(let mac, let macId, let epoch, let v, let delta, let push, let keep):
+        case .welcome(let mac, let macId, let epoch, let v, let delta, let push, let keep, let ptime):
             var o: [String: Any] = ["t": "welcome", "v": v, "mac": mac, "mac_id": macId, "epoch": epoch]
             if delta { o["delta"] = true }
             if push { o["push"] = true }
             if keep { o["keep"] = true }
+            if ptime { o["ptime"] = true }
             return o
         case .pair: return ["t": "pair"]
         case .code(let code): return ["t": "code", "code": code]
@@ -204,6 +221,7 @@ enum LinkControl: Equatable, Sendable {
         case .pointer(let p):
             var json: [String: Any] = ["t": "pointer", "v": 1, "seq": p.seq, "dx": p.dx, "dy": p.dy, "sx": p.sx, "sy": p.sy, "buttons": p.buttons, "click": p.click]
             if p.scrollEnd { json["se"] = true }
+            if let ts = p.sentMs { json["ts"] = ts }
             return json
         case .strokeAck(let id, let ok): return ["t": "stroke_ack", "id": id, "ok": ok]
         case .strokeRev(let id, let rev): return ["t": "stroke_rev", "id": id, "rev": rev]
@@ -263,13 +281,14 @@ enum LinkControl: Equatable, Sendable {
                   let dx = Self.number(obj["dx"]), let dy = Self.number(obj["dy"]),
                   let sx = Self.number(obj["sx"]), let sy = Self.number(obj["sy"]),
                   [dx, dy, sx, sy].allSatisfy({ $0.isFinite && abs($0) <= 2048 }) else { throw bad("pointer bounds") }
-            return .pointer(PointerPacket(seq: seq, dx: dx, dy: dy, sx: sx, sy: sy, buttons: Int(buttons), click: Int(click), scrollEnd: obj["se"] as? Bool ?? false))
+            return .pointer(PointerPacket(seq: seq, dx: dx, dy: dy, sx: sx, sy: sy, buttons: Int(buttons), click: Int(click), scrollEnd: obj["se"] as? Bool ?? false,
+                                        sentMs: obj["ts"].flatMap(integer).flatMap { UInt64(exactly: $0) }))
         case "hello":
             guard let v = obj["v"].flatMap(integer), let version = Int(exactly: v) else { throw bad("v is not an integer") }
             return .hello(v: version, device: obj["device"] as? String, phoneId: obj["phone_id"] as? String, token: try optionalString("token"),
-                          delta: obj["delta"] as? Bool == true, push: obj["push"] as? Bool == true, keep: obj["keep"] as? Bool == true)
+                          delta: obj["delta"] as? Bool == true, push: obj["push"] as? Bool == true, keep: obj["keep"] as? Bool == true, ptime: obj["ptime"] as? Bool == true)
         case "welcome": return .welcome(mac: try string("mac"), macId: try string("mac_id"), epoch: try u32("epoch"), v: obj["v"].flatMap(integer).flatMap { Int(exactly: $0) } ?? 0,
-                                        delta: obj["delta"] as? Bool == true, push: obj["push"] as? Bool == true, keep: obj["keep"] as? Bool == true)
+                                        delta: obj["delta"] as? Bool == true, push: obj["push"] as? Bool == true, keep: obj["keep"] as? Bool == true, ptime: obj["ptime"] as? Bool == true)
         case "pair": return .pair
         case "code": return .code(try string("code"))
         case "paired": return .paired(token: try string("token"))

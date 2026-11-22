@@ -128,8 +128,10 @@ struct PointerResume {
         self.timer = timer; RunLoop.main.add(timer, forMode: .common)
     }
 
-    func receive(_ packet: PointerPacket, from session: LinkSession) {
-        guard owner === session, packet.seq > sequence else { return }
+    func receive(_ incoming: PointerPacket, from session: LinkSession) {
+        guard owner === session, incoming.seq > sequence else { return }
+        // A packet that sat in the socket through a Mac stall keeps only what is safe late: a release, the end of a scroll.
+        let packet = incoming.droppingLateMotion(buttonDown: leftDown)
         guard AXIsProcessTrusted() else { stop(session); report(session, false, "Accessibility permission was removed."); return }
         sequence = packet.seq; lastInput = CACurrentMediaTime()
         // Moving, pressing or clicking is never part of a scroll: close it first so the page settles before the cursor acts.
