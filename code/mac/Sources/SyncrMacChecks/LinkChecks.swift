@@ -1534,6 +1534,39 @@ private func padChecks() throws {
     try check(off.p95 <= 8, "with the files queue a slow disk adds at most 8 ms p95 to live frames (\(off.p95) ms)")
 }
 
+/// Remaining-v1 merge: the connection stops reading while the Mac's own disk is 4 MB behind on an incoming note (L.5) and the
+/// watchdog counts any inbound byte as life with a 5 s limit (K.1). A phone that is alive but not being read is not a dead one.
+@MainActor private func slowDiskWatchdogChecks() throws {
+    func rigWithStuckDisk() throws -> (SessionRig, OSAllocatedUnfairLock<[@Sendable () -> Void]>) {
+        let queued = OSAllocatedUnfairLock(initialState: [@Sendable () -> Void]())
+        let rig = SessionRig(files: { block in queued.withLock { $0.append(block) } })
+        try rig.welcome(v: 1, delta: true)
+        rig.feed(.pad(on: true)) // the 5 s limit
+        let chunks = 80, size = 65_000
+        rig.feed(.control(.file(FileOffer(xfer: 3, id: "01HSTUCKDISK000000000000000", seq: 2, size: UInt64(chunks * size), sha256: String(repeating: "0", count: 64), chunks: UInt32(chunks), delta: false))))
+        for c in 0..<70 { rig.feed(.fileChunk(xfer: 3, index: UInt32(c), data: Data(repeating: 7, count: size))) }
+        return (rig, queued)
+    }
+    let (stuck, queued) = try rigWithStuckDisk()
+    try check(stuck.session.fileBacklog > LinkSession.maxFileBacklog, "the disk is more than 4 MB behind (\(stuck.session.fileBacklog))")
+    for _ in 0..<20 { stuck.tick(after: 0.5) } // 10 s: the connection is not reading, and says nothing
+    try check(!stuck.closed, "a phone is not dropped as dead while the Mac's own disk is stuck behind (10 s, active session)")
+    let pings = stuck.controls.filter { if case .ping = $0 { true } else { false } }.count
+    try check(pings >= 8, "the Mac keeps pinging meanwhile (\(pings))")
+    // The disk catches up: the phone gets a full window from here, and one that is then silent is closed as before.
+    for block in queued.withLock({ let b = $0; $0 = []; return b }) { block() }
+    try check(stuck.session.fileBacklog == 0, "the disk caught up")
+    for _ in 0..<8 { stuck.tick(after: 0.5) }
+    try check(!stuck.closed, "4 s after the disk caught up the phone still has its window")
+    for _ in 0..<4 { stuck.tick(after: 0.5) }
+    try check(stuck.closed, "a phone silent for 5 s after the Mac reads again is closed")
+
+    // A disk that never recovers does not keep a link up for ever.
+    let (hung, _) = try rigWithStuckDisk()
+    for _ in 0..<80 { hung.tick(after: 0.5) } // 40 s
+    try check(hung.closed, "a disk stuck for more than 30 s no longer excuses the silence")
+}
+
 @MainActor func linkChecks() throws {
     let pixels: [[UInt8]] = [[255, 255, 255, 255], [255, 255, 255, 255], [254, 255, 255, 255],
                               [255, 254, 255, 255], [255, 255, 254, 255], [255, 255, 255, 254]]
@@ -1542,6 +1575,7 @@ private func padChecks() throws {
     try vectorChecks()
     try clockChecks()
     try watchdogChecks()
+    try slowDiskWatchdogChecks()
     try strokeKeepChecks()
     try pairingChecks()
     try syncChecks()

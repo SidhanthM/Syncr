@@ -83,6 +83,8 @@ class ClientConfig(
     val datagrams: Boolean = true,
     /** Disk reads and writes of note transfers (tests slow them down). */
     val disk: BulkDisk = BulkDisk.REAL,
+    /** The longest this phone's own slow disk (the reader held, see [LinkClient]) keeps the watchdog from counting the Mac's silence. */
+    val diskForgivenMs: Long = 30_000,
 )
 
 /**
@@ -154,6 +156,8 @@ class LinkClient(
     @Volatile private var socket: Socket? = null
     @Volatile private var session: LinkSession? = null
     @Volatile private var lastInbound = 0L
+    /** Time the reader was held by this phone's own slow disk: not the Mac's silence. */
+    @Volatile private var diskHeldAt = 0L
     @Volatile private var welcomed = false
     private var closeReason: String? = null
     private var fatal = false
@@ -479,6 +483,7 @@ class LinkClient(
         welcomed = false
         cause = ""
         probeAt = 0
+        diskHeldAt = 0
         status(SessionStatus(Phase.CONNECTING, endpoint.name, message = "Connecting to $endpoint…"))
         val s = try {
             cfg.transport.connect(endpoint, cfg.connectTimeoutMs)
@@ -610,7 +615,7 @@ class LinkClient(
                     lastFileInbound = lastInbound
                     post { if (id == connId) sess.onFileChunk(message) }
                     // The disk is behind: stop reading until it catches up, so a big note never piles up in memory.
-                    while (files.backlog.get() > SyncReceiver.MAX_BACKLOG && !s.isClosed && running) LockSupport.parkNanos(2_000_000L)
+                    waitForDisk(s, files)
                     continue
                 }
                 if (Wire.kind(message) == Wire.KIND_PICTURE) {
@@ -637,6 +642,24 @@ class LinkClient(
         }
     }
 
+    /**
+     * Holds the reader while the disk is more than [SyncReceiver.MAX_BACKLOG] behind. Not reading is this phone's doing, not the
+     * Mac's, so the watchdog counts none of that stretch (up to [ClientConfig.diskForgivenMs], so a disk that never recovers still
+     * ends the link). The Mac's pings sit unread in the socket meanwhile; the phone's own pings leave from the link thread, which
+     * never waits on this disk, so the Mac sees a live phone.
+     */
+    private fun waitForDisk(s: Socket, files: SyncReceiver) {
+        if (files.backlog.get() <= SyncReceiver.MAX_BACKLOG) return
+        val since = cfg.clock.nowMs()
+        while (files.backlog.get() > SyncReceiver.MAX_BACKLOG && !s.isClosed && running) {
+            val now = cfg.clock.nowMs()
+            if (now - since < cfg.diskForgivenMs) diskHeldAt = now
+            LockSupport.parkNanos(2_000_000L)
+        }
+        // Back to reading: the Mac gets a full window from here to show a byte.
+        diskHeldAt = cfg.clock.nowMs()
+    }
+
     private fun closeSocket() {
         val s = socket
         socket = null
@@ -660,7 +683,7 @@ class LinkClient(
             if (socket == null) continue
             val active = appPad || appPointer || session?.let { cfg.feed.enabled && pump.penActive() } == true || hasTransfer()
             val limit = if (active) cfg.staleActiveMs else cfg.staleMs
-            val silent = welcomed && now - lastInbound > limit
+            val silent = welcomed && now - maxOf(lastInbound, diskHeldAt) > limit
             val noAnswer = session?.phase == Phase.CONNECTING && now - connectedAt > cfg.helloAnswerMs
             val probe = probeAt
             val unproven = probe != 0L && now - probe > cfg.probeMs && lastInbound < probe

@@ -178,6 +178,8 @@ final class LinkSession: @unchecked Sendable {
     /// Why the session ended, for the one line it leaves in the log.
     private var cause = "io"
     private var lastTickNs: UInt64 = 0
+    /// When the connection stopped reading because the disk is behind (0: it is reading).
+    private var diskHeldSinceNs: UInt64 = 0
     /// A pad or pointer session is open: a quiet link is then caught in seconds, not tens of seconds.
     private var padOpen = false
     private var pointerOpen = false
@@ -354,6 +356,15 @@ final class LinkSession: @unchecked Sendable {
             // A timer that did not run for a while says the Mac was stalled, not that the phone went quiet: forgive that stretch.
             if lastTickNs != 0, ns &- lastTickNs > LinkLimits.stallGraceNs, lastInboundNs < ns { lastInboundNs = ns }
             lastTickNs = ns
+            // Not reading while the disk is behind (LinkServer) is the Mac's doing: the phone's silence then is not counted. The
+            // phone's own pings, which leave on its link thread and never wait on a disk, are read again once the disk catches up.
+            if fileBacklog > Self.maxFileBacklog {
+                if diskHeldSinceNs == 0 { diskHeldSinceNs = ns }
+                if ns &- diskHeldSinceNs < LinkLimits.diskForgivenNs, lastInboundNs < ns { lastInboundNs = ns }
+            } else if diskHeldSinceNs != 0 {
+                diskHeldSinceNs = 0
+                if lastInboundNs < ns { lastInboundNs = ns }
+            }
             let limit = isActive ? LinkLimits.activeTimeoutNs : LinkLimits.idleTimeoutNs
             if ns &- lastInboundNs > limit { log("idle"); cause = "watchdog"; shutdown(bye: nil); return }
             if ns >= nextPingNs { sendPing(at: ns) }

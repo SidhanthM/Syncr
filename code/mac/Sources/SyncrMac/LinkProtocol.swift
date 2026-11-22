@@ -23,6 +23,9 @@ enum LinkLimits {
     static let activePingIntervalNs: UInt64 = 1_000_000_000
     /// A watchdog that was itself not running for this long learns nothing about the phone (the Mac was stalled, not the link).
     static let stallGraceNs: UInt64 = 1_500_000_000
+    /// While the Mac's own disk is behind on an incoming note it stops reading; the phone's silence over that stretch is the Mac's
+    /// doing, so the watchdog counts none of it, for this long (a disk that never recovers still ends the link).
+    static let diskForgivenNs: UInt64 = 30_000_000_000
 }
 
 enum LinkProtocolError: Error, Equatable, CustomStringConvertible {
