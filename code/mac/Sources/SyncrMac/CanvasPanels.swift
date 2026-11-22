@@ -74,6 +74,16 @@ import SyncrCore
             ActionButton(symbol: "plus", label: "Zoom in") { [weak self] in self?.onZoomIn?() },
             ActionButton(symbol: "arrow.up.left.and.arrow.down.right", label: "Fit all") { [weak self] in self?.onFit?() },
             waypointsButton, minimapButton]
+        // Every glyph gets the same weight and a box of its own: the plain minus is a thin bar that vanished at the default
+        // weight and size (remaining-v1 V.4).
+        for case let button as ActionButton in views {
+            button.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
+            button.imageScaling = .scaleProportionallyDown
+            button.imagePosition = .imageOnly
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.widthAnchor.constraint(equalToConstant: 24).isActive = true
+            button.heightAnchor.constraint(equalToConstant: 22).isActive = true
+        }
         let stack = NSStackView(views: views); stack.spacing = 4
         stack.edgeInsets = NSEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
         stack.translatesAutoresizingMaskIntoConstraints = false
