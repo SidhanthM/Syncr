@@ -9,7 +9,7 @@ import java.io.OutputStream
 fun writeRecovery(output: OutputStream, data: RecoveryData) {
     JsonWriter(output.writer(Charsets.UTF_8)).use { json ->
         json.setIndent("  ")
-        json.beginObject().name("format").value("syncr-recovery").name("version").value(2L)
+        json.beginObject().name("format").value("syncr-recovery").name("version").value(3L)
         json.name("note_id").value(data.noteId).name("author_id").value(data.authorId)
         json.name("warning").value("Private handwriting. Pending commands are NOT applied. Automatic import/merge is not available.")
         json.name("creation")
@@ -51,14 +51,44 @@ fun writeRecovery(output: OutputStream, data: RecoveryData) {
                             is MarkMutation.TransformStroke -> {
                                 json.name("type").value("TransformStroke").name("mark_id").value(mutation.markId)
                                 json.base(mutation.base)
-                                val t = mutation.transform
-                                json.name("transform").beginObject().name("a").value(t.a).name("b").value(t.b)
-                                    .name("c").value(t.c).name("d").value(t.d).name("tx").value(t.tx).name("ty").value(t.ty).endObject()
+                                json.affine(mutation.transform)
                             }
-                            // The phone never stages text edits. Fail closed rather than silently dropping an unknown mutation.
-                            is MarkMutation.AddText, is MarkMutation.SpliceText, is MarkMutation.SetTextWidth,
-                            is MarkMutation.DeleteText, is MarkMutation.RestoreText, is MarkMutation.TransformText,
-                            is MarkMutation.RestyleText -> error("Text edits are not supported in phone recovery commands")
+                            is MarkMutation.AddText -> {
+                                json.name("type").value("AddText").name("mark_id").value(mutation.markId)
+                                    .name("sheet_id").value(mutation.sheetId).name("role").value(mutation.role.name)
+                                    .name("origin_x").value(mutation.originX.toDouble()).name("origin_y").value(mutation.originY.toDouble())
+                                    .name("width").value(mutation.width.toDouble()).name("text").value(mutation.text)
+                                json.textStyle(mutation.style)
+                            }
+                            is MarkMutation.SpliceText -> {
+                                json.name("type").value("SpliceText").name("mark_id").value(mutation.markId)
+                                json.base(mutation.base)
+                                json.name("offset").value(mutation.offset.toLong()).name("delete").value(mutation.delete.toLong())
+                                    .name("insert").value(mutation.insert)
+                            }
+                            is MarkMutation.SetTextWidth -> {
+                                json.name("type").value("SetTextWidth").name("mark_id").value(mutation.markId)
+                                json.base(mutation.base)
+                                json.name("width").value(mutation.width.toDouble())
+                            }
+                            is MarkMutation.DeleteText -> {
+                                json.name("type").value("DeleteText").name("mark_id").value(mutation.markId)
+                                json.base(mutation.base)
+                            }
+                            is MarkMutation.RestoreText -> {
+                                json.name("type").value("RestoreText").name("mark_id").value(mutation.markId)
+                                json.base(mutation.base)
+                            }
+                            is MarkMutation.TransformText -> {
+                                json.name("type").value("TransformText").name("mark_id").value(mutation.markId)
+                                json.base(mutation.base)
+                                json.affine(mutation.transform)
+                            }
+                            is MarkMutation.RestyleText -> {
+                                json.name("type").value("RestyleText").name("mark_id").value(mutation.markId)
+                                json.base(mutation.base)
+                                json.textStyle(mutation.style)
+                            }
                             is MarkMutation.AddPage -> {
                                 json.name("type").value("AddPage").name("sheet_id").value(mutation.sheetId).name("after").value(mutation.after)
                                     .name("width").value(mutation.width.toDouble()).name("height").value(mutation.height.toDouble())
@@ -109,17 +139,42 @@ fun writeRecovery(output: OutputStream, data: RecoveryData) {
                 }
                 is CommandBody.Undo -> json.name("type").value("Undo").name("target_operation_id").value(body.targetOperationId)
                 is CommandBody.Redo -> json.name("type").value("Redo").name("target_operation_id").value(body.targetOperationId)
-                is CommandBody.CompanionMarks, is CommandBody.SetCompanionSettings ->
-                    error("Companion edits are not supported in phone recovery commands")
-                is CommandBody.ImageMarks -> error("Image edits are not supported in phone recovery commands")
+                // Companion and image commands are written as their readable form rather than field by field. Never fail here:
+                // a throw would lose the whole export, core backup included. Image bytes go alongside, since toString() drops them.
+                is CommandBody.CompanionMarks -> json.name("type").value("CompanionMarks").name("readable").value(body.toString())
+                is CommandBody.SetCompanionSettings -> {
+                    json.name("type").value("SetCompanionSettings").name("readable").value(body.settings.toString())
+                    json.base(body.base)
+                }
+                is CommandBody.ImageMarks -> {
+                    json.name("type").value("ImageMarks").name("readable").value(body.toString())
+                    json.name("image_bytes_base64").beginObject()
+                    body.mutations.filterIsInstance<ImageMutation.Add>().forEach {
+                        json.name(it.imageId).value(Base64.encodeToString(it.bytes, Base64.NO_WRAP))
+                    }
+                    json.endObject()
+                }
                 is CommandBody.SetPageStyle -> {
                     json.name("type").value("SetPageStyle").name("sheet_id").value(body.sheetId).name("template").value(body.template.name)
                     json.name("paper").value(body.paper?.argb()?.toLong()).name("pattern_colour").value(body.patternColour?.argb()?.toLong())
                     json.name("spacing").value(body.spacing?.toDouble())
                     json.base(body.base)
                 }
-                is CommandBody.SetCanvasBackground, is CommandBody.SetWaypoints ->
-                    error("Canvas edits are not supported in phone recovery commands")
+                is CommandBody.SetCanvasBackground -> {
+                    json.name("type").value("SetCanvasBackground").name("pattern").value(body.pattern.name)
+                    json.name("pattern_colour").value(body.patternColour?.argb()?.toLong()).name("spacing").value(body.spacing?.toDouble())
+                    json.name("paper").value(body.paper?.argb()?.toLong())
+                    json.base(body.base)
+                }
+                is CommandBody.SetWaypoints -> {
+                    json.name("type").value("SetWaypoints").name("waypoints").beginArray()
+                    body.waypoints.forEach {
+                        json.beginObject().name("name").value(it.name).name("cx").value(it.cx.toDouble())
+                            .name("cy").value(it.cy.toDouble()).name("zoom").value(it.zoom.toDouble()).endObject()
+                    }
+                    json.endArray()
+                    json.base(body.base)
+                }
             }
             json.endObject().endObject()
         }
@@ -140,5 +195,18 @@ private fun JsonWriter.base(base: Base) {
 }
 private fun JsonWriter.brush(brush: Brush) {
     name("brush").beginObject().name("family").value(brush.family.name).name("size").value(brush.size.name)
-        .name("colour").value(brush.colour.name).endObject()
+        .name("colour").value(brush.colour.name)
+    brush.look?.let { name("look").value(it.name) }
+    brush.customInk?.let { name("custom_ink").beginObject().name("l").value(it.l.toDouble()).name("c").value(it.c.toDouble())
+        .name("h").value(it.h.toDouble()).endObject() }
+    brush.feel?.let { name("feel").beginObject().name("pressure").value(it.pressure.toLong())
+        .name("smoothing").value(it.smoothing.toLong()).name("taper").value(it.taper).endObject() }
+    endObject()
+}
+private fun JsonWriter.textStyle(style: TextStyle) {
+    name("style").beginObject().name("size").value(style.size.name).name("colour").value(style.colour.name).endObject()
+}
+private fun JsonWriter.affine(t: Affine) {
+    name("transform").beginObject().name("a").value(t.a).name("b").value(t.b)
+        .name("c").value(t.c).name("d").value(t.d).name("tx").value(t.tx).name("ty").value(t.ty).endObject()
 }

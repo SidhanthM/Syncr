@@ -32,7 +32,7 @@ class StylusInputTest {
             layout(0, 0, 1600, 1000)
             update(NotesState(snapshot = NoteSnapshot("note", "Test", null,
                 EntityHead("create", null), EntityHead("create", null), listOf(SheetView("sheet", "create", 0f, 0f)), emptyList(), 1u,
-                EventCursor("stream", 1u), null, null, emptyList(), emptyList())), false)
+                EventCursor("stream", 1u), null, null, emptyList(), emptyList(), kind = NoteKind.NOTE)), false)
         }
     }
     private fun pageX(view: NoteCanvasView, screenX: Float) = view.canvasMapping()!!.toSheet(screenX, 400f).first
@@ -118,7 +118,7 @@ class StylusInputTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val state = NotesState(snapshot = NoteSnapshot("note", "Test", null,
             EntityHead("create", null), EntityHead("create", null), listOf(SheetView("sheet", "create", 0f, 0f)),
-            emptyList(), 1u, EventCursor("stream", 1u), null, null, emptyList(), emptyList()))
+            emptyList(), 1u, EventCursor("stream", 1u), null, null, emptyList(), emptyList(), kind = NoteKind.NOTE))
         val recreated = NoteCanvasView(context).apply {
             restoredViewport = "note" to SheetMapping(1.3f, -900f, 0f)
             layout(0, 0, 2000, 1000)
