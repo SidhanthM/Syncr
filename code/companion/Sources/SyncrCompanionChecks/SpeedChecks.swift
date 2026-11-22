@@ -34,5 +34,26 @@ func runSpeedChecks(tmp: URL) async throws {
     await quiet.configure(mode: .whenAsked, unpinnedNotes: 0)
     check(try await run(quiet, .ask(input)).contains { if case .finished = $0 { return true }; return false }, "pass without a trace sink is unchanged")
 
-    print("PASS speed: trace stages bounded and free of text")
+    // The provider process is started before the ask: typing warms it, and cancelling leaves the next one starting.
+    let script = tmp.appendingPathComponent("pi-speed.py")
+    try FileManager.default.copyItem(at: Bundle.module.url(forResource: "pi-stream", withExtension: "py", subdirectory: "Fixtures")!, to: script)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
+    let pi = RequestInput(markdown: "cache", changed: ByteSpan(start: 0, end: 5), instruction: "Explain cache")
+    func cold(_ trace: TraceLines) -> String? { ((json(trace.lines.last ?? "")["facts"]) as? [String: String])?["answer.cold"] }
+    let t2 = TraceLines()
+    let coldEngine = CompanionEngine(provider: CodexProvider(executable: script.path), models: ModelSettings(gate: "g", answer: "a"), trace: t2.sink)
+    _ = try await run(coldEngine, .ask(pi)); check(cold(t2) == "1", "first ask with no typing starts the provider process"); await coldEngine.shutdown()
+    let t3 = TraceLines()
+    let warmed = CompanionEngine(provider: CodexProvider(executable: script.path), models: ModelSettings(gate: "g", answer: "a"), trace: t3.sink)
+    await warmed.configure(mode: .whenAsked, unpinnedNotes: 0); await warmed.activity(at: 0)
+    try await Task.sleep(nanoseconds: 400_000_000)
+    _ = try await run(warmed, .ask(pi), at: 1); check(cold(t3) == "0", "typing warms the provider process before the ask")
+    try await Task.sleep(nanoseconds: 300_000_000)
+    var slow = pi; slow.instruction = "SIMULATE_SLOW"
+    let slowStream = try await warmed.events(for: .ask(slow), at: 2); let slowReader = Task { for await _ in slowStream {} }
+    try await Task.sleep(nanoseconds: 150_000_000); await warmed.activity(at: 3); await slowReader.value   // typing cancels it
+    try await Task.sleep(nanoseconds: 600_000_000)
+    _ = try await run(warmed, .ask(pi), at: 30); check(cold(t3) == "0", "a cancelled pass leaves a warm process for the next ask")
+    await warmed.shutdown()
+    print("PASS speed: trace stages bounded and free of text, warm provider process after typing and after cancel")
 }

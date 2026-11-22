@@ -12,10 +12,11 @@ public struct CodexProvider: CompanionProvider, Sendable {
         return streamingRPC.stream(request)
     }
     public func cancelStream() async { await streamingRPC.cancelCurrent() }
+    public func warmUp() { if FileManager.default.isExecutableFile(atPath: executable) { streamingRPC.warm() } }
     public func shutdown() async { await streamingRPC.shutdown() }
     public func streamPreview(_ request: StreamRequest) throws -> String {
         if request.input.web || !FileManager.default.isExecutableFile(atPath: executable) { return try CodexCLIProvider().streamPreview(request) }
-        let object: [String: Any] = ["executable": executable, "mode": "rpc", "persistent": true, "noSession": true, "tools": [], "extensions": [], "mcp": false, "systemPrompt": PersistentCodexRPC.system, "resetPerPass": "new_session", "provider": "openai-codex", "model": request.model, "thinking": "low", "autoRetry": false, "autoCompaction": false, "prompt": request.system + "\n\n" + request.prompt, "images": request.images.map(\.summary)]
+        let object: [String: Any] = ["executable": executable, "mode": "rpc", "persistent": true, "noSession": true, "tools": [], "extensions": [], "mcp": false, "systemPrompt": PersistentCodexRPC.system, "resetPerPass": "new_session", "provider": "openai-codex", "model": request.model, "thinking": PersistentCodexRPC.thinkingLevel, "autoRetry": false, "autoCompaction": false, "prompt": request.system + "\n\n" + request.prompt, "images": request.images.map(\.summary)]
         return String(decoding: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .prettyPrinted]), as: UTF8.self)
     }
     public static func locatePi() -> String {

@@ -229,5 +229,7 @@ public extension CompanionProvider {
     }
     func streamPreview(_ request: StreamRequest) throws -> String { request.wirePreview }
     func cancelStream() async {}
+    /// Get ready for a likely ask (start the provider's process). Cheap, never blocks, does nothing by default.
+    func warmUp() {}
     func shutdown() async {}
 }

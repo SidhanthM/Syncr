@@ -29,9 +29,11 @@ public actor CompanionEngine {
     }
     public func configure(mode: CompanionMode, unpinnedNotes: Int) async {
         trigger.mode = mode; trigger.undismissedUnpinned = unpinnedNotes
+        if mode != .off { provider.warmUp() }
         if mode == .off || (readingPass && (mode != .thinksWithYou || unpinnedNotes >= 3)) { await cancel() }
     }
-    public func activity(at time: TimeInterval) async { trigger.activity(at: time); await cancel() }
+    /// The owner is typing: an ask or a pause is likely next, so get the provider's process ready now (it is cheap when already ready).
+    public func activity(at time: TimeInterval) async { trigger.activity(at: time); if trigger.mode != .off { provider.warmUp() }; await cancel() }
     public func idleActivity(at time: TimeInterval) { trigger.idleActivity(at: time) }
     public func meter() -> BudgetMeter { budget.rollover(day: BudgetMeter.dayKey()); return budget }
     public func setLimits(tokens: Int, requests: Int) { budget.tokenLimit = max(1, tokens); budget.requestLimit = max(1, requests) }
@@ -42,6 +44,7 @@ public actor CompanionEngine {
         for id in previews { sink?.yield(.pictureReplace(id: id, svg: nil, findings: [])) }; previews = []
         sink?.yield(.textPreview(nil)); sink?.yield(.cancelled); sink?.finish(); sink = nil; trigger.finish()
         await provider.cancelStream(); cancelling = false
+        if trigger.mode != .off { provider.warmUp() }   // cancelling ended the child; have the next one starting before the next ask
     }
     public func shutdown() async { await cancel(); await provider.shutdown() }
     public func events(for event: EngineEvent, at time: TimeInterval, confirmedBudget: Bool = false) throws -> AsyncStream<EngineOutput> {

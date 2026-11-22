@@ -162,6 +162,7 @@ public protocol CompanionProvider: Sendable {
     func stream(_ request: StreamRequest) -> AsyncThrowingStream<ProviderStreamEvent, Error>
     func streamPreview(_ request: StreamRequest) throws -> String
     func cancelStream() async
+    func warmUp()
     func shutdown() async
 }
 public extension CompanionProvider {
