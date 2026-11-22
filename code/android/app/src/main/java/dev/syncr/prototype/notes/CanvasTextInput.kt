@@ -19,6 +19,9 @@ import android.view.MotionEvent
 import android.view.VelocityTracker
 import android.view.ViewConfiguration
 import android.view.inputmethod.BaseInputConnection
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
+import android.view.inputmethod.InputConnectionWrapper
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -99,7 +102,9 @@ internal class CanvasTextInput(private val host: FrameLayout) {
         history = EditHistory(TextSel(text, 0))
         field.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence, start: Int, count: Int, after: Int) {
-                if (!internal) before = TextSel(s.toString(), Selection.getSelectionStart(s).coerceAtLeast(0), Selection.getSelectionEnd(s).coerceAtLeast(0))
+                // Committing text and pasting collapse a selection before they replace it: use the selection they were asked over.
+                if (!internal) before = field.beforeEdit?.takeIf { it.text == s.toString() }
+                    ?: TextSel(s.toString(), Selection.getSelectionStart(s).coerceAtLeast(0), Selection.getSelectionEnd(s).coerceAtLeast(0))
             }
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
             override fun afterTextChanged(e: Editable) { if (!internal) changed(e) }
@@ -283,6 +288,28 @@ internal class CanvasTextInput(private val host: FrameLayout) {
             super.onSelectionChanged(selStart, selEnd)
             if (edit === this) selection()
         }
+
+        /**
+         * The text and selection as they were when an input method committed text or a paste began. Both collapse the
+         * selection first and then replace it, so `beforeTextChanged` alone would never see what was selected (typing `(`
+         * over a word, pasting a link over it): the typing rules need it.
+         */
+        var beforeEdit: TextSel? = null
+        private inline fun <T> over(block: () -> T): T {
+            beforeEdit = TextSel(text.toString(), selectionStart.coerceAtLeast(0), selectionEnd.coerceAtLeast(0))
+            try { return block() } finally { beforeEdit = null }
+        }
+
+        override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
+            val base = super.onCreateInputConnection(outAttrs) ?: return null
+            return object : InputConnectionWrapper(base, true) {
+                override fun commitText(text: CharSequence?, newCursorPosition: Int) = over { super.commitText(text, newCursorPosition) }
+                override fun setComposingText(text: CharSequence?, newCursorPosition: Int) = over { super.setComposingText(text, newCursorPosition) }
+            }
+        }
+
+        override fun onTextContextMenuItem(id: Int): Boolean =
+            if (id == android.R.id.paste || id == android.R.id.pasteAsPlainText) over { super.onTextContextMenuItem(id) } else super.onTextContextMenuItem(id)
 
         override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
             if (keyCode == KeyEvent.KEYCODE_TAB && !event.isCtrlPressed && !event.isAltPressed) { tab(event.isShiftPressed); return true }
