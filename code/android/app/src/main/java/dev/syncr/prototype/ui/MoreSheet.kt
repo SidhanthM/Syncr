@@ -46,6 +46,9 @@ class MoreActions(
     val onZoom: (Boolean) -> Unit = {},
     val zoomPercent: () -> Int = { 100 },
     val onPageList: (() -> Unit)? = null,
+    /** Read mode (a Note only): nothing can be changed by pen or finger; kept per note on this device. */
+    val reading: Boolean = false,
+    val onReading: (Boolean) -> Unit = {},
 )
 
 /**
@@ -57,7 +60,7 @@ fun MoreSheet(state: NotesState, actions: MoreActions) {
     val c = Syncr.colors
     val snapshot = state.snapshot ?: return
     val status = saveStatus(state)
-    val editable = !state.unsaved && !state.busy
+    val editable = !state.unsaved && !state.busy && !actions.reading
     SyncrSheet(actions.onDismiss) {
         Text(snapshot.title, style = Syncr.type.subheading, color = c.ink,
             maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.semantics { heading() })
@@ -83,7 +86,11 @@ fun MoreSheet(state: NotesState, actions: MoreActions) {
             icon = SyncrIcons.Export, onClick = actions.onExport)
 
         Hairline(Modifier.padding(top = Space.l, bottom = Space.s))
-        if (snapshot.kind == NoteKind.NOTE) PagesSection(actions, editable)
+        if (snapshot.kind == NoteKind.NOTE) {
+            if (actions.reading) MenuRow("Edit this note", "Reading view is on: the pen only scrolls and zooms", icon = SyncrIcons.Pencil) { actions.onReading(false) }
+            else MenuRow("Reading view", "The pen scrolls and zooms; nothing can be written, erased or typed", icon = SyncrIcons.Eye) { actions.onReading(true) }
+            PagesSection(actions, editable)
+        }
         MenuRow("Fit page to screen", "Double-tap empty paper does the same", icon = SyncrIcons.Fit, onClick = actions.onFit)
         MenuRow("Move to notebook…", enabled = editable, icon = SyncrIcons.Folder, onClick = actions.onMove)
         MenuRow("Rename…", enabled = editable, icon = SyncrIcons.Pencil, onClick = actions.onRename)

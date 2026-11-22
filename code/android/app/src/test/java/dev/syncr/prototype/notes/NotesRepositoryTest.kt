@@ -626,4 +626,28 @@ class NotesRepositoryTest {
             assertNotNull(ThumbnailCache.read(dir, "old", 1u))
         } finally { dir.deleteRecursively() }
     }
+    @Test fun readModeRefusesEveryEditToTheOpenNoteAndSubmitsNothing() = runTest {
+        val fake = Fake()
+        fake.current = snapshot(strokes = listOf(StrokeView("old-stroke", "sheet", "x", EntityHead("h", null), identity, brush, false)), undo = "target", redo = "again")
+        val repo = repo(fake, StandardTestDispatcher(testScheduler)); repo.open("note")
+        val before = repo.state.value.snapshot
+        repo.readOnly = true
+        assertFalse(repo.stageStroke(preview()))
+        assertFalse(repo.stageMarks(MarkEdit.Delete(setOf("old-stroke"))))
+        assertFalse(repo.stageErase(setOf("old-stroke")))
+        repo.saveText(repo.textDraft(), "typed in read mode")
+        repo.rename("Renamed"); repo.archiveOpenNote(true); repo.moveOpenNote("Physics")
+        repo.history(false); repo.history(true)
+        assertNull(repo.addPage(null, 1000f, 1000f))
+        repo.resizePage("sheet", 800f, 800f); repo.deletePages(listOf("sheet")); repo.movePages(listOf("sheet"), null)
+        repo.retry()
+        assertTrue("nothing was submitted to the core", fake.commands.isEmpty())
+        val after = repo.state.value
+        assertFalse(after.unsaved); assertTrue(after.pending.isEmpty()); assertNull(after.error)
+        assertEquals(before, after.snapshot)
+        // The same attempts work again once Read mode is off, so the refusal above is the mode and not the fixture.
+        repo.readOnly = false
+        assertTrue(repo.stageStroke(preview())); repo.retry()
+        assertEquals(1, fake.commands.size)
+    }
 }

@@ -107,7 +107,7 @@ class NoteActions(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun NoteScreen(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: ToolState, viewSettings: PageViewSettings, actions: NoteActions,
-    banner: @Composable () -> Unit) {
+    banner: @Composable () -> Unit, reading: Boolean = false, onReading: (Boolean) -> Unit = {}) {
     val snapshot = state.snapshot ?: return
     val c = Syncr.colors
     var view by remember { mutableStateOf<NoteCanvasView?>(null) }
@@ -119,6 +119,8 @@ fun NoteScreen(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: Tool
     var underTop by remember(snapshot.noteId) { mutableStateOf(false) }
     val bandBottom = with(LocalDensity.current) { (WindowInsets.statusBars.getTop(this) + TITLE_BAND_HEIGHT.toPx()) }
     // The keyboard or the text field opening sends the band away; it returns a beat after both are gone.
+    // Read mode closes an open text field (the view has already let go of its gesture and selection).
+    LaunchedEffect(reading) { if (reading) contentId = null }
     val typingNow = (contentId != null && !response) || WindowInsets.isImeVisible
     LaunchedEffect(typingNow) {
         if (typingNow) band = band.typingOpened()
@@ -130,7 +132,7 @@ fun NoteScreen(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: Tool
         band = band.tick(SystemClock.uptimeMillis())
     }
     Box(Modifier.fillMaxSize().background(c.desk).imePadding()) {
-        NoteCanvas(vm, state, dark, tools, viewSettings, actions, onView = { view = it }, onSelection = { selected = it },
+        NoteCanvas(vm, state, dark, tools, viewSettings, actions, reading = reading, onView = { view = it }, onSelection = { selected = it },
             onTitle = { band = band.masthead(it) }, onUnderTop = { underTop = it },
             onScrolled = { dy -> if (dy > TitleBand.SCROLL_SLOP_PX) band = band.scrolledDown() else if (dy < -TitleBand.SCROLL_SLOP_PX) band = band.scrolledUp() },
             onPenContact = { down -> band = if (down) band.penDown() else band.penUp(SystemClock.uptimeMillis(), view?.lastWriteY.underBand(bandBottom)) },
@@ -153,7 +155,12 @@ fun NoteScreen(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: Tool
 
         StickyTitle(band, snapshot.title, snapshot.notebook ?: "Inbox", Modifier.align(Alignment.TopCenter)) { band = band.statusTapped() }
 
-        if (contentId != null && !response) {
+        if (reading) {
+            androidx.compose.animation.AnimatedVisibility(true, Modifier.align(Alignment.BottomCenter).safeDrawingPadding().padding(bottom = Space.l),
+                enter = Motion.fadeInOnly(Syncr.reducedMotion), exit = Motion.fadeOutOnly(Syncr.reducedMotion)) {
+                ReadingPill(onEdit = { onReading(false) })
+            }
+        } else if (contentId != null && !response) {
             Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().safeDrawingPadding()) {
                 androidx.compose.runtime.key(snapshot.noteId, contentId) {
                     MobileTextEditor(vm.repository, contentId?.ifEmpty { null }, view) { contentId = null }
@@ -209,6 +216,7 @@ private fun StickyTitle(band: TitleBand, title: String, notebook: String, modifi
 /** The canvas view, wired to the repository and the tool state. */
 @Composable
 internal fun NoteCanvas(vm: NotesViewModel, state: NotesState, dark: Boolean, tools: ToolState, viewSettings: PageViewSettings, actions: NoteActions,
+    reading: Boolean = false,
     onView: (NoteCanvasView) -> Unit, onSelection: (Int) -> Unit, onTitle: (Boolean) -> Unit, onUnderTop: (Boolean) -> Unit,
     onScrolled: (Float) -> Unit, onPenContact: (Boolean) -> Unit, onTemporaryEraser: (Boolean) -> Unit,
     onContent: (dev.syncr.prototype.notes.ContentTarget) -> Unit,
@@ -227,6 +235,7 @@ internal fun NoteCanvas(vm: NotesViewModel, state: NotesState, dark: Boolean, to
         onView(canvas); actions.onPaper(canvas)
     } }, modifier = Modifier.fillMaxSize(),
         update = { canvas ->
+            canvas.reading = reading
             canvas.brush = tools.brush; canvas.eraser = tools.eraser; canvas.lasso = tools.lasso
             canvas.typing = tools.typing; canvas.chromeOpen = tools.barOpen; canvas.onTitleVisible = onTitle; canvas.onContentUnderTop = onUnderTop
             canvas.onScrolled = onScrolled; canvas.onPenContact = onPenContact
@@ -236,18 +245,18 @@ internal fun NoteCanvas(vm: NotesViewModel, state: NotesState, dark: Boolean, to
             canvas.onError = repo::message
             canvas.viewSettings = viewSettings
             canvas.onPages = { _, _, sheet -> actions.onPage(sheet) }
-            canvas.onAddPage = { after, width, height -> vm.run { repo.addPage(after, width, height)?.let(canvas::goToWhenAdded) } }
+            canvas.onAddPage = { after, width, height -> if (!reading) vm.run { repo.addPage(after, width, height)?.let(canvas::goToWhenAdded) } }
             canvas.mirror = mirror
             canvas.onStroke = { sheetId, channels, usedBrush ->
                 // A mirrored stroke is saved under the ID the Mac's preview already carries.
                 val preview = InkPreview(canvas.mirroredStrokeId ?: newId(), sheetId, channels, usedBrush)
-                if (repo.stageStroke(preview)) {
+                if (!reading && repo.stageStroke(preview)) {
                     vm.run { repo.retry() }; preview
                 } else null
             }
-            canvas.onMarks = { edit -> repo.stageMarks(edit).also { staged -> if (staged) vm.run { repo.retry() } } }
+            canvas.onMarks = { edit -> !reading && repo.stageMarks(edit).also { staged -> if (staged) vm.run { repo.retry() } } }
             canvas.onTap = { command ->
-                when (command) {
+                if (!reading) when (command) {
                     TapCommand.UNDO -> if (gestures.twoFingerUndo) { canvas.deselect(); vm.run { repo.history(false) } }
                     TapCommand.REDO -> { canvas.deselect(); vm.run { repo.history(true) } }
                     TapCommand.FIT -> Unit // already handled by the view
@@ -257,7 +266,7 @@ internal fun NoteCanvas(vm: NotesViewModel, state: NotesState, dark: Boolean, to
             if (canvasMode != null) {
                 canvas.onZoomPercent = onZoom
             }
-            canvas.onTask = { block, line -> vm.run { try { repo.flipTask(block, line) } catch (e: Exception) { repo.message(e.message ?: "Could not change the box.") } } }
+            canvas.onTask = { block, line -> if (!reading) vm.run { try { repo.flipTask(block, line) } catch (e: Exception) { repo.message(e.message ?: "Could not change the box.") } } }
             canvas.onSelection = onSelection
             canvas.onTouchStart = { if (tools.barOpen) actions.onTools(tools.folded()) }
             canvas.update(state, dark)

@@ -186,6 +186,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
 
     /** The Type tool: typing starts where the caret was last, or on a new line at the end of the document. */
     fun startTyping() {
+        if (reading) return
         if (canvasMode != null) {
             val m = viewport.mapping ?: return
             val (cx, cy) = m.toSheet(width * 0.1f, height * 0.3f)
@@ -238,6 +239,17 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     private var lastTy = Float.NaN
     /** Hears the pen touch down or lift, so the sticky title can step aside. */
     var onPenContact: (down: Boolean) -> Unit = {}
+    /**
+     * Read mode: the pen pans and zooms like a finger and nothing is written, erased, selected, typed or flipped. Set by the screen
+     * from the note's per-device choice; turning it on abandons whatever gesture, selection or open field there was.
+     */
+    var reading = false
+        set(value) {
+            if (field == value) return
+            field = value
+            if (value) { cancelGesture(); selection.clear(); if (textInput.active) endTextEditing() }
+            invalidate()
+        }
     private var penTouching = false
     /** Screen y of the last pen contact or typing tap: where the writer's attention was, for the title band to keep clear. */
     var lastWriteY = -1f
@@ -264,6 +276,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         onTemporaryEraser(active)
     }
     private fun updateTemporaryEraser(event: MotionEvent) {
+        if (reading) return
         val pen = (0 until event.pointerCount).any { isPenTool(event.getToolType(it)) }
         if (pen) setTemporaryEraser(sideButtonErases &&
             (event.buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0)
@@ -583,6 +596,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     fun addPage() = requestAddPage(currentPage())
 
     private fun requestAddPage(after: PageSpot?) {
+        if (reading) return
         val last = after ?: spots.lastOrNull()
         val sheet = last?.sheetId ?: scene.firstSheet ?: return
         val size = last?.takeIf { !it.autoHeight }?.let { it.width to it.height } ?: A4
@@ -992,7 +1006,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     override fun onInterceptHoverEvent(event: MotionEvent) = true
 
     override fun onHoverEvent(event: MotionEvent): Boolean {
-        if (!isPenTool(event.getToolType(0))) return super.onHoverEvent(event)
+        if (reading || !isPenTool(event.getToolType(0))) return super.onHoverEvent(event)
         if (event.actionMasked == MotionEvent.ACTION_HOVER_EXIT) setTemporaryEraser(false)
         else updateTemporaryEraser(event)
         return true
@@ -1011,7 +1025,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
     }
 
     override fun onResolvePointerIcon(event: MotionEvent, pointerIndex: Int): PointerIcon? {
-        if (!isPenTool(event.getToolType(pointerIndex))) return super.onResolvePointerIcon(event, pointerIndex)
+        if (reading || !isPenTool(event.getToolType(pointerIndex))) return super.onResolvePointerIcon(event, pointerIndex)
         val scale = viewport.mapping?.scale ?: return super.onResolvePointerIcon(event, pointerIndex)
         val units = when {
             eraser || temporaryEraser -> ERASER_HOVER_UNITS
@@ -1053,7 +1067,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         if (action == MotionEvent.ACTION_DOWN) {
             panZoom.start()
             fingerMode = FingerMode.NONE
-            palmBlocked = isRestingPalm(isPenTool(event.getToolType(0)), event.eventTime, lastPenUp, palmMs)
+            palmBlocked = !reading && isRestingPalm(isPenTool(event.getToolType(0)), event.eventTime, lastPenUp, palmMs)
         }
         if (isCancelled(event)) {
             cancelGesture()
@@ -1065,7 +1079,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
         val down = action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN
         val up = action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP
         val actionIndex = event.actionIndex
-        if (down && isPenTool(event.getToolType(actionIndex))) {
+        if (down && !reading && isPenTool(event.getToolType(actionIndex))) {
             if (activePointer != -1) {
                 // A second pen: drop both rather than guess.
                 cancelGesture()
@@ -1104,7 +1118,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
                 penContact(false)
                 lastPenUp = event.eventTime
             }
-        } else if (!palmBlocked && (0 until event.pointerCount).all { event.getToolType(it) == MotionEvent.TOOL_TYPE_FINGER }) {
+        } else if (!palmBlocked && (reading || (0 until event.pointerCount).all { event.getToolType(it) == MotionEvent.TOOL_TYPE_FINGER })) {
             pad.forceHandover() // a pan, zoom or selection move is coming: the pad's strokes go to dry ink first
             finger(event)
         }
@@ -1319,10 +1333,10 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
                 tapCandidate = true
                 velocity?.recycle()
                 velocity = VelocityTracker.obtain().also { it.addMovement(event) }
-                fingerMode = if (selection.beginGesture(event.x, event.y, viewport.mapping)) {
+                fingerMode = if (!reading && selection.beginGesture(event.x, event.y, viewport.mapping)) {
                     FingerMode.SELECTION
                 } else {
-                    postDelayed(longPress, ViewConfiguration.getLongPressTimeout().toLong())
+                    if (!reading) postDelayed(longPress, ViewConfiguration.getLongPressTimeout().toLong())
                     FingerMode.PAN
                 }
             }
@@ -1368,7 +1382,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
                     }
                 }
                 val start = tapStart
-                if (tapCandidate && start != null && event.eventTime - start.third < ViewConfiguration.getTapTimeout() * 3L) {
+                if (tapCandidate && !reading && start != null && event.eventTime - start.third < ViewConfiguration.getTapTimeout() * 3L) {
                     viewport.mapping?.let { mapping ->
                         val (cx, cy) = mapping.toSheet(event.x, event.y)
                         val x = cx - textOffset.first; val y = cy - textOffset.second
@@ -1470,7 +1484,7 @@ class NoteCanvasView(context: Context) : FrameLayout(context) {
                     if (!viewport.zoomInFromFit(tap.x, tap.y)) fit()
                     fitTookTap = true; removeCallbacks(startTypingNow); pendingWish = null
                 }
-                onTap(tap.command)
+                if (!reading) onTap(tap.command)
             }
         }
     }

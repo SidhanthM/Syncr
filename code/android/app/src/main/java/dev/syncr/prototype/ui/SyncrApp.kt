@@ -72,6 +72,15 @@ fun SyncrApp(vm: NotesViewModel = viewModel(), dark: Boolean, appearance: Appear
     val context = androidx.compose.ui.platform.LocalContext.current
     // How this note's pages are laid out and read on this phone: kept on the device, never in the note.
     var viewSettings by remember(snapshot?.noteId) { mutableStateOf(snapshot?.let { NoteViewStore.get(context, it.noteId) } ?: PageViewSettings()) }
+    // Read mode for this note on this device: kept with the page view, never in the note.
+    var reading by remember(snapshot?.noteId) { mutableStateOf(snapshot?.takeIf { it.kind == NoteKind.NOTE }?.let { NoteViewStore.reading(context, it.noteId) } ?: false) }
+    val setReading: (Boolean) -> Unit = { on ->
+        reading = on
+        snapshot?.let { NoteViewStore.setReading(context, it.noteId, on) }
+        if (on) tools = tools.folded()
+    }
+    // The repository refuses every edit of the open note while Read mode is on, whoever asks.
+    androidx.compose.runtime.SideEffect { repo.readOnly = snapshot != null && reading }
     LaunchedEffect(snapshot == null) {
         if (snapshot == null) {
             if (overlay != Overlay.SETTINGS) overlay = Overlay.NONE
@@ -106,7 +115,7 @@ fun SyncrApp(vm: NotesViewModel = viewModel(), dark: Boolean, appearance: Appear
             onFit = { paper?.fit() },
             onMore = { tools = tools.folded(); overlay = Overlay.MORE }, onPage = { currentSheet = it })
         if (snapshot.kind == dev.syncr.core.NoteKind.CANVAS) CanvasEditorScreen(vm, state, dark, tools, actions, banner = banner)
-        else NoteScreen(vm, state, dark, tools, viewSettings, actions, banner = banner)
+        else NoteScreen(vm, state, dark, tools, viewSettings, actions, banner = banner, reading = reading, onReading = setReading)
         if (sidebar && snapshot.kind == NoteKind.NOTE) {
             BackHandler { sidebar = false }
             PageSidebar(state, currentSheet ?: snapshot.pages.firstOrNull { !it.tombstone }?.sheetId, dark, PageSidebarActions(
@@ -115,13 +124,13 @@ fun SyncrApp(vm: NotesViewModel = viewModel(), dark: Boolean, appearance: Appear
                 onAdd = { after ->
                     val page = snapshot.pages.firstOrNull { it.sheetId == after }
                     val (w, h) = page?.takeIf { !it.autoHeight }?.let { it.width to it.height } ?: NoteCanvasView.A4
-                    vm.run { repo.addPage(after, w, h)?.let { paper?.goToWhenAdded(it) } }
+                    if (!reading) vm.run { repo.addPage(after, w, h)?.let { paper?.goToWhenAdded(it) } }
                 },
-                onDuplicate = { ids -> vm.run { repo.duplicatePages(ids) } },
-                onRotate = { ids, turn -> vm.run { repo.rotatePages(ids, turn) } },
-                onSize = { id, w, h -> vm.run { repo.resizePage(id, w, h) } },
-                onDelete = { ids -> vm.run { repo.deletePages(ids) } },
-                onMove = { ids, after -> vm.run { repo.movePages(ids, after) } }))
+                onDuplicate = { ids -> if (!reading) vm.run { repo.duplicatePages(ids) } },
+                onRotate = { ids, turn -> if (!reading) vm.run { repo.rotatePages(ids, turn) } },
+                onSize = { id, w, h -> if (!reading) vm.run { repo.resizePage(id, w, h) } },
+                onDelete = { ids -> if (!reading) vm.run { repo.deletePages(ids) } },
+                onMove = { ids, after -> if (!reading) vm.run { repo.movePages(ids, after) } }))
         }
     }
 
@@ -146,7 +155,8 @@ fun SyncrApp(vm: NotesViewModel = viewModel(), dark: Boolean, appearance: Appear
             onFitPage = { fit -> overlay = Overlay.NONE; paper?.fitPage(fit) },
             onZoom = { up -> paper?.zoomStep(up) },
             zoomPercent = { paper?.zoomPercent() ?: 100 },
-            onPageList = { overlay = Overlay.NONE; sidebar = true }))
+            onPageList = { overlay = Overlay.NONE; sidebar = true },
+            reading = reading, onReading = { on -> overlay = Overlay.NONE; setReading(on) }))
         overlay == Overlay.RENAME -> RenameDialog(snapshot.title, onDismiss = { overlay = Overlay.NONE },
             onSave = { title -> overlay = Overlay.NONE; vm.run { repo.rename(title) } })
         overlay == Overlay.MOVE -> MoveNoteDialog(snapshot.title, snapshot.notebook, state.notebooks.map { it.name },

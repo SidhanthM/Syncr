@@ -55,8 +55,15 @@ internal class OpenNoteEditor(
         }
     }
 
+    /**
+     * Read mode: every edit to the open note is refused here, whatever asked for it (pen, finger, text, page chrome, the
+     * companion), so nothing is staged, nothing is saved and nothing is queued. Sync from the Mac does not come through here.
+     */
+    @Volatile var readOnly = false
+
     /** Retains the complete measured stroke before any asynchronous codec or submit. */
     fun stageStroke(preview: InkPreview): Boolean {
+        if (readOnly) return false
         val state = session.current
         val snapshot = state.snapshot ?: return false
         if (state.closing) return false
@@ -95,6 +102,7 @@ internal class OpenNoteEditor(
      * and restyles still edit saved ink only.
      */
     fun stageMarks(edit: MarkEdit): Boolean {
+        if (readOnly) return false
         if (edit.ids.isEmpty()) return false
         val state = session.current
         if (edit is MarkEdit.Delete) return stageDelete(edit)
@@ -183,6 +191,7 @@ internal class OpenNoteEditor(
      * history, it waits until nothing is unsaved or busy. Returns whether anything was staged.
      */
     fun stageMetadata(body: (Base) -> CommandBody): Boolean {
+        if (readOnly) return false
         val state = session.current
         if (state.unsaved || state.busy) return false
         val head = state.snapshot?.metadataHead ?: return false
@@ -192,6 +201,7 @@ internal class OpenNoteEditor(
 
     /** Stages core-owned undo or redo. Returns whether anything was staged. */
     fun stageHistory(redo: Boolean): Boolean {
+        if (readOnly) return false
         val state = session.current
         if (state.unsaved || state.busy) return false
         val snapshot = state.snapshot ?: return false
@@ -205,6 +215,7 @@ internal class OpenNoteEditor(
     }
 
     fun stageContent(noteId: String, build: (dev.syncr.core.NoteSnapshot) -> Command?): Boolean {
+        if (readOnly) return false
         val state = session.current
         require(!state.unsaved && !state.busy && !state.closing) { "Wait for the current changes to finish saving." }
         val note = state.snapshot
@@ -216,6 +227,7 @@ internal class OpenNoteEditor(
 
     /** Stages several commands in order as one undo step (history takes a gesture's commands together). */
     fun stageContents(noteId: String, gesture: String, build: (dev.syncr.core.NoteSnapshot) -> List<Command>): Boolean {
+        if (readOnly) return false
         val state = session.current
         require(!state.unsaved && !state.busy && !state.closing) { "Wait for the current changes to finish saving." }
         val note = state.snapshot

@@ -18,6 +18,21 @@ object NoteViewStore {
         decode(context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE).getString(noteId, null))
     } catch (_: Exception) { PageViewSettings() }
 
+    private const val READING_FILE = "syncr-note-reading"
+
+    /** Whether the note is open in Read mode on this device: kept beside the page view, never in the note. */
+    fun reading(context: Context, noteId: String): Boolean = try {
+        context.applicationContext.getSharedPreferences(READING_FILE, Context.MODE_PRIVATE).getBoolean(noteId, false)
+    } catch (_: Exception) { false }
+
+    fun setReading(context: Context, noteId: String, reading: Boolean) {
+        try {
+            context.applicationContext.getSharedPreferences(READING_FILE, Context.MODE_PRIVATE).edit().apply {
+                if (reading) putBoolean(noteId, true) else remove(noteId)
+            }.apply()
+        } catch (_: Exception) { }
+    }
+
     fun set(context: Context, noteId: String, settings: PageViewSettings) {
         try {
             context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putString(noteId, encode(settings)).apply()

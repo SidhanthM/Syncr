@@ -51,6 +51,8 @@ object SyncrIcons {
     val Trackpad = icon("Trackpad", "M5 4.5h14A1.5 1.5 0 0 1 20.5 6v12a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 18V6A1.5 1.5 0 0 1 5 4.5z", "M3.5 15h17", "M12 15v4.5")
     /** A laptop: the Mac. */
     val Laptop = icon("Laptop", "M5.5 5h13A1.5 1.5 0 0 1 20 6.5V16H4V6.5A1.5 1.5 0 0 1 5.5 5z", "M2.5 19h19")
+    /** An eye: Read mode. */
+    val Eye = icon("Eye", "M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z", "M12 9.5a2.5 2.5 0 1 1 0 5a2.5 2.5 0 1 1 0-5z")
     val Plus = icon("Plus", "M12 5v14", "M5 12h14")
     /** A paged note: a sheet with its ruled lines. Straight lines, centred. */
     val NotePage = icon("NotePage", "M6.5 4h11v16h-11z", "M9.5 9h5", "M9.5 12h5", "M9.5 15h3")

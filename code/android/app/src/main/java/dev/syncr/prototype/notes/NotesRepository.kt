@@ -35,6 +35,11 @@ class NotesRepository(
 
     val state: StateFlow<NotesState> = session.state
 
+    /** Read mode for the open note: no edit of it is staged while this is set (see [OpenNoteEditor.readOnly]). */
+    var readOnly: Boolean
+        get() = editor.readOnly
+        set(value) { editor.readOnly = value }
+
     // ---- Library ----
 
     suspend fun loadLibrary() = session.work {
