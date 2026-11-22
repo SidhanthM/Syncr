@@ -9,6 +9,8 @@ interface FileSource {
     /** The next whole message, unframed, or null when the transfer has nothing more to send. */
     fun next(): ByteArray?
     val finished: Boolean
+    /** Chunks not yet written (the `file_end` not counted); 0 when unknown. */
+    val remaining: Long get() = 0
     /** Small enough to go while the pen is writing (a few typed words), behind the live frames that queue ahead of it. */
     val small: Boolean get() = false
     fun close()
@@ -22,6 +24,7 @@ class FileStream(private val file: File, private val xfer: Long, val chunks: Lon
     private val buffer = ByteArray(Wire.FILE_CHUNK_DATA)
 
     override val finished get() = endSent
+    override val remaining get() = maxOf(0, chunks - index)
     override val small get() = chunks <= 1
 
     override fun next(): ByteArray? {
@@ -91,4 +94,8 @@ class SendScheduler(private val out: PreviewOut, private val pump: FeedPump) {
     }
 
     fun clearControl() = control.clear()
+
+    /** For the disconnect line: control messages waiting, and the chunks of the file in flight not yet written. */
+    fun queuedControl(): Int = control.size
+    fun queuedFileChunks(): Long = file?.remaining ?: 0
 }

@@ -122,7 +122,8 @@ class LoopbackTest {
         assertTrue(mac.await { mac.controls.toList().takeLast(6).containsAll(listOf(Control.Viewing("note-a"), Control.Pad(true))) })
         client.setPad(false)
         assertTrue(mac.await { mac.controls.contains(Control.Pad(false)) && logs.contains("pad off sent") })
-        assertTrue(logs.any { it.startsWith("state disconnected reason=Lost the connection") })
+        // A drop that heals at once is not shown to the owner (no "state disconnected" line); it leaves its own line instead.
+        assertTrue(logs.any { it.startsWith("disconnect cause=") })
         assertTrue(logs.none { it.contains(store.current!!.token) })
     }
 

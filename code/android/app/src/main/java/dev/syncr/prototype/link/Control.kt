@@ -21,24 +21,43 @@ sealed class Control {
 
     /**
      * [delta]: this side can send and merge deltas (sync-delta.md). [push]: it also takes a delta nobody asked for and sends its
-     * own as soon as a note changes (latency-v1 T.3). Both are written only when true, so an older peer sees the old message.
+     * own as soon as a note changes (latency-v1 T.3). [keep] (link K.4): the phone keeps each pad stroke until the Mac confirms it by
+     * ID and may send it again after a reconnect. All are written only when true, so an older peer sees the old message.
      */
-    data class Hello(val device: String, val phoneId: String, val token: String?, val v: Int = VERSION, val delta: Boolean = false, val push: Boolean = false) : Control() {
+    data class Hello(
+        val device: String, val phoneId: String, val token: String?, val v: Int = VERSION, val delta: Boolean = false, val push: Boolean = false,
+        val keep: Boolean = false,
+    ) : Control() {
         override fun json(): Map<String, Any?> {
             val m = linkedMapOf<String, Any?>("t" to "hello", "v" to v, "device" to device, "phone_id" to phoneId, "token" to token)
             if (delta) m["delta"] = true
             if (push) m["push"] = true
+            if (keep) m["keep"] = true
             return m
         }
     }
 
-    data class Welcome(val v: Int, val mac: String, val macId: String, val epoch: Long, val delta: Boolean = false, val push: Boolean = false) : Control() {
+    /** [keep]: the Mac saw `keep` in hello and confirms every pad stroke by ID with [StrokeAck]. */
+    data class Welcome(
+        val v: Int, val mac: String, val macId: String, val epoch: Long, val delta: Boolean = false, val push: Boolean = false, val keep: Boolean = false,
+    ) : Control() {
         override fun json(): Map<String, Any?> {
             val m = linkedMapOf<String, Any?>("t" to "welcome", "v" to v, "mac" to mac, "mac_id" to macId, "epoch" to epoch)
             if (delta) m["delta"] = true
             if (push) m["push"] = true
+            if (keep) m["keep"] = true
             return m
         }
+    }
+
+    /** Mac: the stroke [id] is in the note ([ok]), or was refused and never will be: the phone lets go of its copy. */
+    data class StrokeAck(val id: String, val ok: Boolean) : Control() {
+        override fun json() = mapOf("t" to "stroke_ack", "id" to id, "ok" to ok)
+    }
+
+    /** Phone: the stroke [id] about to be sent again was begun at target revision [rev]; the Mac places it with that view. */
+    data class StrokeRev(val id: String, val rev: Long) : Control() {
+        override fun json() = mapOf("t" to "stroke_rev", "id" to id, "rev" to rev)
     }
 
     data object PairRequest : Control() {
@@ -191,8 +210,10 @@ sealed class Control {
             val root = Json.parse(message, 1) as? Map<*, *> ?: throw LinkProtocolException("control message is not an object")
             val m = Fields(root)
             return when (m.str("t")) {
-                "hello" -> Hello(m.str("device", 256), m.id("phone_id"), m.optStr("token", 128), m.int("v").toInt(), m.flag("delta"), m.flag("push"))
-                "welcome" -> Welcome(m.int("v").toInt(), m.str("mac", 256), m.id("mac_id"), m.u32("epoch"), m.flag("delta"), m.flag("push"))
+                "hello" -> Hello(m.str("device", 256), m.id("phone_id"), m.optStr("token", 128), m.int("v").toInt(), m.flag("delta"), m.flag("push"), m.flag("keep"))
+                "welcome" -> Welcome(m.int("v").toInt(), m.str("mac", 256), m.id("mac_id"), m.u32("epoch"), m.flag("delta"), m.flag("push"), m.flag("keep"))
+                "stroke_ack" -> StrokeAck(m.id("id"), m.bool("ok"))
+                "stroke_rev" -> StrokeRev(m.id("id"), m.u32("rev"))
                 "pair" -> PairRequest
                 "code" -> Code(m.str("code", 16))
                 "paired" -> Paired(m.str("token", 128))

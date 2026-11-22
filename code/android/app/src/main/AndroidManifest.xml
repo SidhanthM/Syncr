@@ -4,6 +4,8 @@
     <!-- Mac link (wifi-link-v0): plain TCP to the Mac and NSD discovery; the low-latency Wi-Fi lock needs WAKE_LOCK. All normal permissions, no prompt. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- Link stability: hear Wi-Fi come back or change, to reconnect at once. Normal permission, no prompt. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <application
         android:label="@string/app_name"

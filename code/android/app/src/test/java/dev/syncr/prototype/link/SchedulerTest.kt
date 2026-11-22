@@ -121,11 +121,19 @@ class SchedulerTest {
         assertNull(s.next())
     }
 
-    @Test fun backoffIsOneTwoFourEightThenTenSecondsAndResets() {
-        val b = Backoff()
-        assertEquals(listOf(1000L, 2000, 4000, 8000, 10_000, 10_000, 10_000), List(7) { b.nextMs() })
+    @Test fun backoffRetriesAtOnceThenHalfOneTwoFourEightTenSecondsAndResets() {
+        val b = Backoff { 0.5 } // the middle of the jitter: none
+        assertEquals(listOf(0L, 500, 1000, 2000, 4000, 8000, 10_000, 10_000), List(8) { b.nextMs() })
         b.reset()
-        assertEquals(1000L, b.nextMs())
+        assertEquals(0L, b.nextMs())
+        assertEquals(500L, b.nextMs())
+    }
+
+    @Test fun backoffJitterStaysWithinTwentyPercent() {
+        val low = Backoff { 0.0 }; val high = Backoff { 1.0 }
+        val lows = List(7) { low.nextMs() }; val highs = List(7) { high.nextMs() }
+        assertEquals(listOf(0L, 400, 800, 1600, 3200, 6400, 8000), lows)
+        assertEquals(listOf(0L, 600, 1200, 2400, 4800, 9600, 12_000), highs)
     }
 
     @Test fun latencyStatsPercentiles() {

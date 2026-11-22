@@ -4,6 +4,8 @@ import android.app.Application
 import android.annotation.SuppressLint
 import android.os.PowerManager
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
 import android.net.nsd.NsdManager
 import android.net.wifi.WifiManager
 import android.os.Build
@@ -36,6 +38,7 @@ import dev.syncr.prototype.link.NoteDigest
 import dev.syncr.prototype.link.NoteMeta
 import dev.syncr.prototype.link.NoteSource
 import dev.syncr.prototype.link.PenFeed
+import dev.syncr.prototype.link.StrokeKeeper
 import dev.syncr.prototype.link.PenDiagnostics
 import dev.syncr.prototype.link.radioLine
 import dev.syncr.prototype.link.Phase
@@ -97,6 +100,10 @@ class LinkController private constructor(private val app: Application) {
     private val ids = IdPool(::newId)
     private val out by lazy { CorePreviewOut() }
 
+    /** Pad strokes the Mac has not confirmed yet: they outlive the client, which is remade whenever the app returns to the front. */
+    private val keeper = StrokeKeeper()
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+
     /** For the note canvas (wifi-link-v0 §3.4). */
     val mirror: InkMirror = CanvasMirror(feed, ids)
 
@@ -128,6 +135,8 @@ class LinkController private constructor(private val app: Application) {
     private val newestPicture = java.util.concurrent.atomic.AtomicReference<ByteArray?>()
     private val decoder = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "syncr-pad-picture").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } }
     @Volatile private var padWish: PadWish? = null
+    /** The pen frame the Mac last reported while the pad was open: a client made later (the app returned to the front) asks for it again. */
+    @Volatile private var padFrame: CanvasRect? = null
 
     /** The tool-bar pen the phone last used in a note (family, size, ink); Stream strokes are written with it. */
     @Volatile private var chosenBrush: Brush = readBrush()
@@ -184,12 +193,14 @@ class LinkController private constructor(private val app: Application) {
     /** Deletes this phone's pairing. The Mac keeps its own record until it forgets this phone there. */
     fun forget() {
         client?.forget() ?: store.forget()
-        ui.update { it.copy(pairedMac = null, status = SessionStatus()) }
+        target = StreamTarget(); picture.value = null
+        ui.update { it.copy(pairedMac = null, status = SessionStatus(), target = target) }
     }
 
     /** The pad opened or closed in Stream. */
     fun padOpened(on: Boolean) {
         padOn = on
+        if (!on) padFrame = null
         client?.setPad(on)
     }
 
@@ -256,7 +267,12 @@ class LinkController private constructor(private val app: Application) {
     @Synchronized
     private fun reconcile() {
         if (LinkPolicy.shouldRun(ui.value.enabled, foreground)) {
-            val f = finder ?: NsdFinder(app.getSystemService(NsdManager::class.java)) { found -> ui.update { it.copy(found = found) } }.also { finder = it }
+            val f = finder ?: NsdFinder(app.getSystemService(NsdManager::class.java)) { found ->
+                ui.update { it.copy(found = found) }
+                // The paired Mac showed up (it restarted, or Wi-Fi is back): connect now, not at the next retry.
+                val paired = store.pairing()
+                if (paired != null && !ui.value.connected && found.any { it.macId == paired.macId }) client?.kick()
+            }.also { finder = it }
             f.start()
             if (client == null) startClient()
         } else {
@@ -264,6 +280,29 @@ class LinkController private constructor(private val app: Application) {
             finder?.stop()
         }
         updateWifiLock()
+        watchNetwork(client != null)
+    }
+
+    /**
+     * Wi-Fi coming back, the address or the route changing: the client connects at once instead of waiting out its retry delay, and
+     * a connection that is up is asked to prove it still works. Only while the link runs; no permission beyond ACCESS_NETWORK_STATE.
+     */
+    @Synchronized
+    private fun watchNetwork(on: Boolean) {
+        val manager = app.getSystemService(ConnectivityManager::class.java) ?: return
+        if (!on) {
+            networkCallback?.let { runCatching { manager.unregisterNetworkCallback(it) } }
+            networkCallback = null
+            return
+        }
+        if (networkCallback != null) return
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) { Log.i(TAG, "network available"); client?.networkChanged() }
+            override fun onLinkPropertiesChanged(network: Network, linkProperties: android.net.LinkProperties) {
+                Log.i(TAG, "network link properties changed"); client?.networkChanged()
+            }
+        }
+        networkCallback = runCatching { manager.registerDefaultNetworkCallback(callback); callback }.getOrNull()
     }
 
     private fun startClient() {
@@ -307,18 +346,20 @@ class LinkController private constructor(private val app: Application) {
         }
         val config = ClientConfig(
             device = deviceName(), store = store, source = source, clock = Clock.SYSTEM, tempDir = dir, out = out, feed = feed,
-            encodeSamples = ::encodeSamples, log = { Log.i(TAG, it) }, ids = ids, latencyContext = ::radioContext,
+            encodeSamples = ::encodeSamples, log = { Log.i(TAG, it) }, ids = ids, latencyContext = ::radioContext, keeper = keeper,
         )
         lateinit var self: LinkClient
         val listener = object : ClientListener {
             override fun onStatus(status: SessionStatus) {
                 if (client !== self) return // a client that was stopped
-                if (status.phase != Phase.CONNECTED) { target = StreamTarget(); picture.value = null }
+                // A Mac that confirms strokes lets the pad go on through a drop: its target stays, so ink drawn meanwhile is kept.
+                if (status.phase != Phase.CONNECTED && !keeper.peerKeeps) { target = StreamTarget(); picture.value = null }
                 ui.update { it.copy(status = status, pairedMac = store.pairing()?.macName, target = target,
                     pointer = if (status.phase == Phase.CONNECTED) it.pointer else PointerStatus()) }
                 updateWifiLock()
             }
             override fun onTarget(target: StreamTarget) {
+                if (padOn) target.frame?.let { padFrame = it }
                 this@LinkController.target = target
                 ui.update { it.copy(target = target) }
             }
@@ -334,6 +375,7 @@ class LinkController private constructor(private val app: Application) {
         c.notesChanged(latest.notes, latest.open)
         c.setViewing(latest.open)
         c.setPad(padOn)
+        if (padOn) c.resumeFrame(padFrame)
         c.setPadWish(padWish)
         c.setPointer(pointerOn)
         c.start()

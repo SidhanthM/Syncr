@@ -40,6 +40,10 @@ class FakeMac(
     @Volatile var acceptPreviewFrame: (ByteArray) -> Unit = {}
     @Volatile var acceptStrokeChunk: (ByteArray) -> Unit = {}
     @Volatile var hook: (Control) -> Unit = {}
+    /** The Mac goes quiet without closing: no pong answers a ping (a link that died without a FIN). */
+    @Volatile var mute = false
+    /** Answer `hello` as a link v1 Mac that confirms pad strokes by ID (K.4), when the phone asked to be told. */
+    @Volatile var keepStrokes = false
     @Volatile private var conn: Socket? = null
     private var out: BufferedOutputStream? = null
     private val lock = Any()
@@ -96,7 +100,8 @@ class FakeMac(
 
     private fun welcome() {
         epoch++
-        send(Control.Welcome(0, macName, macId, epoch))
+        val keep = keepStrokes && hellos.lastOrNull()?.keep == true
+        send(Control.Welcome(if (keepStrokes) 1 else 0, macName, macId, epoch, keep = keep))
     }
 
     private fun onControl(c: Control) {
@@ -117,7 +122,7 @@ class FakeMac(
                     if (tries <= 0) drop()
                 }
             }
-            is Control.Ping -> send(Control.Pong(c.id, c.at, System.nanoTime() / 1_000_000))
+            is Control.Ping -> if (!mute) send(Control.Pong(c.id, c.at, System.nanoTime() / 1_000_000))
             is Control.Notes -> {
                 val want = c.notes.filter { (haveSeq[it.id] ?: -1) < it.seq }.map { it.id }
                 if (want.isNotEmpty()) send(Control.Want(want))

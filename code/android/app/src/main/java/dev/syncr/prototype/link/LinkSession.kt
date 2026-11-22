@@ -50,6 +50,8 @@ class LinkSession(
     private var pointerStatus = PointerStatus()
     private var pointerSeq = 0L
     private var padWish: PadWish? = null
+    /** The pen frame the Mac last reported while the pad was open: asked for again after a reconnect, so the pad resumes where it was. */
+    private var padFrame: CanvasRect? = null
     private var sentToken: String? = null
     private var pendingToken: String? = null
     private var macName: String? = null
@@ -60,7 +62,7 @@ class LinkSession(
         // A stored token goes only to the Mac it was issued by; a Mac that is not known yet gets a chance to say so.
         val stored = store.pairing()?.takeIf { target.macId == null || it.macId == target.macId }
         sentToken = stored?.token
-        scheduler.sendControl(Control.Hello(device, store.phoneId(), stored?.token, version, delta = true, push = true))
+        scheduler.sendControl(Control.Hello(device, store.phoneId(), stored?.token, version, delta = true, push = true, keep = version >= 1))
         events.status(SessionStatus(Phase.CONNECTING, stored?.macName ?: target.name))
     }
 
@@ -95,7 +97,10 @@ class LinkSession(
             is Control.File -> if (phase == Phase.CONNECTED) sync.receiver.onFile(c)
             is Control.FileEnd -> if (phase == Phase.CONNECTED) sync.receiver.onFileEnd(c.xfer)
             is Control.FileError -> if (phase == Phase.CONNECTED) sync.onFileError(c.xfer, c.id, c.reason)
+            is Control.StrokeAck -> if (phase == Phase.CONNECTED) pump.onAck(c.id, c.ok)
+            is Control.StrokeRev -> Unit
             is Control.Target -> if (phase == Phase.CONNECTED) {
+                if (padOn) c.frame?.let { padFrame = it }
                 events.target(StreamTarget(c.note, c.sheet, c.writable, c.rev, c.frame, c.view, c.pageHeight))
             }
             is Control.Udp -> if (phase == Phase.CONNECTED && version >= 1) {
@@ -127,12 +132,20 @@ class LinkSession(
         macName = c.mac
         phase = Phase.CONNECTED
         pump.epoch = c.epoch
+        pump.control = scheduler::sendControl
+        // Strokes the Mac has not confirmed go again; the pen is let in only after that, so a new stroke queues behind them.
+        pump.goOnline(keep = c.keep && c.v >= 1 && version >= 1)
         feed.enabled = true
         nextPing = clock.nowMs() + PING_MS
         events.status(SessionStatus(Phase.CONNECTED, c.mac))
         sync.onWelcome(source.list(), openId, minOf(c.v, version), c.delta, c.push)
         viewing?.let { scheduler.sendControl(Control.Viewing(it)) }
-        if (padOn) { scheduler.sendControl(Control.Pad(true)); sendPadWish() }
+        if (padOn) {
+            scheduler.sendControl(Control.Pad(true)); sendPadWish()
+            // The same pen frame as before the drop (the Mac's own default would put it back at the start).
+            val frame = padFrame
+            if (frame != null && version >= 1 && padWish?.local == true) scheduler.sendControl(Control.Frame(frame))
+        }
     }
 
     private fun sendPadWish() {
@@ -158,12 +171,16 @@ class LinkSession(
         return true
     }
 
+    /** Ping at the next [tick]: the network changed, and the Mac is asked to prove the connection still works. */
+    fun pingNow() { nextPing = 0 }
+
     /** Called often by the link thread: the 2-second ping. */
     fun tick() {
         if (phase != Phase.CONNECTED) return
         val now = clock.nowMs()
         if (now >= nextPing) {
-            nextPing = now + PING_MS
+            // A second apart with a pad or the pointer open, so a quiet link shows within the watchdog's few seconds.
+            nextPing = now + if (padOn || pointerWanted) PING_ACTIVE_MS else PING_MS
             scheduler.sendControl(Control.Ping(++pingId, now))
         }
     }
@@ -188,6 +205,7 @@ class LinkSession(
     fun setPad(on: Boolean) {
         if (padOn == on) return
         padOn = on
+        if (!on) padFrame = null
         if (phase == Phase.CONNECTED) { scheduler.sendControl(Control.Pad(on)); if (on) sendPadWish() }
     }
 
@@ -216,7 +234,8 @@ class LinkSession(
     }
 
     /** The app's wishes survive a reconnect: [viewing] and [pad] are re-sent after the next welcome. */
-    fun adopt(viewing: String?, pad: Boolean, open: String?, wish: PadWish? = null, pointer: Boolean = false) {
+    fun adopt(viewing: String?, pad: Boolean, open: String?, wish: PadWish? = null, pointer: Boolean = false, frame: CanvasRect? = null) {
+        this.padFrame = if (pad) frame else null
         this.pointerWanted = pointer
         this.viewing = viewing
         this.padOn = pad
@@ -226,5 +245,6 @@ class LinkSession(
 
     companion object {
         const val PING_MS = 2_000L
+        const val PING_ACTIVE_MS = 1_000L
     }
 }
