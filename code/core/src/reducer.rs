@@ -1,6 +1,7 @@
 //! In-memory candidate projection; it is installed only by the same transaction as the log.
 use crate::{
     error::{collision, dependency, invalid, missing, stale},
+    pages::{CanvasStyle, Headed, PageEdit, install_page_edit},
     text::{TextEdit, TextEffect},
     *,
 };
@@ -33,6 +34,39 @@ pub(crate) struct Sheet {
     pub origin_x: f32,
     #[serde(default)]
     pub origin_y: f32,
+    // Page state (notes and canvases v1). Only meaningful for a sheet in `State::pages`.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub page_width: f32,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub page_height: f32,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub auto_height: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub tombstone: bool,
+    // None until a page command changes it: the creation head.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_head: Option<EntityHead>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style: Option<Headed<PageStyle>>,
+}
+fn is_zero(value: &f32) -> bool {
+    *value == 0.0
+}
+impl Sheet {
+    pub fn new(id: Id, creation: Id) -> Self {
+        Self {
+            id,
+            creation,
+            origin_x: 0.0,
+            origin_y: 0.0,
+            page_width: 0.0,
+            page_height: 0.0,
+            auto_height: false,
+            tombstone: false,
+            page_head: None,
+            style: None,
+        }
+    }
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct Action {
@@ -51,6 +85,10 @@ pub(crate) struct Action {
     pub image_before: Vec<ImageMarkView>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub image_after: Vec<ImageMarkView>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub page_before: Vec<PageEdit>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub page_after: Vec<PageEdit>,
 }
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub(crate) struct History {
@@ -81,6 +119,18 @@ pub(crate) struct State {
     pub metadata_head: EntityHead,
     pub structure_head: EntityHead,
     pub sheets: Vec<Sheet>,
+    // Notes and canvases v1. A note written before has none of these: a Note, no page list
+    // (its first sheet is its one page), no styles.
+    #[serde(default, skip_serializing_if = "is_note")]
+    pub kind: NoteKind,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pages: Vec<Id>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_style: Option<Headed<PageStyle>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub canvas_style: Option<Headed<CanvasStyle>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waypoint_list: Option<Headed<Vec<Waypoint>>>,
     pub strokes: Vec<StrokeView>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub text_blocks: Vec<TextBlockView>,
@@ -95,6 +145,9 @@ pub(crate) struct State {
     pub images: Vec<ImageMarkView>,
     pub sequence: u64,
     pub histories: BTreeMap<Id, History>,
+}
+fn is_note(kind: &NoteKind) -> bool {
+    *kind == NoteKind::Note
 }
 pub(crate) const IDENTITY: Affine = Affine {
     a: 1.0,
@@ -122,12 +175,12 @@ impl State {
             creation: r.operation_id.clone(),
             metadata_head: head(&r.operation_id),
             structure_head: head(&r.operation_id),
-            sheets: vec![Sheet {
-                id: r.first_sheet_id.clone(),
-                creation: r.operation_id.clone(),
-                origin_x: 0.0,
-                origin_y: 0.0,
-            }],
+            sheets: vec![Sheet::new(r.first_sheet_id.clone(), r.operation_id.clone())],
+            kind: r.kind,
+            pages: vec![],
+            page_style: None,
+            canvas_style: None,
+            waypoint_list: None,
             strokes: vec![],
             text_blocks: vec![],
             text_effects: vec![],
@@ -138,7 +191,9 @@ impl State {
             histories: BTreeMap::new(),
         }
     }
-    pub fn snapshot(&self, author: &str, cursor: EventCursor) -> NoteSnapshot {
+    /// `content_bottom` is the lowest content on the auto-height page (see
+    /// `content_bottom()`); it is only read when the note has such a page.
+    pub fn snapshot(&self, author: &str, cursor: EventCursor, content_bottom: f32) -> NoteSnapshot {
         let history = self.histories.get(author);
         let undo = history.and_then(|h| h.undo.last());
         let redo = history.and_then(|h| h.redo.last());
@@ -170,6 +225,11 @@ impl State {
             companion_items: self.companion_items.clone(),
             companion_settings: self.companion_settings.clone(),
             images: self.images.clone(),
+            kind: self.kind,
+            pages: self.page_views(content_bottom),
+            page_style: self.page_style_view(),
+            canvas_background: self.canvas_background_view(),
+            waypoints: self.waypoints_view(),
         }
     }
     fn action_dependencies(&self, action: Option<&Action>) -> Vec<Id> {
@@ -186,6 +246,7 @@ impl State {
             .chain(action.text_after.iter().map(|e| &e.mark_id))
             .chain(action.companion_after.iter().map(|e| &e.id))
             .chain(action.image_after.iter().map(|e| &e.id))
+            .chain(action.page_after.iter().map(|e| &e.sheet_id))
             .collect();
         self.strokes
             .iter()
@@ -208,6 +269,12 @@ impl State {
                     .iter()
                     .filter(|v| affected.contains(&v.id))
                     .map(|v| v.head.operation_id.clone()),
+            )
+            .chain(
+                self.sheets
+                    .iter()
+                    .filter(|s| affected.contains(&s.id))
+                    .map(|s| s.page_head().operation_id),
             )
             .collect::<BTreeSet<_>>()
             .into_iter()
@@ -280,18 +347,50 @@ impl State {
                 self.apply_marks(mutations, op, author, &deps)?;
                 Ok(ChangeKind::MarksChanged)
             }
+            CommandBody::SetPageStyle {
+                sheet_id,
+                template,
+                paper,
+                pattern_colour,
+                spacing,
+                base,
+            } => {
+                let style = PageStyle {
+                    template: *template,
+                    paper: *paper,
+                    pattern_colour: *pattern_colour,
+                    spacing: *spacing,
+                };
+                self.set_page_style(sheet_id, style, base, op, &deps)?;
+                Ok(ChangeKind::MetadataChanged)
+            }
+            CommandBody::SetCanvasBackground {
+                pattern,
+                pattern_colour,
+                spacing,
+                paper,
+                base,
+            } => {
+                let value = CanvasStyle {
+                    pattern: *pattern,
+                    pattern_colour: *pattern_colour,
+                    spacing: *spacing,
+                    paper: *paper,
+                };
+                self.set_canvas_background(value, base, op, &deps)?;
+                Ok(ChangeKind::MetadataChanged)
+            }
+            CommandBody::SetWaypoints { waypoints, base } => {
+                self.set_waypoints(waypoints, base, op, &deps)?;
+                Ok(ChangeKind::MetadataChanged)
+            }
             CommandBody::AddSheet { sheet_id, base } => {
                 check_base(base, &self.structure_head, &deps)?;
                 if self.sheets.iter().any(|s| s.id == *sheet_id) {
                     return Err(collision());
                 }
                 // Origins are placed after replay; a canvas note never reaches this.
-                self.sheets.push(Sheet {
-                    id: sheet_id.clone(),
-                    creation: op.clone(),
-                    origin_x: 0.0,
-                    origin_y: 0.0,
-                });
+                self.sheets.push(Sheet::new(sheet_id.clone(), op.clone()));
                 self.structure_head = head(op);
                 Ok(ChangeKind::StructureChanged)
             }
@@ -348,6 +447,8 @@ impl State {
         let mut after = Vec::with_capacity(mutations.len());
         let mut text_before = Vec::new();
         let mut text_after = Vec::new();
+        let mut page_before = Vec::new();
+        let mut page_after = Vec::new();
         for m in mutations {
             let (old, new) = match m {
                 MarkMutation::AddStroke {
@@ -374,6 +475,16 @@ impl State {
                     base,
                     brush,
                 } => self.edit_stroke(mark_id, base, op, deps, |s| s.brush = brush.clone())?,
+                MarkMutation::AddPage { .. }
+                | MarkMutation::ResizePage { .. }
+                | MarkMutation::MovePage { .. }
+                | MarkMutation::DeletePage { .. }
+                | MarkMutation::RestorePage { .. } => {
+                    let (old, new) = self.apply_page_mutation(m, op, deps)?;
+                    page_before.push(old);
+                    page_after.push(new);
+                    continue;
+                }
                 _ => {
                     let (old, new) = self.apply_text_mutation(m, op, author, deps)?;
                     text_before.push(old);
@@ -392,6 +503,9 @@ impl State {
         for s in &after {
             history.expected.insert(s.id.clone(), op.clone());
         }
+        for e in &page_after {
+            history.expected.insert(e.sheet_id.clone(), op.clone());
+        }
         history.undo.push(Action {
             operation: op.clone(),
             before,
@@ -402,6 +516,8 @@ impl State {
             companion_after: vec![],
             image_before: vec![],
             image_after: vec![],
+            page_before,
+            page_after,
         });
         history.redo.clear();
         Ok(())
@@ -510,6 +626,12 @@ impl State {
             action.image_before.clone()
         };
         self.check_image_history(&image_desired, author, deps)?;
+        let page_desired = if redo {
+            action.page_after.clone()
+        } else {
+            action.page_before.clone()
+        };
+        self.check_page_history(&page_desired, author, deps)?;
         let history = self.histories.get_mut(author).ok_or_else(stale)?;
         let stack = if redo {
             &mut history.redo
@@ -588,6 +710,10 @@ impl State {
             *current = value;
             current.head = head(op);
             history.expected.insert(current.id.clone(), op.clone());
+        }
+        for edit in &page_desired {
+            history.expected.insert(edit.sheet_id.clone(), op.clone());
+            install_page_edit(&mut self.sheets, &mut self.pages, edit, op)?;
         }
         for edit in &text_desired {
             self.apply_text_edit(edit, op)?;

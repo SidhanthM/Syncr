@@ -36,6 +36,7 @@ fn setup() -> (
         first_sheet_id: new_id(),
         title: "Private note".into(),
         notebook: None,
+        kind: NoteKind::Note,
     };
     lib.create_note(r.clone()).unwrap();
     let note = lib.open_note(r.note_id.clone()).unwrap();
@@ -183,6 +184,7 @@ fn reviewed_workflow_fixture_survives_every_restart() {
                 first_sheet_id: input["sheet_id"].as_str().unwrap().into(),
                 title: "Fixture".into(),
                 notebook: None,
+                kind: NoteKind::Note,
             })
             .unwrap();
         }

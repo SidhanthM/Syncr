@@ -29,6 +29,10 @@ mod layout;
 mod library;
 mod mesh;
 mod oklch;
+mod pages;
+#[cfg(test)]
+mod pages_tests;
+mod pages_types;
 mod picture;
 mod picture_display;
 mod picture_path;
@@ -65,6 +69,7 @@ pub use oklch::{
     ResolvedInk, oklch_gamut_map, oklch_max_chroma, oklch_to_srgb, oklch_uses_theme_ink,
     resolve_custom_ink,
 };
+pub use pages_types::*;
 pub use picture::{filter_picture, picture_display_list};
 pub use picture_types::*;
 pub use preview::{

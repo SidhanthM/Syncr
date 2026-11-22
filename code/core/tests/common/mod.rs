@@ -30,5 +30,6 @@ pub fn request(notebook: Option<&str>) -> CreateNoteRequest {
         first_sheet_id: new_id(),
         title: "Note".into(),
         notebook: notebook.map(Into::into),
+        kind: NoteKind::Note,
     }
 }

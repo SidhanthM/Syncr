@@ -16,6 +16,7 @@ fn setup() -> (
         first_sheet_id: new_id(),
         title: "Companion".into(),
         notebook: None,
+        kind: NoteKind::Note,
     };
     lib.create_note(r.clone()).unwrap();
     let note = lib.open_note(r.note_id.clone()).unwrap();

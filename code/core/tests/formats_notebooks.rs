@@ -423,6 +423,7 @@ fn legacy_v1_note_reads_as_inbox_upgrades_to_canvas_with_backup_and_accepts_new_
         first_sheet_id: LEGACY_SHEET.into(),
         title: "Example".into(),
         notebook: None,
+        kind: NoteKind::Note,
     };
     let retry = lib.create_note(original.clone()).unwrap();
     assert!(retry.duplicate);

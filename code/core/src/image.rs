@@ -320,6 +320,8 @@ impl State {
                 companion_after: vec![],
                 image_before: before,
                 image_after: after,
+                page_before: vec![],
+                page_after: vec![],
             });
             h.redo.clear();
         }

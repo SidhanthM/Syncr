@@ -3,5 +3,9 @@
 mod margin;
 #[cfg(test)]
 mod margin_tests;
+mod pages;
+#[cfg(test)]
+mod pages_tests;
 
 pub use margin::*;
+pub use pages::*;

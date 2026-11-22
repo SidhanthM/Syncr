@@ -57,6 +57,7 @@ fn pair() -> (Device, Device, CreateNoteRequest) {
         first_sheet_id: new_id(),
         title: "Sync".into(),
         notebook: None,
+        kind: NoteKind::Note,
     };
     lib.create_note(request.clone()).unwrap();
     let note = lib.open_note(request.note_id.clone()).unwrap();
@@ -715,6 +716,7 @@ fn rebase_survives_a_crash_at_every_step() {
                 first_sheet_id: a.note.snapshot().unwrap().sheets[0].id.clone(),
                 title: "x".into(),
                 notebook: None,
+                kind: NoteKind::Note,
             };
             (a, b, r)
         };
@@ -797,6 +799,7 @@ fn r_fixed(lib: &SyncrLibrary) {
         first_sheet_id: new_id(),
         title: "Crash".into(),
         notebook: None,
+        kind: NoteKind::Note,
     })
     .unwrap();
 }

@@ -17,6 +17,7 @@ fn request() -> CreateNoteRequest {
         first_sheet_id: SHEET.into(),
         title: "Crash test".into(),
         notebook: None,
+        kind: NoteKind::Note,
     }
 }
 fn command() -> Command {

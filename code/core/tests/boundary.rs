@@ -146,6 +146,7 @@ fn creation_fixture_reopens_and_recovers_lost_reply() {
         first_sheet_id: input["first_sheet_id"].as_str().unwrap().into(),
         title: input["title"].as_str().unwrap().into(),
         notebook: None,
+        kind: NoteKind::Note,
     };
     let receipt = library.create_note(request.clone()).unwrap();
     assert_eq!(

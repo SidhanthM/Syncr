@@ -424,6 +424,7 @@ fn pre_canvas_creation_retries_match_and_new_creations_have_no_format() {
             first_sheet_id: r["first_sheet_id"].as_str().unwrap().into(),
             title: r["title"].as_str().unwrap().into(),
             notebook: r["notebook"].as_str().map(Into::into),
+            kind: NoteKind::Note,
         };
         let receipt = lib.create_note(request.clone()).unwrap();
         assert!(receipt.duplicate);
@@ -455,6 +456,7 @@ fn pre_canvas_creation_retries_match_and_new_creations_have_no_format() {
         first_sheet_id: new_id(),
         title: "Canvas".into(),
         notebook: Some("Fixtures".into()),
+        kind: NoteKind::Note,
     };
     lib.create_note(fresh.clone()).unwrap();
     let file = root.path().join(format!("{}.syncr", fresh.note_id));
@@ -496,6 +498,7 @@ fn add_sheet_and_reorder_are_rejected_and_change_nothing() {
         first_sheet_id: new_id(),
         title: "New".into(),
         notebook: None,
+        kind: NoteKind::Note,
     };
     lib.create_note(fresh.clone()).unwrap();
     for note_id in [upgraded.to_string(), fresh.note_id.clone()] {

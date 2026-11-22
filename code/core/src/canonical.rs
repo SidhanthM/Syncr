@@ -92,6 +92,38 @@ impl Encoder {
         }
         Ok(())
     }
+    /// IEEE bits, like transforms: -0.0 and 0.0 are different operations.
+    fn f32s(&mut self, values: &[f32]) {
+        for v in values {
+            self.raw(&v.to_bits().to_le_bytes());
+        }
+    }
+    fn rgba(&mut self, value: &Option<Rgba>) {
+        match value {
+            None => self.tag(0),
+            Some(c) => {
+                self.tag(1);
+                self.raw(&[c.r, c.g, c.b, c.a]);
+            }
+        }
+    }
+    fn optional_f32(&mut self, value: Option<f32>) {
+        match value {
+            None => self.tag(0),
+            Some(v) => {
+                self.tag(1);
+                self.f32s(&[v]);
+            }
+        }
+    }
+    fn pattern(&mut self, pattern: PagePattern) {
+        self.tag(match pattern {
+            PagePattern::None => 0,
+            PagePattern::Lines => 1,
+            PagePattern::Dots => 2,
+            PagePattern::Grid => 3,
+        });
+    }
     fn base(&mut self, base: &Base) -> CoreResult<()> {
         match base {
             Base::Absent => self.tag(0),
@@ -237,6 +269,48 @@ impl Encoder {
                 self.base(base)?;
                 self.text_style(style);
             }
+            MarkMutation::AddPage {
+                sheet_id,
+                after,
+                width,
+                height,
+            } => {
+                self.tag(12);
+                self.string(sheet_id)?;
+                self.optional(after.as_deref())?;
+                self.f32s(&[*width, *height]);
+            }
+            MarkMutation::ResizePage {
+                sheet_id,
+                base,
+                width,
+                height,
+            } => {
+                self.tag(13);
+                self.string(sheet_id)?;
+                self.base(base)?;
+                self.f32s(&[*width, *height]);
+            }
+            MarkMutation::MovePage {
+                sheet_id,
+                base,
+                after,
+            } => {
+                self.tag(14);
+                self.string(sheet_id)?;
+                self.base(base)?;
+                self.optional(after.as_deref())?;
+            }
+            MarkMutation::DeletePage { sheet_id, base }
+            | MarkMutation::RestorePage { sheet_id, base } => {
+                self.tag(if matches!(m, MarkMutation::DeletePage { .. }) {
+                    15
+                } else {
+                    16
+                });
+                self.string(sheet_id)?;
+                self.base(base)?;
+            }
         }
         Ok(())
     }
@@ -326,6 +400,9 @@ impl Encoder {
 const LEGACY_CREATION: u8 = 0;
 const FORMAT_CREATION: u8 = 2;
 const CREATION: u8 = 3;
+/// Tag 4: tag 3's body plus a kind byte (Note 0, Canvas 1). Only a Canvas is created with it;
+/// a Note keeps tag 3, so a new Note is as readable by an old build as it ever was.
+const KIND_CREATION: u8 = 4;
 /// `format` is the tag-2 page format byte (Phone 0, Sheet16x10 1); other tags ignore it.
 fn creation_with(
     request: &CreateNoteRequest,
@@ -350,12 +427,22 @@ fn creation_with(
     if tag != LEGACY_CREATION {
         e.optional(request.notebook.as_deref())?;
     }
+    if tag == KIND_CREATION {
+        e.tag(match request.kind {
+            NoteKind::Note => 0,
+            NoteKind::Canvas => 1,
+        });
+    }
     e.finish()
 }
 /// Creation identity for new notes: tag 3, the five strings and the initial notebook.
 /// A note is one canvas, so there is no page format.
 pub(crate) fn creation(request: &CreateNoteRequest, author: &str) -> CoreResult<Vec<u8>> {
-    creation_with(request, author, CREATION, 0)
+    let tag = match request.kind {
+        NoteKind::Note => CREATION,
+        NoteKind::Canvas => KIND_CREATION,
+    };
+    creation_with(request, author, tag, 0)
 }
 /// Whether `request` is a canonical retry of the stored creation envelope. Stored
 /// pre-canvas envelopes keep their meaning: tag 0 (before formats) implies Inbox and
@@ -375,7 +462,9 @@ pub(crate) fn creation_matches(
             creation_with(request, author, FORMAT_CREATION, 0)? == stored
                 || creation_with(request, author, FORMAT_CREATION, 1)? == stored
         }
-        _ => creation(request, author)? == stored,
+        Some(&KIND_CREATION) => creation_with(request, author, KIND_CREATION, 0)? == stored,
+        // Tag 3 is a Note; a Canvas request never matches it.
+        _ => request.kind == NoteKind::Note && creation(request, author)? == stored,
     })
 }
 /// A command's identity. Dependencies are sorted and deduplicated here, so their order
@@ -455,6 +544,45 @@ pub(crate) fn command(command: &Command, note_id: &str, author: &str) -> CoreRes
             e.tag(u8::from(*archived));
             e.base(base)?;
         }
+        CommandBody::SetPageStyle {
+            sheet_id,
+            template,
+            paper,
+            pattern_colour,
+            spacing,
+            base,
+        } => {
+            e.tag(11);
+            e.optional(sheet_id.as_deref())?;
+            e.pattern(*template);
+            e.rgba(paper);
+            e.rgba(pattern_colour);
+            e.optional_f32(*spacing);
+            e.base(base)?;
+        }
+        CommandBody::SetCanvasBackground {
+            pattern,
+            pattern_colour,
+            spacing,
+            paper,
+            base,
+        } => {
+            e.tag(12);
+            e.pattern(*pattern);
+            e.rgba(pattern_colour);
+            e.optional_f32(*spacing);
+            e.rgba(paper);
+            e.base(base)?;
+        }
+        CommandBody::SetWaypoints { waypoints, base } => {
+            e.tag(13);
+            e.length(waypoints.len())?;
+            for w in waypoints {
+                e.string(&w.name)?;
+                e.f32s(&[w.cx, w.cy, w.zoom]);
+            }
+            e.base(base)?;
+        }
         CommandBody::Undo {
             target_operation_id,
         } => {
@@ -503,6 +631,7 @@ mod tests {
             first_sheet_id: id.into(),
             title: "T".into(),
             notebook: Some("P".into()),
+            kind: NoteKind::Note,
         };
         let ids = format!("1a000000{}", hex(id.as_bytes())).repeat(4);
         let tail = "0100000054"; // title "T"
@@ -595,6 +724,168 @@ mod tests {
         assert!(
             hex(&command(&unarchive, id, id).unwrap())
                 .ends_with(&format!("0700011a000000{}", hex(id.as_bytes())))
+        );
+    }
+    #[test]
+    fn canvas_creation_tag_4_and_page_commands_golden() {
+        let id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+        let ids = format!("1a000000{}", hex(id.as_bytes())).repeat(4);
+        let r = CreateNoteRequest {
+            operation_id: id.into(),
+            note_id: id.into(),
+            first_sheet_id: id.into(),
+            title: "T".into(),
+            notebook: Some("P".into()),
+            kind: NoteKind::Canvas,
+        };
+        // Tag 4: tag 3's body, then the kind byte (Canvas 1).
+        let canvas = format!("53594e4f010004{ids}0100000054010100000050{}", "01");
+        assert_eq!(hex(&creation(&r, id).unwrap()), canvas);
+        assert!(creation_matches(&unhex(&canvas), &r, id).unwrap());
+        // A Note is still tag 3 and never matches a canvas envelope, or the other way round.
+        let note = CreateNoteRequest {
+            kind: NoteKind::Note,
+            ..r.clone()
+        };
+        assert_eq!(creation(&note, id).unwrap()[6], 3);
+        assert!(!creation_matches(&unhex(&canvas), &note, id).unwrap());
+        assert!(!creation_matches(&creation(&note, id).unwrap(), &r, id).unwrap());
+        // Tag 4 with kind byte 0 (a Note) matches a Note retry.
+        let tag4_note = format!("53594e4f010004{ids}0100000054010100000050{}", "00");
+        assert!(creation_matches(&unhex(&tag4_note), &note, id).unwrap());
+        assert!(!creation_matches(&unhex(&tag4_note), &r, id).unwrap());
+        // Mutation tags 12..16, in a Marks command (body tag 0, one mutation).
+        let marks = |m: MarkMutation| {
+            hex(&command(
+                &Command {
+                    operation_id: id.into(),
+                    dependencies: vec![],
+                    body: CommandBody::Marks { mutations: vec![m] },
+                },
+                id,
+                id,
+            )
+            .unwrap())
+        };
+        let sid = format!("1a000000{}", hex(id.as_bytes()));
+        // 1000.0 = 0x447a0000, 2000.0 = 0x44fa0000.
+        let head = "00000000" /* dependencies */.to_string() + "00" /* Marks */ + "01000000";
+        let some = format!("01{sid}");
+        let abs = "00"; // Base::Absent
+        let cases = [
+            (
+                MarkMutation::AddPage {
+                    sheet_id: id.into(),
+                    after: None,
+                    width: 1000.0,
+                    height: 2000.0,
+                },
+                format!("0c{sid}0000007a440000fa44"),
+            ),
+            (
+                MarkMutation::AddPage {
+                    sheet_id: id.into(),
+                    after: Some(id.into()),
+                    width: 1000.0,
+                    height: 2000.0,
+                },
+                format!("0c{sid}{some}00007a440000fa44"),
+            ),
+            (
+                MarkMutation::ResizePage {
+                    sheet_id: id.into(),
+                    base: Base::Absent,
+                    width: 1000.0,
+                    height: 2000.0,
+                },
+                format!("0d{sid}{abs}00007a440000fa44"),
+            ),
+            (
+                MarkMutation::MovePage {
+                    sheet_id: id.into(),
+                    base: Base::Absent,
+                    after: None,
+                },
+                format!("0e{sid}{abs}00"),
+            ),
+            (
+                MarkMutation::DeletePage {
+                    sheet_id: id.into(),
+                    base: Base::Absent,
+                },
+                format!("0f{sid}{abs}"),
+            ),
+            (
+                MarkMutation::RestorePage {
+                    sheet_id: id.into(),
+                    base: Base::Absent,
+                },
+                format!("10{sid}{abs}"),
+            ),
+        ];
+        for (m, tail) in cases {
+            assert!(
+                marks(m.clone()).ends_with(&format!("{head}{tail}")),
+                "{m:?}"
+            );
+        }
+        let body = |b: CommandBody| {
+            hex(&command(
+                &Command {
+                    operation_id: id.into(),
+                    dependencies: vec![],
+                    body: b,
+                },
+                id,
+                id,
+            )
+            .unwrap())
+        };
+        let rgba = Some(Rgba {
+            r: 1,
+            g: 2,
+            b: 3,
+            a: 4,
+        });
+        let none = "00000000"; // zero dependencies
+        // Body 11: sheet_id None, Lines, paper None, colour Some, spacing Some(1000.0), base.
+        assert!(
+            body(CommandBody::SetPageStyle {
+                sheet_id: None,
+                template: PagePattern::Lines,
+                paper: None,
+                pattern_colour: rgba,
+                spacing: Some(1000.0),
+                base: Base::Absent
+            })
+            .ends_with(&format!("{none}0b00010001010203040100007a4400"))
+        );
+        // Body 12: Grid, colour None, spacing None, paper Some, base.
+        assert!(
+            body(CommandBody::SetCanvasBackground {
+                pattern: PagePattern::Grid,
+                pattern_colour: None,
+                spacing: None,
+                paper: rgba,
+                base: Base::Absent
+            })
+            .ends_with(&format!("{none}0c030000010102030400"))
+        );
+        // Body 13: one waypoint "A" (1, 2, 3), base.
+        let wp = Waypoint {
+            name: "A".into(),
+            cx: 1.0,
+            cy: 2.0,
+            zoom: 3.0,
+        };
+        assert!(
+            body(CommandBody::SetWaypoints {
+                waypoints: vec![wp],
+                base: Base::Absent
+            })
+            .ends_with(&format!(
+                "{none}0d0100000001000000410000803f000000400000404000"
+            ))
         );
     }
     fn unhex(value: &str) -> Vec<u8> {

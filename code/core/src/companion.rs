@@ -331,6 +331,8 @@ impl State {
             companion_after: after,
             image_before: vec![],
             image_after: vec![],
+            page_before: vec![],
+            page_after: vec![],
         });
         history.redo.clear();
         Ok(())

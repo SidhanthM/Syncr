@@ -192,6 +192,47 @@ pub(crate) fn command(command: &Command) -> CoreResult<()> {
                         base(b, &dependencies)?;
                         mark_id
                     }
+                    MarkMutation::AddPage {
+                        sheet_id,
+                        after,
+                        width,
+                        height,
+                    } => {
+                        id(sheet_id)?;
+                        if let Some(after) = after {
+                            id(after)?;
+                        }
+                        crate::pages::side(*width)?;
+                        crate::pages::side(*height)?;
+                        sheet_id
+                    }
+                    MarkMutation::ResizePage {
+                        sheet_id,
+                        base: b,
+                        width,
+                        height,
+                    } => {
+                        base(b, &dependencies)?;
+                        crate::pages::side(*width)?;
+                        crate::pages::side(*height)?;
+                        sheet_id
+                    }
+                    MarkMutation::MovePage {
+                        sheet_id,
+                        base: b,
+                        after,
+                    } => {
+                        base(b, &dependencies)?;
+                        if let Some(after) = after {
+                            id(after)?;
+                        }
+                        sheet_id
+                    }
+                    MarkMutation::DeletePage { sheet_id, base: b }
+                    | MarkMutation::RestorePage { sheet_id, base: b } => {
+                        base(b, &dependencies)?;
+                        sheet_id
+                    }
                     MarkMutation::RestyleStroke {
                         mark_id,
                         base: b,
@@ -230,6 +271,30 @@ pub(crate) fn command(command: &Command) -> CoreResult<()> {
         }
         CommandBody::RenameNote { base: b, .. } | CommandBody::SetArchived { base: b, .. } => {
             base(b, &dependencies)?
+        }
+        CommandBody::SetPageStyle {
+            sheet_id,
+            spacing,
+            base: b,
+            ..
+        } => {
+            base(b, &dependencies)?;
+            if let Some(sheet_id) = sheet_id {
+                id(sheet_id)?;
+            }
+            crate::pages::style_parts(*spacing)?;
+        }
+        CommandBody::SetCanvasBackground {
+            spacing, base: b, ..
+        } => {
+            base(b, &dependencies)?;
+            crate::pages::style_parts(*spacing)?;
+        }
+        CommandBody::SetWaypoints {
+            waypoints, base: b, ..
+        } => {
+            base(b, &dependencies)?;
+            crate::pages::waypoints(waypoints)?;
         }
         CommandBody::SetNotebook { notebook, base: b } => {
             base(b, &dependencies)?;

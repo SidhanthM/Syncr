@@ -10,7 +10,7 @@ use crate::{
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -31,6 +31,9 @@ pub(super) struct Runtime {
     events: VecDeque<ChangeEvent>,
     /// Cached `sync_digest`; cleared on every commit.
     pub(super) digest: Option<SyncDigest>,
+    /// Sample bounds per stroke `[min_x, min_y, max_x, max_y]` (samples never change), read
+    /// lazily for the auto-height page's content bottom.
+    ink_bounds: HashMap<Id, [f32; 4]>,
 }
 
 impl Runtime {
@@ -82,6 +85,7 @@ impl Note {
                 sequence: 0,
                 events: VecDeque::new(),
                 digest: None,
+                ink_bounds: HashMap::new(),
             }),
         })
     }
@@ -164,8 +168,14 @@ fn write_commit(
         && store::check_version(tx)? < store::BRUSH_NOTE_VERSION
     {
         // The chain below v8 is marker-checked, so a lower note gets every marker at once.
-        tx.execute_batch("CREATE TABLE IF NOT EXISTS companion_format(singleton INTEGER PRIMARY KEY CHECK(singleton=1)); INSERT OR IGNORE INTO companion_format VALUES (1); CREATE TABLE IF NOT EXISTS picture_format(singleton INTEGER PRIMARY KEY CHECK(singleton=1)); INSERT OR IGNORE INTO picture_format VALUES (1); CREATE TABLE IF NOT EXISTS images(image_id TEXT PRIMARY KEY, bytes BLOB NOT NULL); CREATE TABLE IF NOT EXISTS brush_format(singleton INTEGER PRIMARY KEY CHECK(singleton=1)); INSERT OR IGNORE INTO brush_format VALUES (1);").map_err(storage)?;
+        tx.execute_batch(store::MARKERS_V8).map_err(storage)?;
         tx.pragma_update(None, "user_version", store::BRUSH_NOTE_VERSION)
+            .map_err(storage)?;
+    }
+    if uses_pages(&command.body) && store::check_version(tx)? < store::PAGES_NOTE_VERSION {
+        tx.execute_batch(store::MARKERS_V8).map_err(storage)?;
+        tx.execute_batch(store::MARKER_V9).map_err(storage)?;
+        tx.pragma_update(None, "user_version", store::PAGES_NOTE_VERSION)
             .map_err(storage)?;
     }
     store::save(tx, candidate)?;
@@ -201,10 +211,74 @@ fn write_commit(
     )
 }
 
+/// Whether a command needs a v9 note: a page mutation, a page style, a canvas background or
+/// waypoints.
+fn uses_pages(body: &CommandBody) -> bool {
+    match body {
+        CommandBody::Marks { mutations } => mutations.iter().any(|m| {
+            matches!(
+                m,
+                MarkMutation::AddPage { .. }
+                    | MarkMutation::ResizePage { .. }
+                    | MarkMutation::MovePage { .. }
+                    | MarkMutation::DeletePage { .. }
+                    | MarkMutation::RestorePage { .. }
+            )
+        }),
+        CommandBody::SetPageStyle { .. }
+        | CommandBody::SetCanvasBackground { .. }
+        | CommandBody::SetWaypoints { .. } => true,
+        _ => false,
+    }
+}
+
+impl Runtime {
+    /// The snapshot for `author`, with the auto-height page's content bottom (K4) computed
+    /// from stroke sample bounds read once per stroke and kept.
+    pub(super) fn snapshot_for(&mut self, author: &str) -> CoreResult<NoteSnapshot> {
+        let cursor = self.cursor();
+        let Runtime {
+            db,
+            state,
+            ink_bounds,
+            ..
+        } = self;
+        let db = db.as_ref().ok_or_else(closed)?;
+        let bottom = if state.has_auto_page() {
+            state.content_bottom(&mut |id| {
+                if let Some(b) = ink_bounds.get(id) {
+                    return Some(*b);
+                }
+                let bytes: Vec<u8> = db
+                    .query_row("SELECT bytes FROM samples WHERE mark_id=?1", [id], |r| {
+                        r.get(0)
+                    })
+                    .optional()
+                    .ok()
+                    .flatten()?;
+                let c = decode_samples(bytes).ok()?;
+                let fold =
+                    |v: &[f32], f: fn(f32, f32) -> f32, init: f32| v.iter().copied().fold(init, f);
+                let b = [
+                    fold(&c.x, f32::min, f32::INFINITY),
+                    fold(&c.y, f32::min, f32::INFINITY),
+                    fold(&c.x, f32::max, f32::NEG_INFINITY),
+                    fold(&c.y, f32::max, f32::NEG_INFINITY),
+                ];
+                ink_bounds.insert(id.to_string(), b);
+                Some(b)
+            })
+        } else {
+            0.0
+        };
+        Ok(state.snapshot(author, cursor, bottom))
+    }
+}
+
 pub(super) fn snapshot(note: &Note) -> CoreResult<NoteSnapshot> {
-    let r = lock(&note.runtime)?;
+    let mut r = lock(&note.runtime)?;
     r.db()?;
-    Ok(r.state.snapshot(&note.library.author, r.cursor()))
+    r.snapshot_for(&note.library.author)
 }
 
 pub(super) fn get_samples(note: &Note, mark_id: Id) -> CoreResult<Vec<u8>> {

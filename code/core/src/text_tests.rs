@@ -20,6 +20,7 @@ fn setup() -> (
         first_sheet_id: new_id(),
         title: "Text test".into(),
         notebook: None,
+        kind: NoteKind::Note,
     };
     lib.create_note(request.clone()).unwrap();
     let note = lib.open_note(request.note_id.clone()).unwrap();
@@ -535,6 +536,7 @@ fn document_uniqueness_covers_add_restore_history_and_atomic_swaps() {
             stream_id: new_id(),
             sequence: 0,
         },
+        0.0,
     );
     let c = Command {
         operation_id: new_id(),
@@ -923,6 +925,7 @@ fn text_canonical_golden_vectors_and_budgets() {
         first_sheet_id: new_id(),
         title: String::new(),
         notebook: None,
+        kind: NoteKind::Note,
     };
     let text = "a".repeat(MAX_TEXT_BYTES);
     let mut c = marks(
@@ -983,7 +986,7 @@ fn another_authors_text_edit_makes_the_inverse_stale() {
         stream_id: new_id(),
         sequence: 0,
     };
-    let s = state.snapshot(&author, cursor);
+    let s = state.snapshot(&author, cursor, 0.0);
     assert_eq!(s.undo_dependencies, vec![c.operation_id]);
     assert!(matches!(
         state.apply(

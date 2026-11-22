@@ -167,6 +167,7 @@ pub(super) fn list_notes(library: &SyncrLibrary) -> CoreResult<Vec<NoteSummary>>
             created_at_ms: p.created_at_ms,
             modified_at_ms: p.modified_at_ms,
             archived: p.state.archived,
+            kind: p.state.kind,
         })
         .collect();
     result.sort_by(|a, b| a.id.cmp(&b.id));

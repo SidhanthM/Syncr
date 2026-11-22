@@ -335,9 +335,9 @@ impl Note {
         ulid::Ulid::from(u128::from(id) ^ 1).to_string()
     }
     pub fn agent_snapshot(&self) -> CoreResult<NoteSnapshot> {
-        let r = lock(&self.runtime)?;
+        let mut r = lock(&self.runtime)?;
         r.db()?;
-        Ok(r.state.snapshot(&self.agent_author_id(), r.cursor()))
+        r.snapshot_for(&self.agent_author_id())
     }
     /// The only agent text write is insertion of an existing drawing's embed line.
     pub fn submit_agent(&self, command: Command) -> CoreResult<Receipt> {

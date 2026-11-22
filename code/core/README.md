@@ -19,6 +19,8 @@ Contracts: `tasks/contracts/offline-api.md`, `canvas-amendment.md`, `mac-api.md`
 | `library/trash.rs` | Recently deleted: delete, restore and purge, plus purge records |
 | `library/notebooks.rs` | The notebook registry and `rename_notebook` |
 | `reducer.rs` | In-memory projection (`State`): applies commands and holds the per-author undo/redo stacks |
+| `pages.rs`, `pages_types.rs` | Notes and canvases v1: the page reducer, page and canvas styles, waypoints, read-time legacy page, `page_sizes`, `match_size` |
+| `layout/pages.rs` | `layout_pages` and `layout_canvas_cards` (vectors in `code/shared/layout/pages-v1.json` and `canvas-cards-v1.json`) |
 | `text.rs` | Text validation, mutations, compact splice inverses and the future anchor-adjustment hook |
 | `validation.rs` | Stateless admission checks: IDs, limits, bases, notebook names, affines |
 | `canonical.rs` | SYNO v1 canonical operation bytes |
@@ -37,7 +39,7 @@ UniFFI emits metadata in symbol order per codegen unit. Moving an `#[uniffi::exp
 
 Every fallible call returns `CoreResult<T>`, which is `CoreException` in Kotlin. IDs are canonical uppercase ULID strings.
 
-**Free functions**: `new_id()`, `canvas_size()`, `open_library(root_path)`, `encode_samples(channels)`, `decode_samples(blob)`, `default_stroke_style(brush)`, `stroke_style_min_size(brush, min_size)`, `tessellate_stroke(samples, style, transform)`, `mesh_renderer_version()`, and the OKLCH ink functions `oklch_to_srgb`, `oklch_gamut_map`, `oklch_max_chroma`, `oklch_uses_theme_ink`, `resolve_custom_ink` (`oklch.rs`; shared vectors in `code/shared/colour/oklch-v1.json`).
+**Free functions**: `new_id()`, `canvas_size()`, `open_library(root_path)`, `encode_samples(channels)`, `decode_samples(blob)`, `default_stroke_style(brush)`, `stroke_style_min_size(brush, min_size)`, `tessellate_stroke(samples, style, transform)`, `mesh_renderer_version()`, and the OKLCH ink functions `oklch_to_srgb`, `oklch_gamut_map`, `oklch_max_chroma`, `oklch_uses_theme_ink`, `resolve_custom_ink` (`oklch.rs`; shared vectors in `code/shared/colour/oklch-v1.json`), and the page functions `page_sizes()`, `match_size(w, h)`, `resolve_page_style(note, page)`, `default_page_gap()`, `layout_pages(pages, mode, gap)` and `layout_canvas_cards(anchors, cards, gap)`.
 
 **`SyncrLibrary`** (one writer per root; calls are serialized)
 
@@ -50,10 +52,12 @@ Every fallible call returns `CoreResult<T>`, which is `CoreException` in Kotlin.
 **`Note`** (concurrent `open_note` calls share one live handle): `snapshot`, `get_samples`, `submit`, `lookup_operation`, `changes_since`, `export_copy`, `close_note`.
 
 **Commands** (`CommandBody`):
-- `Marks`: 1–1024 unique stroke or text mutations, applied atomically. Strokes: `AddStroke` / `DeleteStroke` / `RestoreStroke` / `TransformStroke` / `RestyleStroke`. Text: `AddText` / `SpliceText` / `SetTextWidth` / `DeleteText` / `RestoreText` / `TransformText` / `RestyleText`. Exact text API and canonical tags: `tasks/archive/contracts/text-v1.md` §3.
+- `Marks`: 1–1024 unique stroke, text or page mutations, applied atomically. Strokes: `AddStroke` / `DeleteStroke` / `RestoreStroke` / `TransformStroke` / `RestyleStroke`. Text: `AddText` / `SpliceText` / `SetTextWidth` / `DeleteText` / `RestoreText` / `TransformText` / `RestyleText`. Exact text API and canonical tags: `tasks/archive/contracts/text-v1.md` §3.
+- Pages (Note only): `AddPage` / `ResizePage` / `MovePage` / `DeletePage` / `RestorePage`, inside `Marks`, so a page action plus its content transforms is one undo step. See "Notes and canvases" below.
+- `SetPageStyle` (Note), `SetCanvasBackground` and `SetWaypoints` (Canvas): each on its own head, outside undo.
 - `RenameNote`, `SetNotebook`, `SetArchived`: on the metadata head, outside ink undo.
 - `Undo`, `Redo`: on the author's own top action.
-- `AddSheet` and `ReorderSheets` are always `InvalidInput`: a note is one canvas. They exist only so old logs replay and old retries still return duplicates.
+- `AddSheet` and `ReorderSheets` are always `InvalidInput`. They exist only so old logs replay and old retries still return duplicates. Pages replace them: `AddPage` adds a sheet, and the page list orders the sheets that are pages.
 
 **Rules every caller relies on**
 - **Idempotency.** Retrying an operation ID with identical canonical bytes returns the original receipt with `duplicate = true`. Different bytes give `IdCollision`. This holds after restarts and for deleted notes.
@@ -61,6 +65,17 @@ Every fallible call returns `CoreResult<T>`, which is `CoreException` in Kotlin.
 - **`close_note()`** checkpoints and closes. It is fallible: on error the handle stays usable. Kotlin's `AutoCloseable.close()` only releases the FFI reference.
 - **Events.** Each open handle keeps the last 256 events. `changes_since` pages them, with a limit of 1–256. A foreign or expired cursor gives `ResyncRequired`, and so does any cursor after a reopen.
 - **Errors.** `detail` is a fixed safe string: no paths, SQL text or note content. Only `StorageFull`, `StorageIo` and `NoteLocked` are retryable.
+
+## Notes and canvases (v1)
+
+A document is a **Note** (paged) or a **Canvas** (one unbounded sheet), fixed at creation by `CreateNoteRequest.kind`. UniFFI cannot default an enum, so every constructor names `kind`. Contract: `tasks/contracts/notes-and-canvases-v1.md` part K.
+
+- **Pages are sheets with a size.** Strokes, text and pictures stay sheet-local, so moving, resizing or deleting a page carries its content. `snapshot().pages` lists the pages in order, tombstoned ones included in place (`layout_pages` takes only live ones). Each side is 76..15238 units. `DeletePage` refuses the last live page with `InvalidInput` "A note must keep at least one page.". Undo and redo cover every page mutation.
+- **A note written before pages** has `kind = Note` and reads as **one auto-height page**: its first sheet, 4800 wide, `height = max(3000, content_bottom + 1000)`. Further pre-canvas sheets are drawn inside it at their origins and are not pages. Nothing is rewritten: the stored projection, the log and the file stay as they were until the first page command. That command writes the page list (page 1 keeps `auto_height`) and raises the note to v9. `ResizePage` on that page clears `auto_height` and applies the normal size limits. `content_bottom` is the lowest live stroke edge (sample bounds, transform and half the brush width), picture bottom (canvas placements) and text bottom on that page. **Text height is an estimate** (the core cannot measure type): font 36/48/72 units for Small/Medium/Large, 1.4 line height, 0.55 font per character, hard breaks counted. Sample bounds are read from the `samples` table once per stroke and cached per open note.
+- **Styles.** `SetPageStyle` without `sheet_id` is the note's; with it, that page's override, which replaces the note's as a whole. Resolution is page, then note, then default (pattern None, theme paper, rgba(150,150,150,128), spacing 82.6 clamped 20.6..258); `resolve_page_style` and `PageView.resolved_style` give it. A Canvas background defaults to Grid, rgba(150,150,150,64), 82.6, theme paper. Waypoints: at most 100, names 1..48 characters, a later same-name entry (case-insensitive) replaces the earlier one in place. Each of note style, page style, canvas background and waypoints has its own head, so they never conflict with a page edit or a rename. The initial head is the creation operation.
+- **Last view is not stored in the note.**
+- **Versions.** A Canvas is created at v9. A Note stays at its version until it first commits a page mutation, `SetPageStyle`, `SetCanvasBackground` or `SetWaypoints`; that raises it to v9 with every v5..v9 marker table (`pages_format` is the v9 one), like the brush version. An older build refuses v9 with `UnsupportedVersion`.
+- **Sync.** Kind travels in the creation operation; new commands are ordinary operations in the log. Conflicts are rejected on the merger as `stale base`, so the Mac's copy wins as in sync v1.
 
 ## Storage layout
 
@@ -74,7 +89,7 @@ Every fallible call returns `CoreResult<T>`, which is `CoreException` in Kotlin.
   .syncr-create-*, .backups/.syncr-backup-*   crash leftovers, removed on open
 ```
 
-A note file is SQLite with `application_id = 0x53594e43` ("SYNC") and `user_version = 3` until its first committed text operation, then `4`. It holds four tables (five after text):
+A note file is SQLite with `application_id = 0x53594e43` ("SYNC") and `user_version = 3` until its first committed text operation, then `4` (v9 for a Canvas from creation). It holds four tables (five after text):
 - `document`: the projection as JSON, including the undo/redo stacks.
 - `operations`: the immutable log. It stores the canonical bytes, the JSON payload, the original receipt, the local sequence as a big-endian BLOB, and `committed_at_ms`, which is display only.
 - `samples`: exact SYNS bytes per mark.
@@ -88,17 +103,18 @@ Published note files are authoritative. The `notes` table is a cache rebuilt on 
 - Creation writes a DELETE-journal database at `.syncr-create-<ULID>`, fsyncs it, and publishes it with a **no-overwrite rename**: `renameat2(RENAME_NOREPLACE)` as a raw syscall on Linux/Android, `renamex_np(RENAME_EXCL)` on macOS. It then fsyncs the directory. It never uses hard links, which Android's SELinux denies in app data, and never falls back to check-then-rename. An unsupported filesystem gives non-retryable `StorageIo`.
 - Export and the pre-upgrade backup use SQLite online backup and `integrity_check`, then the same publication.
 - Delete folds the WAL into the main file, then does one no-overwrite rename into `.trash/`, syncing both directories. Restore is the reverse rename. Purge records the IDs in `purged` before removing the file.
-- Older note and library versions are readable. v1/v2 notes upgrade to v3 on `open_note`, after a backup. v3/v4 opens never migrate or back up. Only a committed text mutation raises v3 to v4, transactionally; undo never downgrades it. Likewise the first stroke with a pen look other than Fountain, a custom ink or a stored feel raises the note to v8 (with the v5-v7 markers and `brush_format`); plain strokes never do. A version above 8 gives `UnsupportedVersion` before anything is written.
+- Older note and library versions are readable. v1/v2 notes upgrade to v3 on `open_note`, after a backup. v3/v4 opens never migrate or back up. Only a committed text mutation raises v3 to v4, transactionally; undo never downgrades it. Likewise the first stroke with a pen look other than Fountain, a custom ink or a stored feel raises the note to v8 (with the v5-v7 markers and `brush_format`); plain strokes never do. The first page mutation, page style, canvas background or waypoint list (or creating a Canvas) raises it to v9 with `pages_format`. A version above 9 gives `UnsupportedVersion` before anything is written.
 
 ## SYNO v1 canonical bytes
 
 Integers are little-endian. Strings are a `u32` byte length plus UTF-8. Lists are a `u32` count plus their entries. Tags are `u8`. Every operation starts with `SYNO` and `u16 1`.
 
-- **Creation**: tag `3`, then the strings `note_id, author_id, operation_id, first_sheet_id, title`, then an optional notebook. Retries of older notes also match tag `2` (the same, plus a page format byte before the notebook: Phone `0`, Sheet16x10 `1`) and tag `0` (the five strings only, which implies Inbox).
+- **Creation**: tag `3` for a Note and tag `4` for a Canvas. Tag `4` is tag `3`'s body plus one byte (Note `0`, Canvas `1`); tags `0`, `2` and `3` decode as Note. Tag `3`: the strings `note_id, author_id, operation_id, first_sheet_id, title`, then an optional notebook. Retries of older notes also match tag `2` (the same, plus a page format byte before the notebook: Phone `0`, Sheet16x10 `1`) and tag `0` (the five strings only, which implies Inbox).
 - **Command**: tag `1`, then the strings `note_id, author_id, operation_id`, then the sorted, deduplicated dependency list, then the body.
-- **Body**: Marks `0` + mutation list; AddSheet `1` + sheet ID + base; ReorderSheets `2` + ID list + base; RenameNote `3` + title + base; Undo `4` / Redo `5` + target ID; SetNotebook `6` + optional + base; SetArchived `7` + `u8` + base.
+- **Body**: Marks `0` + mutation list; AddSheet `1` + sheet ID + base; ReorderSheets `2` + ID list + base; RenameNote `3` + title + base; Undo `4` / Redo `5` + target ID; SetNotebook `6` + optional + base; SetArchived `7` + `u8` + base; SetCompanionSettings `9`, CompanionMarks `8`, ImageMarks `10`; SetPageStyle `11` + optional sheet ID + pattern `u8` (None `0`, Lines `1`, Dots `2`, Grid `3`) + optional rgba (`0`, or `1` + 4 bytes) paper + optional rgba pattern colour + optional `f32` spacing (`0`, or `1` + bits) + base; SetCanvasBackground `12` + pattern + optional rgba colour + optional `f32` spacing + optional rgba paper + base; SetWaypoints `13` + list of (name string + `f32` cx, cy, zoom bits) + base.
 - **Mutation**: Add `0` + mark ID + sheet ID + `u32` length + SYNS bytes + brush; Delete `1` / Restore `2` + mark ID + base; Transform `3` + mark ID + base + six `f64` bit patterns `[a,b,c,d,tx,ty]`; Restyle `4` + mark ID + base + brush.
 - **Optional**: `0` for none, or `1` + string. **Base**: Absent `0`, Operation `1` + ID, Confirmed `2` + `u64`. **Brush** (`brush.rs`, also the preview Begin and stroke-commit wire): family byte (Pen/Fountain `0`, Highlighter `1`, Pen/Ballpoint `2`, Pen/Fineliner `3`; `|0x10` = a feel block follows), size (Small `0`, Medium `1`, Large `2`), colour (Ink `0`, Red `1`, Green `2`, Blue `3`, Orange `4`; `5` = custom OKLCH ink followed by three f32 l, c, h), then the optional feel block (pressure u8, smoothing u8, taper u8). A plain brush is the original three bytes.
+- **Page mutation tags** (inside Marks): AddPage `12` + sheet ID + optional `after` + `f32` width, height bits; ResizePage `13` + sheet ID + base + width, height; MovePage `14` + sheet ID + base + optional `after`; DeletePage `15` / RestorePage `16` + sheet ID + base.
 - **Text mutation tags**: AddText `5`, SpliceText `6`, SetTextWidth `7`, DeleteText `8`, RestoreText `9`, TransformText `10`, RestyleText `11`. Full byte layouts and errors: `tasks/archive/contracts/text-v1.md` §3. Existing tags are unchanged.
 - **Budgets**: 64 KiB for everything except sample/text payload bytes, 16 MiB of sample bytes and independently 16 MiB of text bytes per gesture. Each text block/result/insertion is at most 1 MiB; at most 10,000 blocks including tombstones. `-0.0` and `0.0` are different operations.
 

@@ -169,6 +169,9 @@ pub struct NoteSummary {
     /// like `notebook`. Trailing with a default so existing positional constructors compile.
     #[uniffi(default = false)]
     pub archived: bool,
+    /// Fixed at creation.
+    #[serde(default)]
+    pub kind: crate::NoteKind,
 }
 /// A note in Recently deleted (`<root>/.trash/`). Not openable until restored.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, uniffi::Record)]
@@ -211,6 +214,27 @@ pub struct NoteSnapshot {
     #[serde(default)]
     #[uniffi(default = [])]
     pub images: Vec<crate::ImageMarkView>,
+    // The fields below have defaults, except `kind`.
+    /// A Note's pages in order, tombstoned ones included (`layout_pages` skips them). A note
+    /// written before pages reports one auto-height page, 4800 wide. Empty for a Canvas.
+    #[serde(default)]
+    #[uniffi(default = [])]
+    pub pages: Vec<crate::PageView>,
+    /// Some for a Note.
+    #[serde(default)]
+    #[uniffi(default = None)]
+    pub page_style: Option<crate::PageStyleView>,
+    /// Some for a Canvas.
+    #[serde(default)]
+    #[uniffi(default = None)]
+    pub canvas_background: Option<crate::CanvasBackgroundView>,
+    /// Some for a Canvas.
+    #[serde(default)]
+    #[uniffi(default = None)]
+    pub waypoints: Option<crate::WaypointsView>,
+    /// Fixed at creation. Required (UniFFI cannot default an enum), so it comes last.
+    #[serde(default)]
+    pub kind: crate::NoteKind,
 }
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, uniffi::Record)]
 pub struct SampleChannels {
@@ -232,6 +256,10 @@ pub struct CreateNoteRequest {
     // (see reducer::LegacyPageFormat).
     #[serde(default)]
     pub notebook: Option<String>,
+    /// Note or Canvas. A Note is created with creation tag 3, a Canvas with tag 4. UniFFI cannot
+    /// default an enum, so every constructor names it (serde defaults it to Note for stored JSON).
+    #[serde(default)]
+    pub kind: crate::NoteKind,
 }
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, uniffi::Enum)]
 pub enum MarkMutation {
@@ -299,6 +327,33 @@ pub enum MarkMutation {
         base: Base,
         style: TextStyle,
     },
+    /// Pages (Note only). `after` None = first. Each side 76..15238 units.
+    AddPage {
+        sheet_id: Id,
+        after: Option<Id>,
+        width: f32,
+        height: f32,
+    },
+    ResizePage {
+        sheet_id: Id,
+        base: Base,
+        width: f32,
+        height: f32,
+    },
+    MovePage {
+        sheet_id: Id,
+        base: Base,
+        after: Option<Id>,
+    },
+    /// Refused when it would leave no live page.
+    DeletePage {
+        sheet_id: Id,
+        base: Base,
+    },
+    RestorePage {
+        sheet_id: Id,
+        base: Base,
+    },
 }
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, uniffi::Enum)]
 pub enum CommandBody {
@@ -341,6 +396,29 @@ pub enum CommandBody {
     },
     SetCompanionSettings {
         settings: CompanionSettings,
+        base: Base,
+    },
+    /// A Note's page style: the note-wide one, or with `sheet_id` that page's own override.
+    /// Base: `PageStyleView.head`, or that page's `style_head`. Not undoable.
+    SetPageStyle {
+        sheet_id: Option<Id>,
+        template: crate::PagePattern,
+        paper: Option<crate::Rgba>,
+        pattern_colour: Option<crate::Rgba>,
+        spacing: Option<f32>,
+        base: Base,
+    },
+    /// A Canvas's background. Base: `CanvasBackgroundView.head`. Not undoable.
+    SetCanvasBackground {
+        pattern: crate::PagePattern,
+        pattern_colour: Option<crate::Rgba>,
+        spacing: Option<f32>,
+        paper: Option<crate::Rgba>,
+        base: Base,
+    },
+    /// A Canvas's whole waypoint list. Base: `WaypointsView.head`. Not undoable.
+    SetWaypoints {
+        waypoints: Vec<crate::Waypoint>,
         base: Base,
     },
 }

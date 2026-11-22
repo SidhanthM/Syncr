@@ -241,6 +241,7 @@ fn picture_storage_admission_history_reopen_and_vector() {
         first_sheet_id: new_id(),
         title: "Pictures".into(),
         notebook: None,
+        kind: NoteKind::Note,
     };
     lib.create_note(r.clone()).unwrap();
     let note = lib.open_note(r.note_id.clone()).unwrap();

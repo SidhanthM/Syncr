@@ -1,0 +1,276 @@
+{
+ "version": 1,
+ "note": "page layout (notes and canvases v1, part K5). Note units. Pages are the live pages only. Run by core cargo test, the Android PagesLayoutHostTest and the Mac check.",
+ "vectors": [
+  {
+   "name": "single_stacks_top_to_bottom",
+   "input": {
+    "pages": [
+     {
+      "sheet_id": "a",
+      "width": 1000,
+      "height": 1400
+     },
+     {
+      "sheet_id": "b",
+      "width": 1000,
+      "height": 1400
+     }
+    ],
+    "mode": "single",
+    "gap": 20
+   },
+   "expected": [
+    {
+     "sheet_id": "a",
+     "row": 0,
+     "x": 0,
+     "y": 0,
+     "width": 1000,
+     "height": 1400
+    },
+    {
+     "sheet_id": "b",
+     "row": 1,
+     "x": 0,
+     "y": 1420,
+     "width": 1000,
+     "height": 1400
+    }
+   ]
+  },
+  {
+   "name": "single_rows_centre_against_the_widest",
+   "input": {
+    "pages": [
+     {
+      "sheet_id": "a",
+      "width": 1000,
+      "height": 1400
+     },
+     {
+      "sheet_id": "b",
+      "width": 600,
+      "height": 800
+     },
+     {
+      "sheet_id": "c",
+      "width": 1000,
+      "height": 500
+     }
+    ],
+    "mode": "single",
+    "gap": 20
+   },
+   "expected": [
+    {
+     "sheet_id": "a",
+     "row": 0,
+     "x": 0,
+     "y": 0,
+     "width": 1000,
+     "height": 1400
+    },
+    {
+     "sheet_id": "b",
+     "row": 1,
+     "x": 200,
+     "y": 1420,
+     "width": 600,
+     "height": 800
+    },
+    {
+     "sheet_id": "c",
+     "row": 2,
+     "x": 0,
+     "y": 2240,
+     "width": 1000,
+     "height": 500
+    }
+   ]
+  },
+  {
+   "name": "double_pairs_are_vertically_centred_in_the_row",
+   "input": {
+    "pages": [
+     {
+      "sheet_id": "a",
+      "width": 1000,
+      "height": 1400
+     },
+     {
+      "sheet_id": "b",
+      "width": 1000,
+      "height": 1000
+     },
+     {
+      "sheet_id": "c",
+      "width": 800,
+      "height": 800
+     }
+    ],
+    "mode": "double",
+    "gap": 20
+   },
+   "expected": [
+    {
+     "sheet_id": "a",
+     "row": 0,
+     "x": 0,
+     "y": 0,
+     "width": 1000,
+     "height": 1400
+    },
+    {
+     "sheet_id": "b",
+     "row": 0,
+     "x": 1020,
+     "y": 200,
+     "width": 1000,
+     "height": 1000
+    },
+    {
+     "sheet_id": "c",
+     "row": 1,
+     "x": 610,
+     "y": 1420,
+     "width": 800,
+     "height": 800
+    }
+   ]
+  },
+  {
+   "name": "cover_is_page_one_alone_then_pairs",
+   "input": {
+    "pages": [
+     {
+      "sheet_id": "a",
+      "width": 1000,
+      "height": 1400
+     },
+     {
+      "sheet_id": "b",
+      "width": 1000,
+      "height": 1400
+     },
+     {
+      "sheet_id": "c",
+      "width": 1000,
+      "height": 1400
+     },
+     {
+      "sheet_id": "d",
+      "width": 1000,
+      "height": 1400
+     }
+    ],
+    "mode": "cover",
+    "gap": 20
+   },
+   "expected": [
+    {
+     "sheet_id": "a",
+     "row": 0,
+     "x": 510,
+     "y": 0,
+     "width": 1000,
+     "height": 1400
+    },
+    {
+     "sheet_id": "b",
+     "row": 1,
+     "x": 0,
+     "y": 1420,
+     "width": 1000,
+     "height": 1400
+    },
+    {
+     "sheet_id": "c",
+     "row": 1,
+     "x": 1020,
+     "y": 1420,
+     "width": 1000,
+     "height": 1400
+    },
+    {
+     "sheet_id": "d",
+     "row": 2,
+     "x": 510,
+     "y": 2840,
+     "width": 1000,
+     "height": 1400
+    }
+   ]
+  },
+  {
+   "name": "cover_with_one_page",
+   "input": {
+    "pages": [
+     {
+      "sheet_id": "a",
+      "width": 1000,
+      "height": 1400
+     }
+    ],
+    "mode": "cover",
+    "gap": 20
+   },
+   "expected": [
+    {
+     "sheet_id": "a",
+     "row": 0,
+     "x": 0,
+     "y": 0,
+     "width": 1000,
+     "height": 1400
+    }
+   ]
+  },
+  {
+   "name": "no_pages",
+   "input": {
+    "pages": [],
+    "mode": "double",
+    "gap": 20
+   },
+   "expected": []
+  },
+  {
+   "name": "a4_note_default_gap",
+   "input": {
+    "pages": [
+     {
+      "sheet_id": "a",
+      "width": 1600,
+      "height": 2262.9
+     },
+     {
+      "sheet_id": "b",
+      "width": 1600,
+      "height": 2262.9
+     }
+    ],
+    "mode": "double",
+    "gap": 20.6
+   },
+   "expected": [
+    {
+     "sheet_id": "a",
+     "row": 0,
+     "x": 0,
+     "y": 0,
+     "width": 1600,
+     "height": 2262.9
+    },
+    {
+     "sheet_id": "b",
+     "row": 0,
+     "x": 1620.6,
+     "y": 0,
+     "width": 1600,
+     "height": 2262.9
+    }
+   ]
+  }
+ ]
+}

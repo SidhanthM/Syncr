@@ -29,6 +29,13 @@ pub(crate) const PICTURE_NOTE_VERSION: u32 = 6;
 pub(crate) const IMAGE_NOTE_VERSION: u32 = 7;
 /// v8: strokes with a pen look, a custom OKLCH ink or a stored feel, lazy on the first such stroke.
 pub(crate) const BRUSH_NOTE_VERSION: u32 = 8;
+/// v9: a Canvas, pages, page styles, canvas background or waypoints. Lazy on the first such
+/// commit, except a Canvas, which is created at v9.
+pub(crate) const PAGES_NOTE_VERSION: u32 = 9;
+/// Every marker table of v5..v8, created idempotently: the chain below v9 is marker-checked,
+/// so a lower note gets all of them at once.
+pub(crate) const MARKERS_V8: &str = "CREATE TABLE IF NOT EXISTS companion_format(singleton INTEGER PRIMARY KEY CHECK(singleton=1)); INSERT OR IGNORE INTO companion_format VALUES (1); CREATE TABLE IF NOT EXISTS picture_format(singleton INTEGER PRIMARY KEY CHECK(singleton=1)); INSERT OR IGNORE INTO picture_format VALUES (1); CREATE TABLE IF NOT EXISTS images(image_id TEXT PRIMARY KEY, bytes BLOB NOT NULL); CREATE TABLE IF NOT EXISTS brush_format(singleton INTEGER PRIMARY KEY CHECK(singleton=1)); INSERT OR IGNORE INTO brush_format VALUES (1);";
+pub(crate) const MARKER_V9: &str = "CREATE TABLE IF NOT EXISTS pages_format(singleton INTEGER PRIMARY KEY CHECK(singleton=1)); INSERT OR IGNORE INTO pages_format VALUES (1);";
 /// Copies of notes taken just before their v3 upgrade, inside the library root:
 /// `<root>/.backups/<NOTE_ID>.v<old version>.<unix ms>.syncr`.
 pub(crate) const BACKUP_DIR: &str = ".backups";
@@ -88,7 +95,13 @@ pub(crate) fn open(path: &Path, writable: bool) -> CoreResult<Connection> {
 /// Returns the note schema version. Older versions stay readable read-only;
 /// `open_note` upgrades them (see [upgrade]) before writing.
 pub(crate) fn check_version(db: &Connection) -> CoreResult<u32> {
-    let version = check_version_supported(db, BRUSH_NOTE_VERSION)?;
+    let version = check_version_supported(db, PAGES_NOTE_VERSION)?;
+    if version >= PAGES_NOTE_VERSION {
+        let marked: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='pages_format')", [], |r| r.get(0)).map_err(storage)?;
+        if !marked {
+            return Err(unsupported("Unsupported note schema version"));
+        }
+    }
     if version >= BRUSH_NOTE_VERSION {
         let marked: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='brush_format')", [], |r| r.get(0)).map_err(storage)?;
         if !marked {
@@ -316,8 +329,16 @@ pub(crate) fn initialize(
     record(&tx, &state, author, canonical, request, receipt, now_ms())?;
     tx.pragma_update(None, "application_id", APPLICATION_ID)
         .map_err(storage)?;
-    tx.pragma_update(None, "user_version", NOTE_VERSION)
-        .map_err(storage)?;
+    // A canvas is created at v9; a note keeps v3 until it first needs more.
+    if request.kind == NoteKind::Canvas {
+        tx.execute_batch(MARKERS_V8).map_err(storage)?;
+        tx.execute_batch(MARKER_V9).map_err(storage)?;
+        tx.pragma_update(None, "user_version", PAGES_NOTE_VERSION)
+            .map_err(storage)?;
+    } else {
+        tx.pragma_update(None, "user_version", NOTE_VERSION)
+            .map_err(storage)?;
+    }
     crash_point("create_before_commit");
     tx.commit().map_err(storage)?;
     crash_point("create_after_commit");

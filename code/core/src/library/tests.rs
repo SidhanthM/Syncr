@@ -14,6 +14,7 @@ fn setup() -> (
         first_sheet_id: new_id(),
         title: "Failure fixture".into(),
         notebook: None,
+        kind: NoteKind::Note,
     };
     library.create_note(request.clone()).unwrap();
     let note = library.open_note(request.note_id.clone()).unwrap();
@@ -208,6 +209,7 @@ fn interrupted_index_update_is_recovered_from_published_metadata() {
         first_sheet_id: new_id(),
         title: "Lost creation response".into(),
         notebook: None,
+        kind: NoteKind::Note,
     };
     // Deliberately lose the successful reply while the cache is still unwritable.
     lib.create_note(request.clone()).unwrap();

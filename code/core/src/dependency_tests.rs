@@ -9,6 +9,7 @@ fn history_snapshot_has_exact_sorted_1024_current_heads_without_truncation() {
         first_sheet_id: new_id(),
         title: String::new(),
         notebook: None,
+        kind: NoteKind::Note,
     };
     let author = new_id();
     let mut state = State::new(&request);
@@ -89,7 +90,7 @@ fn history_snapshot_has_exact_sorted_1024_current_heads_without_truncation() {
         stream_id: new_id(),
         sequence: 0,
     };
-    let s = state.snapshot(&author, cursor.clone());
+    let s = state.snapshot(&author, cursor.clone(), 0.0);
     assert_eq!(s.undo_target, Some(action.clone()));
     assert_eq!(s.undo_dependencies.len(), 1024);
     assert_eq!(s.undo_dependencies, expected);
@@ -107,13 +108,13 @@ fn history_snapshot_has_exact_sorted_1024_current_heads_without_truncation() {
             &author,
         )
         .unwrap();
-    let s = state.snapshot(&author, cursor.clone());
+    let s = state.snapshot(&author, cursor.clone(), 0.0);
     assert!(s.strokes.iter().all(|s| s.tombstone));
     assert_eq!(s.undo_target, None);
     assert!(s.undo_dependencies.is_empty());
     assert_eq!(s.redo_target, Some(action));
     assert_eq!(s.redo_dependencies, vec![undo]);
-    let other = state.snapshot(&new_id(), cursor);
+    let other = state.snapshot(&new_id(), cursor, 0.0);
     assert_eq!(other.undo_target, None);
     assert_eq!(other.redo_target, None);
     assert!(other.undo_dependencies.is_empty() && other.redo_dependencies.is_empty());

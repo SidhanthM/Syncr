@@ -1,0 +1,280 @@
+{
+ "version": 1,
+ "note": "canvas companion card placement (notes and canvases v1, part K5). Note units. Cards are placed in the order given. Run by core cargo test, the Android PagesLayoutHostTest and the Mac check.",
+ "vectors": [
+  {
+   "name": "a_card_sits_right_of_its_anchor_level_with_its_top",
+   "input": {
+    "anchors": [
+     {
+      "id": "a1",
+      "x": 100,
+      "y": 200,
+      "width": 300,
+      "height": 50
+     }
+    ],
+    "cards": [
+     {
+      "id": "c1",
+      "anchor_id": "a1",
+      "width": 200,
+      "height": 100
+     }
+    ],
+    "gap": 40
+   },
+   "expected": [
+    {
+     "id": "c1",
+     "x": 440,
+     "y": 200
+    }
+   ]
+  },
+  {
+   "name": "cards_on_one_anchor_stack_with_a_gap",
+   "input": {
+    "anchors": [
+     {
+      "id": "a1",
+      "x": 100,
+      "y": 200,
+      "width": 300,
+      "height": 50
+     }
+    ],
+    "cards": [
+     {
+      "id": "c1",
+      "anchor_id": "a1",
+      "width": 200,
+      "height": 100
+     },
+     {
+      "id": "c2",
+      "anchor_id": "a1",
+      "width": 200,
+      "height": 100
+     }
+    ],
+    "gap": 40
+   },
+   "expected": [
+    {
+     "id": "c1",
+     "x": 440,
+     "y": 200
+    },
+    {
+     "id": "c2",
+     "x": 440,
+     "y": 340
+    }
+   ]
+  },
+  {
+   "name": "a_card_is_pushed_past_every_earlier_card_it_overlaps",
+   "input": {
+    "anchors": [
+     {
+      "id": "a1",
+      "x": 100,
+      "y": 200,
+      "width": 300,
+      "height": 50
+     },
+     {
+      "id": "a2",
+      "x": 100,
+      "y": 250,
+      "width": 300,
+      "height": 50
+     }
+    ],
+    "cards": [
+     {
+      "id": "c1",
+      "anchor_id": "a1",
+      "width": 200,
+      "height": 100
+     },
+     {
+      "id": "c2",
+      "anchor_id": "a1",
+      "width": 200,
+      "height": 100
+     },
+     {
+      "id": "c3",
+      "anchor_id": "a2",
+      "width": 200,
+      "height": 100
+     }
+    ],
+    "gap": 40
+   },
+   "expected": [
+    {
+     "id": "c1",
+     "x": 440,
+     "y": 200
+    },
+    {
+     "id": "c2",
+     "x": 440,
+     "y": 340
+    },
+    {
+     "id": "c3",
+     "x": 440,
+     "y": 480
+    }
+   ]
+  },
+  {
+   "name": "cards_that_do_not_overlap_stay_put",
+   "input": {
+    "anchors": [
+     {
+      "id": "a1",
+      "x": 100,
+      "y": 200,
+      "width": 300,
+      "height": 50
+     },
+     {
+      "id": "a2",
+      "x": 100,
+      "y": 250,
+      "width": 300,
+      "height": 50
+     },
+     {
+      "id": "far",
+      "x": 2000,
+      "y": 200,
+      "width": 300,
+      "height": 50
+     }
+    ],
+    "cards": [
+     {
+      "id": "c1",
+      "anchor_id": "a1",
+      "width": 200,
+      "height": 100
+     },
+     {
+      "id": "c2",
+      "anchor_id": "far",
+      "width": 200,
+      "height": 100
+     }
+    ],
+    "gap": 40
+   },
+   "expected": [
+    {
+     "id": "c1",
+     "x": 440,
+     "y": 200
+    },
+    {
+     "id": "c2",
+     "x": 2340,
+     "y": 200
+    }
+   ]
+  },
+  {
+   "name": "a_card_with_no_anchor_goes_to_the_origin",
+   "input": {
+    "anchors": [
+     {
+      "id": "a1",
+      "x": 100,
+      "y": 200,
+      "width": 300,
+      "height": 50
+     }
+    ],
+    "cards": [
+     {
+      "id": "c1",
+      "anchor_id": "missing",
+      "width": 200,
+      "height": 100
+     },
+     {
+      "id": "c2",
+      "anchor_id": "missing",
+      "width": 200,
+      "height": 100
+     }
+    ],
+    "gap": 40
+   },
+   "expected": [
+    {
+     "id": "c1",
+     "x": 0,
+     "y": 0
+    },
+    {
+     "id": "c2",
+     "x": 0,
+     "y": 140
+    }
+   ]
+  },
+  {
+   "name": "order_given_decides_who_is_pushed",
+   "input": {
+    "anchors": [
+     {
+      "id": "a1",
+      "x": 100,
+      "y": 200,
+      "width": 300,
+      "height": 50
+     },
+     {
+      "id": "a2",
+      "x": 100,
+      "y": 250,
+      "width": 300,
+      "height": 50
+     }
+    ],
+    "cards": [
+     {
+      "id": "c3",
+      "anchor_id": "a2",
+      "width": 200,
+      "height": 100
+     },
+     {
+      "id": "c1",
+      "anchor_id": "a1",
+      "width": 200,
+      "height": 100
+     }
+    ],
+    "gap": 40
+   },
+   "expected": [
+    {
+     "id": "c3",
+     "x": 440,
+     "y": 250
+    },
+    {
+     "id": "c1",
+     "x": 440,
+     "y": 390
+    }
+   ]
+  }
+ ]
+}

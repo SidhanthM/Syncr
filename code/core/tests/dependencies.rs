@@ -18,6 +18,7 @@ fn setup() -> (
         first_sheet_id: new_id(),
         title: "Dependencies".into(),
         notebook: None,
+        kind: NoteKind::Note,
     };
     lib.create_note(request.clone()).unwrap();
     let note = lib.open_note(request.note_id.clone()).unwrap();

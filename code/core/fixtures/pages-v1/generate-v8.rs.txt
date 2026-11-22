@@ -1,0 +1,26 @@
+mod common;
+use common::path;
+use syncr_core::*;
+fn cmd(body: CommandBody, deps: &[&str]) -> Command {
+    Command { operation_id: new_id(), dependencies: deps.iter().map(|s| (*s).into()).collect(), body }
+}
+#[test]
+fn make() {
+    let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/pages-v1");
+    let root = tempfile::tempdir().unwrap();
+    let lib = open_library(path(root.path())).unwrap();
+    let r = CreateNoteRequest { operation_id: "01M76000000000000000000001".into(), note_id: "01M76000000000000000000002".into(), first_sheet_id: "01M76000000000000000000003".into(), title: "Legacy v8".into(), notebook: None };
+    lib.create_note(r.clone()).unwrap();
+    let note = lib.open_note(r.note_id.clone()).unwrap();
+    let ch = |ys: [f32; 3]| SampleChannels { x: vec![100.0, 400.0, 800.0], y: ys.to_vec(), pressure: vec![0.5; 3], elapsed_ms: vec![0, 10, 20], tilt: None, orientation: None };
+    let mut brush = Brush::plain(BrushFamily::Pen, BrushSize::Medium, InkColour::Ink);
+    brush.look = Some(PenLook::Ballpoint);
+    for (id, ys) in [("01M76000000000000000000004", [200.0, 260.0, 300.0]), ("01M76000000000000000000005", [3400.0, 3500.0, 3600.0])] {
+        note.submit(cmd(CommandBody::Marks { mutations: vec![MarkMutation::AddStroke { mark_id: id.into(), sheet_id: r.first_sheet_id.clone(), samples: encode_samples(ch(ys)).unwrap(), brush: brush.clone() }] }, &[&r.operation_id])).unwrap();
+    }
+    note.submit(cmd(CommandBody::Marks { mutations: vec![MarkMutation::AddText { mark_id: "01M76000000000000000000006".into(), sheet_id: r.first_sheet_id.clone(), role: TextRole::Free, origin_x: 300.0, origin_y: 500.0, width: 900.0, text: "Legacy text".into(), style: TextStyle { size: BrushSize::Medium, colour: InkColour::Ink } }] }, &[&r.operation_id])).unwrap();
+    note.close_note().unwrap();
+    drop(note);
+    drop(lib);
+    std::fs::copy(root.path().join("01M76000000000000000000002.syncr"), out.join("legacy-v8.syncr")).unwrap();
+}
