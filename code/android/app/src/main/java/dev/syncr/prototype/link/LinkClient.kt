@@ -67,6 +67,8 @@ class ClientConfig(
     val linkVersion: Int = Control.VERSION,
     /** False keeps every preview frame on the connection alone (tests of the single path). */
     val datagrams: Boolean = true,
+    /** Disk reads and writes of note transfers (tests slow them down). */
+    val disk: BulkDisk = BulkDisk.REAL,
 )
 
 /**
@@ -122,6 +124,8 @@ class LinkClient(
     private var thread: Thread? = null
     private val inbox = ConcurrentLinkedQueue<Runnable>()
     private val helpers = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "syncr-link-io").apply { isDaemon = true } }
+    /** Note transfers' disk reads, writes and hashing: never on the link thread, where they would hold up pen frames. */
+    private val files = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "syncr-link-files").apply { isDaemon = true } }
     private val chosen = AtomicReference<Endpoint?>()
     private val backoff = Backoff()
 
@@ -184,6 +188,7 @@ class LinkClient(
         } else closeSocket()
         wake.run()
         helpers.shutdown()
+        files.shutdown()
         if (wait) thread?.join(2_000)
     }
 
@@ -345,7 +350,7 @@ class LinkClient(
         val scheduler = SendScheduler(cfg.out, pump)
         scheduler.wake = wake
         pump.reset()
-        val sync = SyncSender(cfg.source, scheduler, this, cfg.clock, cfg.tempDir, cfg.log, listener::onDelivered, listener::onWanted)
+        val sync = SyncSender(cfg.source, scheduler, this, cfg.clock, cfg.tempDir, cfg.log, listener::onDelivered, listener::onWanted, disk = cfg.disk, files = files)
         val events = object : SessionEvents {
             override fun status(status: SessionStatus) {
                 if (status.phase == Phase.CONNECTED && !welcomed) {
@@ -370,7 +375,7 @@ class LinkClient(
         val output = try { s.getOutputStream() } catch (e: IOException) { closeSocket(); return false }
         val id = ++connId
         connectedAt = cfg.clock.nowMs()
-        val reader = Thread({ readLoop(s, sess, id) }, "syncr-link-reader").apply { isDaemon = true }
+        val reader = Thread({ readLoop(s, sess, id, sync.receiver) }, "syncr-link-reader").apply { isDaemon = true }
 
         var loggedStrokes = pump.strokesEnded
         var padSentOn = false
@@ -435,7 +440,7 @@ class LinkClient(
         return welcomed
     }
 
-    private fun readLoop(s: Socket, sess: LinkSession, id: Int) {
+    private fun readLoop(s: Socket, sess: LinkSession, id: Int, files: SyncReceiver) {
         try {
             val input = s.getInputStream()
             while (!s.isClosed) {
@@ -443,6 +448,8 @@ class LinkClient(
                 lastInbound = cfg.clock.nowMs()
                 if (Wire.kind(message) == Wire.KIND_FILE) {
                     post { if (id == connId) sess.onFileChunk(message) }
+                    // The disk is behind: stop reading until it catches up, so a big note never piles up in memory.
+                    while (files.backlog.get() > SyncReceiver.MAX_BACKLOG && !s.isClosed && running) LockSupport.parkNanos(2_000_000L)
                     continue
                 }
                 if (Wire.kind(message) == Wire.KIND_PICTURE) {
@@ -485,4 +492,15 @@ class LinkClient(
             }
         }
     }
+}
+
+/** What the link asks of the socket so a pen frame never queues behind much of a note copy (remaining-v1 L.5). */
+object LinkTuning {
+    /**
+     * TCP_NOTSENT_LOWAT, set on Android: a write waits while the kernel holds this much unsent, so a note copy keeps at most
+     * about this much queued ahead of the next pen frame, however large the send buffer. Bytes in flight are not limited.
+     */
+    const val NOTSENT_LOWAT = 16 * 1024
+    /** The most the kernel then holds unsent ahead of a new write: the mark, plus one chunk written just under it. */
+    const val UNSENT_BYTES = NOTSENT_LOWAT + SendScheduler.CHUNK_BYTES + Wire.FILE_HEADER
 }

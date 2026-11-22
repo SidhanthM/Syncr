@@ -10,7 +10,9 @@ import java.security.MessageDigest
  * - `notes` from the Mac: ask (`want`) for every note the phone lacks or holds a different operation set of, unless it is in
  *   the phone's Recently deleted.
  * - `file`, chunks, `file_end`: one transfer at a time, to a temp file; size and SHA-256 are checked; then the core installs,
- *   merges or rebases (off the link thread) and the phone answers `have` with its own digest.
+ *   merges or rebases (off the link thread) and the phone answers `have` with its own digest. Chunks are written and hashed
+ *   on [files] (remaining-v1 L.5): the link thread only checks their order and size, so a slow disk never holds up a pen
+ *   frame; [backlog] counts the bytes still to write, and the reader stops reading while it is over [MAX_BACKLOG].
  * - `have` from the Mac: if its digest differs from the phone's, ask for the note.
  * - The same note and operation set is not fetched more than [LIMIT] times a minute; a held-back request is retried when
  *   the minute has passed.
@@ -24,11 +26,25 @@ class SyncReceiver(
     private val log: (String) -> Unit = {},
     /** Told when a Mac copy was put into the library, with what happened. */
     private val onApplied: (id: String, outcome: CopyOutcome) -> Unit = { _, _ -> },
+    private val disk: BulkDisk = BulkDisk.REAL,
+    /** Where chunks are written and hashed; null writes them on the link thread (tests). */
+    private val files: java.util.concurrent.Executor? = null,
 ) {
     private class Inbound(val offer: Control.File, val file: File, val out: FileOutputStream) {
+        /** The files thread's. */
         val hash: MessageDigest = MessageDigest.getInstance("SHA-256")
+        @Volatile var failed = false
         var received = 0L
         var next = 0L
+    }
+
+    /** Bytes of chunks handed to [files] and not yet written. */
+    val backlog = java.util.concurrent.atomic.AtomicLong()
+
+    /** Runs [block] on [files], in order, or right here without it. */
+    private fun onFiles(block: () -> Unit) {
+        val f = files ?: return block()
+        try { f.execute(block) } catch (_: java.util.concurrent.RejectedExecutionException) { } // the client has stopped
     }
 
     private var active = false
@@ -151,18 +167,45 @@ class SyncReceiver(
         val chunk = try { Wire.parseFileChunk(message) } catch (e: LinkProtocolException) { return fail(t, "chunk") }
         if (chunk.transfer != t.offer.xfer) return // a late chunk of an abandoned transfer
         if (chunk.index != t.next || chunk.index >= t.offer.chunks || t.received + chunk.data.size > t.offer.size) return fail(t, "chunk")
-        try { t.out.write(chunk.data) } catch (e: java.io.IOException) { return fail(t, "write") }
-        t.hash.update(chunk.data)
+        if (t.failed) return fail(t, "write")
         t.received += chunk.data.size
         t.next++
+        val data = chunk.data
+        backlog.addAndGet(data.size.toLong())
+        onFiles {
+            try {
+                if (!t.failed) { disk.write(t.out, data); t.hash.update(data) }
+            } catch (e: java.io.IOException) {
+                t.failed = true
+            } finally {
+                backlog.addAndGet(-data.size.toLong())
+            }
+        }
     }
 
     fun onFileEnd(xfer: Long) {
         val t = inbound?.takeIf { it.offer.xfer == xfer } ?: return
         inbound = null
-        try { t.out.close() } catch (_: java.io.IOException) { }
         if (t.next != t.offer.chunks || t.received != t.offer.size) { discard(t); return refuse(t.offer, "size") }
-        if (t.hash.digest().joinToString("") { "%02x".format(it) } != t.offer.sha256) { discard(t); return refuse(t.offer, "hash") }
+        val mine = generation
+        applying = true
+        // After every chunk of it is written: the files thread runs in order.
+        onFiles {
+            try { t.out.close() } catch (_: java.io.IOException) { }
+            val sha = if (t.failed) null else t.hash.digest().joinToString("") { "%02x".format(it) }
+            loop.post {
+                if (mine != generation) { t.file.delete(); return@post }
+                applying = false
+                when {
+                    sha == null -> { discard(t); refuse(t.offer, "write") }
+                    sha != t.offer.sha256 -> { discard(t); refuse(t.offer, "hash") }
+                    else -> apply(t)
+                }
+            }
+        }
+    }
+
+    private fun apply(t: Inbound) {
         applying = true
         val mine = generation
         val id = t.offer.id
@@ -218,15 +261,21 @@ class SyncReceiver(
         scheduler.sendControl(Control.FileError(offer.xfer, offer.id, reason))
     }
 
+    /** Closes and deletes the staged file, after any write of it still queued. */
     private fun discard(t: Inbound) {
-        try { t.out.close() } catch (_: java.io.IOException) { }
-        t.file.delete()
+        t.failed = true
+        onFiles {
+            try { t.out.close() } catch (_: java.io.IOException) { }
+            t.file.delete()
+        }
     }
 
     val busy get() = inbound != null || applying
 
     companion object {
         const val LIMIT = 3
+        /** Chunks the disk may be behind before the reader stops reading (and TCP tells the Mac to slow down). */
+        const val MAX_BACKLOG = 4L * 1024 * 1024
         const val WINDOW_MS = 60_000L
     }
 }

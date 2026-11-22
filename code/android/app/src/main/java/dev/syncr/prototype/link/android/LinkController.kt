@@ -307,7 +307,7 @@ class LinkController private constructor(private val app: Application) {
         }
         val config = ClientConfig(
             device = deviceName(), store = store, source = source, clock = Clock.SYSTEM, tempDir = dir, out = out, feed = feed,
-            encodeSamples = ::encodeSamples, log = { Log.i(TAG, it) }, ids = ids, latencyContext = ::radioContext,
+            encodeSamples = ::encodeSamples, log = { Log.i(TAG, it) }, ids = ids, latencyContext = ::radioContext, transport = TunedTcp,
         )
         lateinit var self: LinkClient
         val listener = object : ClientListener {

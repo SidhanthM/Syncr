@@ -45,7 +45,7 @@ grep -q "link: listening port=$PORT" "$S/mac.log" || { cat "$S/mac.log"; echo "F
 pass "mac-start: listening on 127.0.0.1-reachable port $PORT, control file ready"
 
 echo "== phone scenarios"
-(cd "$ANDROID" && ./gradlew -q --console=plain :app:linkProbe \
+(cd "$ANDROID" && ./gradlew -q --console=plain :app:linkProbe -PsyncrNativeHost=true \
   --args="127.0.0.1:$PORT --join --mac-log $S/mac.log --mac-control $S/control --mac-library $S/maclib") >"$S/probe.log" 2>&1
 probe_status=$?
 grep -E "^JOIN " "$S/probe.log"
