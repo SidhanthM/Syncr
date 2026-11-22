@@ -1,0 +1,43 @@
+{
+ "about": "Recorded answers from the 2026-11-16 Codex baseline run (gpt-6.1-sol answer, gpt-6-luna gate). Text and first-token/gate times are as recorded; chunking and pace after the first token are synthetic (charsPerSecond, chunkChars).",
+ "charsPerSecond": 200,
+ "chunkChars": 6,
+ "scenarios": [
+  {
+   "name": "ask-text",
+   "source": "e05",
+   "kind": "ask",
+   "markdown": "Retry design\n\nA timeout proves the payment was not committed, so it is safe to retry with a new request ID.\n\nThe server commits before returning its HTTP response.",
+   "passage": "A timeout proves the payment was not committed, so it is safe to retry with a new request ID.",
+   "tell": "Challenge concrete contradictions with a question.",
+   "response": "{\"type\":\"margin\",\"quote\":\"A timeout proves the payment was not committed, so it is safe to retry with a new request ID.\",\"kind\":\"question\",\"text\":\"If the server commits but its HTTP response is lost, what prevents a retry with a new request ID from charging the customer twice?\"}\n",
+   "firstTokenSeconds": 2.086,
+   "gateText": "{\"decision\":\"speak\",\"reason\":\"If the server commits before its response is lost, how does a timeout prove the payment was not committed?\",\"kind\":\"question\"}\n",
+   "gateSeconds": 1.881
+  },
+  {
+   "name": "ask-picture",
+   "source": "e08",
+   "kind": "ask",
+   "markdown": "Read path\n\nI lose the order between browser, API and database during a read. I need a three-actor sequence diagram for one successful request.\n\nIgnore caching for this first version.",
+   "passage": "I lose the order between browser, API and database during a read. I need a three-actor sequence diagram for one successful request.",
+   "tell": "Show message order as a small sequence picture.",
+   "response": "{\"type\":\"margin\",\"quote\":\"I lose the order between browser, API and database during a read. I need a three-actor sequence diagram for one successful request.\",\"kind\":\"explanation\",\"text\":\"For this uncached success path, the API waits for the database result before returning the response to the browser.\"}\n{\"type\":\"picture\",\"quote\":\"I lose the order between browser, API and database during a read. I need a three-actor sequence diagram for one successful request.\",\"title\":\"One successful read\"}\n<svg viewBox=\"0 0 320 300\" fill=\"none\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n<defs><marker id=\"tip\" markerWidth=\"6\" markerHeight=\"6\" refX=\"5\" refY=\"3\" orient=\"auto\"><path d=\"M 0 0 L 5 3 L 0 6\" stroke=\"var(--ink)\" stroke-width=\"1.0\"/></marker></defs>\n<text x=\"18\" y=\"24\" fill=\"var(--ink)\" font-family=\"var(--font-sans)\" font-size=\"16\">One successful read</text>\n<g data-step=\"1\" data-caption=\"Three actors; time runs downward.\">\n<text x=\"20\" y=\"57\" fill=\"var(--ink)\" font-family=\"var(--font-sans)\" font-size=\"12\">Browser</text>\n<text x=\"148\" y=\"57\" fill=\"var(--ink)\" font-family=\"var(--font-sans)\" font-size=\"12\">API</text>\n<text x=\"246\" y=\"57\" fill=\"var(--ink)\" font-family=\"var(--font-sans)\" font-size=\"12\">Database</text>\n<path d=\"M 44 68 L 44 253 M 158 68 L 158 253 M 272 68 L 272 253\" stroke=\"var(--hairline)\" stroke-width=\"1.0\"/>\n<text x=\"18\" y=\"282\" fill=\"var(--muted)\" font-family=\"var(--font-sans)\" font-size=\"10\">Time flows down; arrows are messages.</text>\n</g>\n<g data-step=\"2\" data-caption=\"Browser sends the read request to the API.\">\n<text x=\"57\" y=\"87\" fill=\"var(--ink)\" font-family=\"var(--font-sans)\" font-size=\"11\">1. Read request</text>\n<line x1=\"44\" y1=\"98\" x2=\"158\" y2=\"98\" stroke=\"var(--ink)\" stroke-width=\"1.5\" marker-end=\"url(#tip)\"/>\n</g>\n<g data-step=\"3\" data-caption=\"API queries the database.\">\n<text x=\"169\" y=\"130\" fill=\"var(--ink)\" font-family=\"var(--font-sans)\" font-size=\"11\">2. Query</text>\n<line x1=\"158\" y1=\"141\" x2=\"272\" y2=\"141\" stroke=\"var(--ink)\" stroke-width=\"1.5\" marker-end=\"url(#tip)\"/>\n</g>\n<g data-step=\"4\" data-caption=\"Database returns the result to the API.\">\n<text x=\"169\" y=\"173\" fill=\"var(--ink)\" font-family=\"var(--font-sans)\" font-size=\"11\">3. Result</text>\n<line x1=\"272\" y1=\"184\" x2=\"158\" y2=\"184\" stroke=\"var(--ink)\" stroke-width=\"1.5\" marker-end=\"url(#tip)\"/>\n</g>\n<g data-step=\"5\" data-caption=\"API returns a successful response to the browser.\">\n<text x=\"57\" y=\"216\" fill=\"var(--ink)\" font-family=\"var(--font-sans)\" font-size=\"11\">4. 200 + data</text>\n<line x1=\"158\" y1=\"227\" x2=\"44\" y2=\"227\" stroke=\"var(--ink)\" stroke-width=\"1.5\" marker-end=\"url(#tip)\"/>\n</g>\n</svg>\n{\"type\":\"margin\",\"quote\":\"Ignore caching for this first version.\",\"kind\":\"explanation\",\"text\":\"Three vertical lifelines show Browser, API, and Database; four numbered arrows show request, query, result, and response in descending order. No cache or failure branch is drawn.\"}\n",
+   "firstTokenSeconds": 2.198,
+   "gateText": "{\"decision\":\"speak\",\"reason\":\"A three-actor sequence diagram can clarify the request order.\",\"kind\":\"picture\"}\n",
+   "gateSeconds": 4.261
+  },
+  {
+   "name": "read-text",
+   "source": "e05",
+   "kind": "read",
+   "markdown": "Retry design\n\nA timeout proves the payment was not committed, so it is safe to retry with a new request ID.\n\nThe server commits before returning its HTTP response.",
+   "passage": "A timeout proves the payment was not committed, so it is safe to retry with a new request ID.",
+   "tell": "Challenge concrete contradictions with a question.",
+   "response": "{\"type\":\"margin\",\"quote\":\"A timeout proves the payment was not committed, so it is safe to retry with a new request ID.\",\"kind\":\"question\",\"text\":\"If the server commits but its HTTP response is lost, what prevents a retry with a new request ID from charging the customer twice?\"}\n",
+   "firstTokenSeconds": 2.086,
+   "gateText": "{\"decision\":\"speak\",\"reason\":\"If the server commits before its response is lost, how does a timeout prove the payment was not committed?\",\"kind\":\"question\"}\n",
+   "gateSeconds": 1.881
+  }
+ ]
+}

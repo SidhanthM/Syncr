@@ -102,6 +102,12 @@ Caption length also fails at >20 words or >160 characters. Geometric/keyword tru
 
 One repair maximum per picture sends the SVG and findings back. If still failing, accept **only <=2 minor label/label overlaps**, each <=8% of the smaller box's area. Any line overlap, bounds/semantic/crowding/filter/repair failure is major: remove the preview, emit a words-only fallback. A failed repair provider also falls back. Final checked SVG replaces provisional steps. Read-along still emits at most one margin: if prose already exists, a failed picture carries its words-only warning in `.pictureReplace` findings (`rule: "fallback"`) instead of adding a second note. Hosts should show that warning beside the existing prose. No core storage occurs here.
 
+## Speed
+
+`SYNCR_COMPANION_TRACE=<file>` makes the engine append one line per pass with the time of each stage from ask to first text and first picture step (see API-CHANGES, "Speed round"). It records numbers only.
+
+`swift run SyncrCompanionReplay [--runs N] [--gaps 0,2] [--pi-cold S] [--pi-session S] [--provider-scale X] [--only ask-text|ask-picture|read-text] [--json out.json]` runs the real engine and the real pi transport against a fake `pi` that replays recorded answers (`Sources/SyncrCompanionReplay/Fixtures`). Provider time is recorded, so it can be subtracted: `engine = total - provider`. With the default `--provider-scale 0` the provider answers at once and the total is the engine's own time, including a modelled pi start-up (`--pi-cold`, `--pi-session`, measured from the real `pi` with no model call). Conditions: `cold` (first ask), `warm` (second ask), `after-cancel` (typing cancelled a pass); `--gaps` is the pause between typing and asking. Chunking and pace after the first token are synthetic; first-token and gate times and the answer text are recorded.
+
 ## Judgment
 
 `Judgment/{student,engineering,journal}.json` contains 24 authored plausible excerpts: 12 quiet, 4 ask, 4 explain, 4 draw, with exact ground-truth passage and Tell. The owner must add the real-use half later; no private library was accessed.
