@@ -16,9 +16,9 @@ usage() {
     '  emulator           Start the existing Medium_Phone_API_37.0 AVD (Ctrl+C to stop)' \
     '  pair HOST:PORT     Pair Wireless debugging using the phone pairing port/code' \
     '  connect HOST:PORT  Connect using the phone debugging port (NOT pairing port)' \
-    '  build              Build the debug APK' \
+    '  build              Rebuild the core, then build the debug APK' \
     '  test               Run Android unit tests' \
-    '  app_update         Build, install and open the app on the selected device' \
+    '  app_update         Rebuild the core, build, install and open the app on the selected device' \
     '  launch             Open the already-installed app' \
     '  logcat             Stream SyncrHid status and Android crashes (Ctrl+C to stop)' \
     '  logcat_errors      Stream device-wide errors/crashes (Ctrl+C to stop)' \
@@ -29,6 +29,13 @@ usage() {
 }
 
 fail() { printf 'syncr: %s\n' "$*" >&2; exit 1; }
+# The APK packs the core's .so as-is: rebuild it first, or a core API change ships a stale library that
+# crashes at launch (UniFFI UnsatisfiedLinkError). Cargo is incremental, so an unchanged core is quick.
+build_core() {
+  printf 'Building the core for the phone…\n'
+  ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-${ANDROID_HOME:-$HOME/Library/Android/sdk}/ndk/28.2.13676358}" \
+    "$ROOT/code/core/scripts/build-android.sh" arm64-v8a
+}
 need_adb() { command -v adb >/dev/null 2>&1 || fail 'adb not found; install Android SDK Platform-Tools or add it to PATH.'; }
 
 # Refuse to pick an arbitrary phone, especially when USB and Wi-Fi both show up.
@@ -67,12 +74,14 @@ case "$command" in
     ;;
   build|test)
     [[ $# -eq 0 ]] || fail "$command takes no arguments"
+    if [[ "$command" == build ]]; then build_core; fi
     (cd "$ANDROID" && ./gradlew ":app:$([[ "$command" == build ]] && printf assembleDebug || printf testDebugUnitTest)" --console=plain)
     if [[ "$command" == build ]]; then printf 'APK: %s\n' "$APK"; fi
     ;;
   app_update)
     [[ $# -eq 0 ]] || fail 'app_update takes no arguments'
     select_device
+    build_core
     (cd "$ANDROID" && ./gradlew :app:assembleDebug --console=plain)
     printf '\nInstalling on %s…\n' "$SERIAL"
     adb -s "$SERIAL" install -r "$APK"

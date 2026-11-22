@@ -33,7 +33,7 @@ linker="$bin/aarch64-linux-android26-clang"
 export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$linker"
 export CC_aarch64_linux_android="$linker"
 export AR_aarch64_linux_android="$bin/llvm-ar"
-# The default language set (python, c, cpp, c#, java) is built; see Cargo.toml features.
+# The default language set (python, c, cpp, java) is built; see Cargo.toml features.
 cargo build --locked --release --lib --target aarch64-linux-android
 mkdir -p generated
 stage="$(mktemp -d "$PWD/generated/.android-XXXXXX")"
