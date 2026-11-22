@@ -47,7 +47,8 @@ class PenHeadsUiTest {
                         onPenLook = { prefs = prefs.copy(penLook = it) },
                         recentInks = prefs.recentInks,
                         onOpenPicker = { opened = prefs.penLook })
-                    PenHead(Head.FOUNTAIN, height = 80.dp, freeze = .42f)
+                    PenHead(Head.FOUNTAIN, size = 80.dp, freeze = .42f)
+                    PenAction(PenArtData.UNDO, Syncr.colors.ink, size = 52.dp)
                 }
             }
         }

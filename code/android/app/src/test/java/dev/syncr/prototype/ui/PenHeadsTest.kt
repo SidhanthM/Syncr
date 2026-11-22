@@ -5,52 +5,66 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PenHeadsTest {
-    private val all = listOf(PenArtData.FOUNTAIN, PenArtData.BALLPOINT, PenArtData.FINELINER, PenArtData.HIGHLIGHTER,
+    private val tools = listOf(PenArtData.FOUNTAIN, PenArtData.BALLPOINT, PenArtData.FINELINER, PenArtData.HIGHLIGHTER,
         PenArtData.ERASER, PenArtData.LASSO, PenArtData.CARET)
+    private val all = tools + listOf(PenArtData.UNDO, PenArtData.REDO, PenArtData.FIT, PenArtData.MORE, PenArtData.GRIP)
 
-    @Test fun everyCurveIsAStartPointThenWholeCubics() {
+    @Test fun everyStrandIsWholeTriplesWithALengthAndSaneHalfWidths() {
         all.forEach { art ->
-            assertTrue(art.name, art.strokes.isNotEmpty())
-            art.strokes.forEach { s -> assertEquals("${art.name} curve", 0, (s.curve.size - 2) % 6); assertTrue(s.length > 0.5f); assertTrue(s.width in 1f..2.5f) }
+            assertTrue(art.name, art.strands.isNotEmpty())
+            art.strands.forEach { s ->
+                assertEquals("${art.name} triples", 0, s.xyh.size % 3)
+                assertTrue("${art.name} points", s.count >= 4)
+                assertTrue("${art.name} length ${s.length}", s.length > 0.5f)
+                for (i in 0 until s.count) assertTrue("${art.name} half-width ${s.xyh[i * 3 + 2]}", s.xyh[i * 3 + 2] in 0.015f..0.6f)
+            }
         }
     }
 
-    @Test fun everythingStaysOnTheSheet() {
-        all.forEach { art -> art.strokes.map { it.curve }.forEach { c ->
-            c.forEachIndexed { i, v -> assertTrue("${art.name} $v", v in -0.5f..(if (i % 2 == 0) PenArtData.WIDTH else PenArtData.HEIGHT) + 0.5f) } } }
+    @Test fun theSheetIsSquare() { assertEquals(PenArtData.WIDTH, PenArtData.HEIGHT, 0f) }
+
+    @Test fun everyOutlinePointLiesOnTheSheet() {
+        all.forEach { art -> art.strands.forEach { s ->
+            val o = PenOutline(s)
+            (o.left + o.right).forEach { v -> assertTrue("${art.name} $v", v in 0f..PenArtData.WIDTH) }
+        } }
     }
 
-    @Test fun strokesAreOneConstantWeightLikeTheLineIcons() {
-        all.forEach { art -> art.strokes.forEach { assertEquals(art.name, 2f, it.width, 0f) } }
+    @Test fun theDecodedDataMatchesWhatTheGeneratorWrote() {
+        all.forEach { art ->
+            assertEquals("${art.name} point count", art.points, art.strands.sumOf { it.count })
+            assertEquals("${art.name} checksum", art.checksum.toLong(), PenArtCodec.checksum(art))
+        }
     }
 
-    /** The visual bounding box (stroke half-width included) of a head, sampled along its cubics. */
+    /** The visible bounds of a glyph: its filled outlines. */
     private fun bounds(art: PenArt): FloatArray {
         var x0 = Float.MAX_VALUE; var y0 = Float.MAX_VALUE; var x1 = -Float.MAX_VALUE; var y1 = -Float.MAX_VALUE
-        art.strokes.forEach { s ->
-            val c = s.curve
-            var px = c[0]; var py = c[1]
-            var i = 2
-            while (i + 5 < c.size) {
-                for (k in 0..32) {
-                    val t = k / 32f; val u = 1 - t
-                    val x = u * u * u * px + 3 * u * u * t * c[i] + 3 * u * t * t * c[i + 2] + t * t * t * c[i + 4]
-                    val y = u * u * u * py + 3 * u * u * t * c[i + 1] + 3 * u * t * t * c[i + 3] + t * t * t * c[i + 5]
-                    x0 = minOf(x0, x - s.width / 2); x1 = maxOf(x1, x + s.width / 2); y0 = minOf(y0, y - s.width / 2); y1 = maxOf(y1, y + s.width / 2)
-                }
-                px = c[i + 4]; py = c[i + 5]; i += 6
+        art.strands.forEach { s ->
+            val o = PenOutline(s)
+            for (e in listOf(o.left, o.right)) for (i in 0 until o.count) {
+                x0 = minOf(x0, e[i * 2]); x1 = maxOf(x1, e[i * 2]); y0 = minOf(y0, e[i * 2 + 1]); y1 = maxOf(y1, e[i * 2 + 1])
             }
         }
         return floatArrayOf(x0, y0, x1, y1)
     }
 
-    @Test fun everyHeadIsCentredByItsVisualBounds() {
-        all.forEach { art ->
+    @Test fun everyToolIsCentredByItsVisibleBounds() {
+        tools.forEach { art ->
             val b = bounds(art)
-            assertEquals("${art.name} horizontal centre", PenArtData.WIDTH / 2, (b[0] + b[2]) / 2, 0.5f)
-            assertEquals("${art.name} vertical centre", PenArtData.HEIGHT / 2, (b[1] + b[3]) / 2, 0.5f)
-            assertTrue("${art.name} fits the 20 x 44 live area", b[2] - b[0] <= 24f && b[3] - b[1] <= 44f)
+            assertEquals("${art.name} horizontal centre", PenArtData.WIDTH / 2, (b[0] + b[2]) / 2, 0.25f)
+            assertEquals("${art.name} vertical centre", PenArtData.HEIGHT / 2, (b[1] + b[3]) / 2, 0.25f)
         }
+    }
+
+    @Test fun aPartialStrandIsAPrefixOfItsPoints() {
+        val o = PenOutline(PenArtData.FOUNTAIN.strands.first())
+        val whole = o.polygon(1f)
+        assertEquals(o.count * 4, whole.size)
+        val half = o.polygon(0.5f)
+        // The left edge of the half is the start of the whole's left edge, and it closes back along the right.
+        for (i in 0 until (o.count / 2 - 1) * 2) assertEquals(o.left[i], half[i], 0f)
+        assertTrue(half.size < whole.size && half.size >= 8)
     }
 
     @Test fun theSamplesReadTheSizeAndTaper() {
@@ -67,7 +81,7 @@ class PenHeadsTest {
         assertEquals("green", dev.syncr.core.Oklch(0.6f, 0.15f, 140f).inkName())
     }
 
-    @Test fun theDrawOnGoesStrokeByStrokeAndEndsComplete() {
+    @Test fun theDrawOnGoesStrandByStrandAndEndsComplete() {
         val art = PenArtData.FOUNTAIN
         assertTrue(PenDrawOn.strokeFractions(art, 0f).all { it == 0f })
         assertTrue(PenDrawOn.strokeFractions(art, 1f).all { it == 1f })
@@ -76,7 +90,7 @@ class PenHeadsTest {
             val f = PenDrawOn.strokeFractions(art, p / 20f)
             val sum = f.sum()
             assertTrue("never goes backwards", sum >= before); before = sum
-            // A stroke only starts once the one before it is done.
+            // A strand only starts once the one before it is done.
             for (i in 1 until f.size) if (f[i] > 0f) assertEquals(1f, f[i - 1], 0.0001f)
         }
     }

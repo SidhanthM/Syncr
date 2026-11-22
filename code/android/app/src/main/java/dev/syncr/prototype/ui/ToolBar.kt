@@ -85,12 +85,12 @@ fun ToolGlyph(brush: Brush, eraser: Boolean, lasso: Boolean, typing: Boolean = f
         brush.family == BrushFamily.HIGHLIGHTER -> Head.HIGHLIGHTER
         else -> Head.valueOf((brush.look ?: PenLook.FOUNTAIN).name)
     }
-    PenHead(head, height = 28.dp)
+    PenHead(head, size = 34.dp)
 }
 
 /** The tablet's current head uses the same art as the note chooser. */
 @Composable
-fun PenGlyph(head: Head = Head.FOUNTAIN) = PenHead(head, height = 28.dp)
+fun PenGlyph(head: Head = Head.FOUNTAIN) = PenHead(head, size = 34.dp)
 
 /**
  * One bar button (design `.tb-btn`): 48dp target, and when selected the soft accent fill with an accent ring
@@ -119,7 +119,7 @@ private fun BarItem(icon: ImageVector?, description: String, modifier: Modifier,
             onLongClick = onLongClick, onClick = onClick)
         .semantics { contentDescription = description; if (selected) stateDescription = "Selected" },
         contentAlignment = Alignment.Center) {
-        if (head != null) PenHead(head, height = 32.dp, line = if (enabled) c.ink else c.faint,
+        if (head != null) PenHead(head, size = 32.dp, line = if (enabled) c.ink else c.faint,
             playKey = if (selected) true else null, freeze = if (selected) StippleDebug.freeze else null)
         else if (icon != null) SyncrIcon(icon, if (enabled) c.ink else c.faint, size = 22.dp)
     }
@@ -177,7 +177,7 @@ fun BubbleBarScope.BubbleHead(head: Head, index: Int, count: Int, selected: Bool
         .selectable(selected, role = Role.RadioButton, onClick = onClick)
         .semantics { contentDescription = head.spoken },
         contentAlignment = Alignment.Center) {
-        PenHead(head, height = 30.dp, playKey = if (selected) true else null, freeze = if (selected) StippleDebug.freeze else null)
+        PenHead(head, size = 36.dp, playKey = if (selected) true else null, freeze = if (selected) StippleDebug.freeze else null)
     }
 }
 
@@ -341,7 +341,7 @@ private fun HeadCell(head: Head, selected: Boolean, onLongPress: () -> Unit, onC
         .combinedClickable(role = Role.RadioButton, onLongClickLabel = "Choose any ink", onLongClick = onLongPress, onClick = onClick)
         .semantics { contentDescription = if (selected) "${head.spoken}, selected" else head.spoken },
         contentAlignment = Alignment.Center) {
-        PenHead(head, height = 36.dp, playKey = if (selected) true else null, freeze = if (selected) StippleDebug.freeze else null)
+        PenHead(head, size = 42.dp, playKey = if (selected) true else null, freeze = if (selected) StippleDebug.freeze else null)
     }
 }
 

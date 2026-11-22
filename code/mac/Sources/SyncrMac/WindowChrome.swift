@@ -120,7 +120,7 @@ private final class PhonePill: NSView {
     var onClick: (() -> Void)?
     private let dot = ThemedView()
     private let label = NSTextField(labelWithString: "")
-    private let pen = PenGlyphView(height: 14)
+    private let pen = PenGlyphView(height: 16)
     override var isFlipped: Bool { true }
 
     override init(frame: NSRect) {
